@@ -1,5 +1,5 @@
 from .meta import ExtensionMeta
-from ...router import Route
+from ..application import Route
 import functools
 
 class Extension(metaclass=ExtensionMeta):

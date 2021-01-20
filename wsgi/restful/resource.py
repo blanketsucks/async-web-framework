@@ -1,5 +1,5 @@
 from .meta import ResourceMeta
-from ...router import Route
+from ..application import Route
 import functools
 
 class Resource(metaclass=ResourceMeta):

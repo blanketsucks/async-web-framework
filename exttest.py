@@ -1,15 +1,15 @@
-from wsgi.ext import extensions
+from wsgi import restful
 from wsgi import jsonify
 
-class Cog(extensions.Extension):
+class Cog(restful.Extension):
     def __init__(self, app) -> None:
         self.app = app
 
-    @extensions.Extension.listener()
-    async def on_startup(self):
+    @restful.Extension.listener()
+    async def on_startup(self, host, port):
         print('Ready')
 
-    @extensions.Extension.route('/', 'GET')
+    @restful.Extension.route('/yeet', 'GET')
     async def index(self, request):
         return jsonify(test='hiiiiii')
 

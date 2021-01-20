@@ -1,28 +1,6 @@
-import functools
+
 from .error import HTTPNotFound, HTTPBadRequest
 import re
-
-class Route:
-    def __init__(self, path: str, method: str, coro) -> None:
-        self._path = path
-        self._method = method
-        self._coro = coro
-
-    @property
-    def path(self):
-        return self._path
-
-    @property
-    def method(self):
-        return self._method
-
-    @property
-    def coro(self):
-        return self._coro
-
-    def __repr__(self):
-        return (self.method, self.path)
-
 
 class URLRouter:
     _param_regex = r"{(?P<param>\w+)}"
@@ -56,7 +34,7 @@ class URLRouter:
 
         return regex
 
-    def add_route(self, route: Route):
+    def add_route(self, route):
         self._routes[(route.method, route.path)] = route.coro
 
 def resolve(self, request):

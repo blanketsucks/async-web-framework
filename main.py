@@ -1,17 +1,23 @@
-from wsgi import Application, jsonify
-from wsgi.ext import tasks
 
-app = Application()
+from wsgi import Route, Listener, restful, html, database
+db = database.PostgresConnection()
 
-app.load_extension('exttest')
+async def index(request):
+    return html('yes.html')
 
-@app.route('/path', 'GET')
-async def path(request):
-    return jsonify(hello='yes')
+async def on_startup(host: str, port: int):
+    print('Running on {0!r}:{1}'.format(host, port))
 
-@tasks.task(seconds=1, count=5, loop=app.loop)
-async def starttask():
-    print('yus')
+routes = [
+    Route('/', 'GET', index)
+]
+listeners = [
+    Listener(on_startup, 'on_startup')
+]
+extensions = [
+    'exttest'
+]
 
-starttask.start()
+app = restful.RESTApp(routes=routes, listeners=listeners, extensions=extensions)
+
 app.run()

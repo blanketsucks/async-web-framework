@@ -1,5 +1,7 @@
 import traceback
 from .response import Response
+import markdown as mark
+import codecs
 import json
 
 def format_exception(exc):
@@ -28,3 +30,15 @@ def jsonify(*, response=True, **kwargs):
         return resp
 
     return data
+
+def markdown(fp: str):
+    with open(fp, 'r') as file:
+        content = file.read()
+        resp = mark.markdown(content)
+
+        return Response(body=resp, content_type='text/html')
+
+def html(fp: str):
+    with codecs.open(fp, 'r') as file:
+        resp = file.read()
+        return Response(body=resp, content_type='text/html')
