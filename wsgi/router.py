@@ -37,3 +37,8 @@ class URLRouter:
 
     def add_route(self, route):
         self._routes[(route.method, route.path)] = route.coro
+
+    def remove_route(self, method: str, path: str):
+        coro = self._routes.pop((method, path))
+        return coro
+

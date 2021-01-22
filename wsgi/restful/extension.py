@@ -44,6 +44,17 @@ class Extension(metaclass=ExtensionMeta):
             self.app.add_middleware(actual)
 
         return self
-        
 
-    
+    def _pack(self):
+        for event, listener in self.__extension_listeners__.items():
+            self.app.remove_listener(event)
+
+        for (method, path), handler in self.__extension_routes__.items():
+            self.app.remove_route(path, method)
+
+        for middleware in self.__extension_middlewares__:
+            self.app.remove_middleware(middleware)
+
+        return self
+
+        

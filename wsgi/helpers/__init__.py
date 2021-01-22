@@ -1,1 +1,1 @@
-from .helper import format_exception, html, markdown, jsonify
+from .helper import format_exception, render_html, markdown, jsonify

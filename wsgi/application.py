@@ -1,4 +1,5 @@
 
+
 from .request import Request
 from .error import HTTPException
 from .server import Server
@@ -6,12 +7,17 @@ from .router import URLRouter
 from .response import Response
 from .helpers import format_exception
 from .tasks import Task
+from .settings import Settings
 
 import asyncio
 import json
 import functools
 import inspect
 import typing
+
+import asyncpg
+import aioredis
+import aiosqlite
 
 class Route:
     def __init__(self, path: str, method: str, coro: typing.Coroutine) -> None:
@@ -67,13 +73,13 @@ class Application:
                 loop: asyncio.AbstractEventLoop=None) -> None:
 
         self.loop = loop or asyncio.get_event_loop()
+        self.settings = Settings()
 
         self._router = URLRouter()
 
-        self._middlewares = []
+        self._middlewares: typing.List[typing.Coroutine] = []
         self._tasks: typing.List[Task] = []
-
-        self._listeners = {}
+        self._listeners: typing.Dict[str, typing.List[typing.Coroutine]] = {}
 
         self._load_from_arguments(routes=routes, listeners=listeners, middlewares=middlewares)
 
@@ -189,7 +195,7 @@ class Application:
 
     # Route handler 
 
-    async def _handler(self, request, response_writer):
+    async def _handler(self, request: Request, response_writer):
         try:
             handler = self._router.resolve(request)
 
@@ -223,17 +229,20 @@ class Application:
             raise RuntimeError('All routes must be async')
 
         self._router.add_route(route)
+        return route
+
+    def remove_route(self, path: str, method: str):
+        return self._router.remove_route(method, path)
 
     def route(self, path: str, method: str):
-        def decorator(func):
+        def decorator(func: typing.Coroutine):
             route = Route(path, method, func)
-            self.add_route(route)
+            return self.add_route(route)
 
-            return route
         return decorator
 
     def get(self, path: str):
-        def decorator(func):
+        def decorator(func: typing.Coroutine):
             route = Route(path, 'GET', func)
             self.add_route(route)
 
@@ -241,7 +250,7 @@ class Application:
         return decorator
 
     def put(self, path: str):
-        def decorator(func):
+        def decorator(func: typing.Coroutine):
             route = Route(path, 'PUT', func)
             self.add_route(route)
 
@@ -249,7 +258,7 @@ class Application:
         return decorator
 
     def post(self, path: str):
-        def decorator(func):
+        def decorator(func: typing.Coroutine):
             route = Route(path, 'POST', func)
             self.add_route(route)
 
@@ -257,7 +266,7 @@ class Application:
         return decorator
 
     def delete(self, path: str):
-        def decorator(func):
+        def decorator(func: typing.Coroutine):
             route = Route(path, 'DELETE', func)
             self.add_route(route)
 
@@ -266,7 +275,7 @@ class Application:
 
     # Listeners
 
-    def add_listener(self, f, name: str=None):
+    def add_listener(self, f: typing.Coroutine, name: str=None) -> Listener:
         if not inspect.iscoroutinefunction(f):
             raise RuntimeError('All listeners must be async')
 
@@ -276,11 +285,22 @@ class Application:
             self._listeners[actual].append(f)
         else:
             self._listeners[actual] = [f]
-
+    
         return Listener(f, actual)
 
+
+    def remove_listener(self, func: typing.Coroutine=None, name: str=None):
+        if not func:
+            if name:
+                coros = self._listeners.pop(name)
+                return coros
+
+            raise TypeError('Only the function or the name can be None, not both.')
+
+        self._listeners[name].remove(func)
+
     def listen(self, name: str=None):
-        def decorator(func):
+        def decorator(func: typing.Coroutine):
             return self.add_listener(func, name)
         return decorator
 
@@ -298,17 +318,21 @@ class Application:
     # Middlewares
 
     def middleware(self):
-        def wrapper(func):
+        def wrapper(func: typing.Coroutine):
             return self.add_middleware(func)
         return wrapper
 
-    def add_middleware(self, middleware):
+    def add_middleware(self, middleware: typing.Coroutine):
         if not inspect.iscoroutinefunction(middleware):
             raise RuntimeError('All middlewares must be async')
 
         self._middlewares.append(middleware)
         return Middleware(middleware)
 
+    def remove_middleware(self, middleware: typing.Coroutine) -> typing.Coroutine:
+        self._middlewares.remove(middleware)
+        return middleware
+    
     # Editing any of the following methods will do nothing since they're here as a refrence for listeners
 
     async def on_startup(self, host: str, port: int): ...
@@ -324,3 +348,7 @@ class Application:
     async def on_connection_made(self, transport: asyncio.BaseTransport): ...
 
     async def on_connection_lost(self, exc: typing.Optional[Exception]): ...
+
+    async def on_database_connect(self, connection: typing.Union[asyncpg.pool.Pool, aioredis.Redis, aiosqlite.Connection]): ...
+
+    async def on_database_close(self): ...

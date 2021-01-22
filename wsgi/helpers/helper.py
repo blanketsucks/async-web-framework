@@ -1,8 +1,13 @@
 import traceback
+import typing
+from ..request import Request
 from ..response import Response
 import markdown as mark
 import codecs
 import json
+import functools
+import jwt
+import datetime
 
 def format_exception(exc):
     server_exception_templ = """
@@ -38,7 +43,8 @@ def markdown(fp: str):
 
         return Response(body=resp, content_type='text/html')
 
-def html(fp: str):
+def render_html(fp: str):
     with codecs.open(fp, 'r') as file:
         resp = file.read()
         return Response(body=resp, content_type='text/html')
+

@@ -8,20 +8,20 @@ import typing
 
 class App(Application):
     def __init__(self,
-                resources: typing.List[dict]=None,
+                endpoints: typing.List[dict]=None,
                 extensions: typing.List[str]=None,
                 **kwargs) -> None:
         
-        self._resources = {}
-        self._extensions = {}
+        self._endpoints: typing.Dict[str, Endpoint] = {}
+        self._extensions: typing.Dict[str, Extension] = {}
 
         super().__init__(loop=kwargs.get('loop'))
 
-        self._load_from_arguments(resources, extensions, **kwargs)
+        self._load_from_arguments(endpoints, extensions, **kwargs)
 
     @property
-    def resources(self):
-        return self._resources
+    def endpoints(self):
+        return self._endpoints
 
     @property
     def extensions(self):
@@ -46,6 +46,12 @@ class App(Application):
 
         return ext
 
+    def remove_extension(self, name: str):
+        extension = self._extensions.pop(name)
+        extension._pack()
+
+        return extension
+
     def add_endpoint(self, cls, path: str):
         if not issubclass(cls, Endpoint):
             raise RuntimeError('Expected Endpoint but got {0!r} instead.'.format(cls.__name__))
@@ -53,21 +59,27 @@ class App(Application):
         res = cls(self, path)
         res._unpack()
 
-        self._resources[res.__endpoint_name__] = res
+        self._endpoints[res.__endpoint_name__] = res
         return res
+
+    def remove_endpoint(self, name: str):
+        endpoint = self._endpoints.pop(name)
+        endpoint._pack()
+
+        return endpoint
 
     def endpoint(self, path: str):
         def decorator(cls):
             return self.add_endpoint(cls, path)
         return decorator
 
-    def _load_from_arguments(self, resources=None, extensions=None, **kwargs):
+    def _load_from_arguments(self, endpoints=None, extensions=None, **kwargs):
         routes = kwargs.get('routes')
         listeners = kwargs.get('listeners')
         middlewares = kwargs.get('middlewares')
 
-        if resources:
-            for resource in resources:
+        if endpoints:
+            for resource in endpoints:
                 for cls, path in resource.items():
                     self.add_endpoint(cls, path)
 
