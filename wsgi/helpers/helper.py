@@ -1,13 +1,9 @@
 import traceback
-import typing
-from ..request import Request
 from ..response import Response
 import markdown as mark
 import codecs
 import json
-import functools
-import jwt
-import datetime
+
 
 def format_exception(exc):
     server_exception_templ = """

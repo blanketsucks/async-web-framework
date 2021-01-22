@@ -1,17 +1,20 @@
 
 import importlib
+import typing
 
-VALID_SETTINGS = (
+
+VALID_SETTINGS: typing.Tuple[str] = (
     'SECRET_KEY',
-    'CLIENT_SECRET_VALIDATOR'
 )
-
 
 class Settings(dict):
 
-    def from_file(self, fp: str):
+    def from_file(self, fp: str) -> typing.Optional[typing.Dict[str, typing.Any]]:
         module = importlib.import_module(fp)
         setting = getattr(module, 'load_settings')
+
+        if not setting:
+            return None
 
         res = setting()
         
@@ -20,3 +23,5 @@ class Settings(dict):
                 self[k] = v
             else:
                 pass
+
+        return res

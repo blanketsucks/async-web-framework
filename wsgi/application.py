@@ -1,11 +1,10 @@
 
-
 from .request import Request
 from .error import HTTPException
 from .server import Server
 from .router import URLRouter
 from .response import Response
-from .helpers import format_exception
+from .helpers import format_exception, jsonify
 from .tasks import Task
 from .settings import Settings
 
@@ -14,6 +13,9 @@ import json
 import functools
 import inspect
 import typing
+
+import jwt
+import datetime
 
 import asyncpg
 import aioredis
@@ -86,6 +88,14 @@ class Application:
     def make_server(self, cls=Server):
         res = cls(self.loop, app=self, handler=self._handler)
         return res
+        
+    def get_setting(self, key: str):
+        value = self.settings.get(key, None)
+        return value
+
+    def remove_setting(self, key: str):
+        value = self.settings.pop(key)
+        return value
 
     @property
     def router(self):
@@ -225,8 +235,8 @@ class Application:
     # Routing
 
     def add_route(self, route: Route):
-        if not inspect.iscoroutinefunction(route.coro):
-            raise RuntimeError('All routes must be async')
+        if not inspect.iscoroutine(route.coro):
+            raise RuntimeError('Routes must be async.')
 
         self._router.add_route(route)
         return route
@@ -273,10 +283,63 @@ class Application:
             return route
         return decorator
 
+    def add_protected_route(self, path: str, method: str, coro):
+        async def func(request: Request):
+            token = request.args.get('token')
+
+            if not token:
+                token = request.headers.get('token')
+
+                if not token:
+                    return jsonify(message='Invalid Token.', status=403)
+
+            try:
+                data = jwt.encode(token, self.get_setting('SECRET_KEY'))
+            except:
+                return jsonify(message='Invalid Token.', status=403)
+
+            return coro(request)
+
+        route = Route(path, method, func)
+        return self.add_route(route)
+
+    def protected(self, path: str, method: str):
+        def decorator(func):
+            return self.add_protected_route(path, method, func)
+        return decorator
+
+    def add_oauth2_route(self, path: str, method: str, validator=None):
+        async def func(req: Request):
+            client_id = req.headers.get('client_id')
+            client_secret = req.headers.get('client_secret')
+
+            secret_key = self.get_setting('SECRET_KEY')
+
+            if client_id and client_secret:
+                if validator:
+                    await validator(client_secret)
+
+                data = {
+                    'user' : client_id,
+                    'exp' : datetime.datetime.utcnow() + datetime.timedelta(seconds=15)
+                }
+                token = jwt.encode(data, secret_key)
+                return jsonify(access_token=token)
+
+            return jsonify(message='Missing client_id or client_secret.', status=403)
+
+        route = Route(path, method, func)
+        return self.add_route(route)
+
+    def oauth2(self, path: str, method: str):
+        def decorator(func):
+            return self.add_oauth2_route(path, method, func)
+        return decorator
+
     # Listeners
 
     def add_listener(self, f: typing.Coroutine, name: str=None) -> Listener:
-        if not inspect.iscoroutinefunction(f):
+        if not inspect.iscoroutine(f):
             raise RuntimeError('All listeners must be async')
 
         actual = f.__name__ if name is None else name
@@ -323,7 +386,7 @@ class Application:
         return wrapper
 
     def add_middleware(self, middleware: typing.Coroutine):
-        if not inspect.iscoroutinefunction(middleware):
+        if not inspect.iscoroutine(middleware):
             raise RuntimeError('All middlewares must be async')
 
         self._middlewares.append(middleware)

@@ -1,6 +1,5 @@
 import asyncio
 
-
 class BaseConnection:
     def __init__(self, loop: asyncio.AbstractEventLoop=None, *, app=None) -> None:
         self.loop = loop or asyncio.get_event_loop()
