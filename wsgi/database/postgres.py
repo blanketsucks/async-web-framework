@@ -3,17 +3,9 @@ import asyncio
 import typing
 
 from .errors import NoConnections
+from .base import BaseConnection
 
-class PostgresConnection:
-    def __init__(self, loop: asyncio.AbstractEventLoop=None, *, app=None) -> None:
-        self.loop = loop or asyncio.get_event_loop()
-        self.app = app
-
-        self._connection = None
-
-    @property
-    def connection(self):
-        return self._connection
+class PostgresConnection(BaseConnection):
 
     async def connect(self, dsn=None, *, host=None, port=None, user=None,
                     password=None, passfile=None, database=None, **kwargs) -> asyncpg.pool.Pool:
@@ -56,4 +48,3 @@ class PostgresConnection:
             await self.app.dispatch('on_database_close')
 
         await self._connection.close()
-

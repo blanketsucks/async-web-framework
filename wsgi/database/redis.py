@@ -2,6 +2,7 @@ import asyncio
 import aioredis
 
 from .errors import NoConnections
+from .base import BaseConnection
 
 class RedisCluster:
     def __init__(self, connection: aioredis.Redis) -> None:
@@ -37,16 +38,7 @@ class RedisCluster:
         return res
 
 
-class RedisConnection:
-    def __init__(self, loop: asyncio.AbstractEventLoop=None, *, app=None) -> None:
-        self.loop = loop or asyncio.get_event_loop()
-        self.app = app
-
-        self._connection = None
-
-    @property
-    def connection(self):
-        return self._connection
+class RedisConnection(BaseConnection):
 
     async def connect(self, address, *, db=None, password=None, **kwargs):
         connection = await aioredis.create_redis_pool(address, db=db, password=password, loop=self.loop, **kwargs)

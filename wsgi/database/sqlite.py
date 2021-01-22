@@ -3,14 +3,14 @@ import asyncio
 import pathlib
 import typing
 
+from .base import BaseConnection
+from .errors import NoConnections
+
 if typing.TYPE_CHECKING:
     from .. import Application
     from ..restful import App
 
-class SQLiteConnection:
-    def __init__(self, loop: asyncio.AbstractEventLoop=None, *, app: typing.Union['App', 'Application']=None) -> None:
-        self.loop = loop or asyncio.get_event_loop()
-        self.app = app
+class SQLiteConnection(BaseConnection):
 
     async def connect(self, database: typing.Union[str, pathlib.Path], **kwargs):
         connection = await aiosqlite.connect(database, loop=self.loop, **kwargs)
@@ -38,4 +38,7 @@ class SQLiteConnection:
         return cursor
 
     async def close(self):
+        if not self._connection:
+            raise NoConnections('No connections have been made.')
+
         await self._connection.close()
