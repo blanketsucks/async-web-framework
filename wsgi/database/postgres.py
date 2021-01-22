@@ -1,8 +1,6 @@
 import asyncpg
-import asyncio
 import typing
 
-from .errors import NoConnections
 from .base import BaseConnection
 
 class PostgresConnection(BaseConnection):
@@ -39,12 +37,3 @@ class PostgresConnection(BaseConnection):
     async def execute(self, query: str, *args, timeout: float=None):
         res = await self._connection.execute(query, *args, timeout=timeout)
         return res
-
-    async def close(self):
-        if not self._connection:
-            raise NoConnections('No connections found.')
-
-        if self.app:
-            await self.app.dispatch('on_database_close')
-
-        await self._connection.close()

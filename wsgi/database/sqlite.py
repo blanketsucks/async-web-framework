@@ -1,14 +1,8 @@
 import aiosqlite
-import asyncio
 import pathlib
 import typing
 
 from .base import BaseConnection
-from .errors import NoConnections
-
-if typing.TYPE_CHECKING:
-    from .. import Application
-    from ..restful import App
 
 class SQLiteConnection(BaseConnection):
 
@@ -36,9 +30,3 @@ class SQLiteConnection(BaseConnection):
     async def cursor(self, *args, **kwargs):
         cursor = await self._connection.cursor(*args, **kwargs)
         return cursor
-
-    async def close(self):
-        if not self._connection:
-            raise NoConnections('No connections have been made.')
-
-        await self._connection.close()

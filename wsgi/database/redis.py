@@ -1,4 +1,3 @@
-import asyncio
 import aioredis
 
 from .errors import NoConnections
@@ -36,7 +35,6 @@ class RedisCluster:
     def new(self, ip, port):
         res = self.connection.cluster_meet(ip, port)
         return res
-
 
 class RedisConnection(BaseConnection):
 
