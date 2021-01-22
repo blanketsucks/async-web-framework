@@ -1,16 +1,13 @@
-from ..application import Application, Route, Middleware, Listener
+from ..application import Application
 from ..error import ExtensionLoadError
-from .resource import Resource
+from .endpoint import Endpoint
 from .extension import Extension
 
 import importlib
 import typing
 
-class RESTApp(Application):
-    def __init__(self, *,
-                routes: typing.List[Route]=None,
-                listeners: typing.List[Listener]=None,
-                middlewares: typing.List[Middleware]=None,
+class App(Application):
+    def __init__(self,
                 resources: typing.List[dict]=None,
                 extensions: typing.List[str]=None,
                 **kwargs) -> None:
@@ -19,7 +16,8 @@ class RESTApp(Application):
         self._extensions = {}
 
         super().__init__(loop=kwargs.get('loop'))
-        self._load_from_arguments(resources, extensions, routes=routes, listeners=listeners, middlewares=middlewares)
+
+        self._load_from_arguments(resources, extensions, **kwargs)
 
     @property
     def resources(self):
@@ -41,26 +39,26 @@ class RESTApp(Application):
     
     def add_extension(self, extension):
         if not isinstance(extension, Extension):
-            raise ValueError('Extension must inherit from Extension')
+            raise ValueError('Extensions must inherit from Extension')
 
         ext = extension._unpack()
-        self._extensions[ext.__class__.__name__] = ext
+        self._extensions[ext.__extension_name__] = ext
 
         return ext
 
-    def add_resource(self, cls, path: str):
-        if not issubclass(cls, Resource):
-            raise RuntimeError('Expected Resource but got {0!r} instead.'.format(cls.__name__))
+    def add_endpoint(self, cls, path: str):
+        if not issubclass(cls, Endpoint):
+            raise RuntimeError('Expected Endpoint but got {0!r} instead.'.format(cls.__name__))
         
         res = cls(self, path)
         res._unpack()
 
-        self._resources[res.__class__.__name__] = res
+        self._resources[res.__endpoint_name__] = res
         return res
 
-    def resource(self, path: str):
+    def endpoint(self, path: str):
         def decorator(cls):
-            return self.add_resource(cls, path)
+            return self.add_endpoint(cls, path)
         return decorator
 
     def _load_from_arguments(self, resources=None, extensions=None, **kwargs):
@@ -71,10 +69,10 @@ class RESTApp(Application):
         if resources:
             for resource in resources:
                 for cls, path in resource.items():
-                    self.add_resource(cls, path)
+                    self.add_endpoint(cls, path)
 
         if extensions:
             for extension in extensions:
                 self.load_extension(extension)
 
-        super()._load_from_arguments(routes, listeners, middlewares), resources, extensions
+        super()._load_from_arguments(routes, listeners, middlewares)

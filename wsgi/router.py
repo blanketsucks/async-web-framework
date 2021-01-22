@@ -1,12 +1,13 @@
 
 from .error import HTTPNotFound, HTTPBadRequest
 import re
+import typing
 
 class URLRouter:
     _param_regex = r"{(?P<param>\w+)}"
 
     def __init__(self) -> None:
-        self._routes = {}
+        self._routes: typing.Dict[typing.Tuple[str, str], typing.Coroutine] = {}
 
     def resolve(self, request):
         key = (request.method, request.url.path)
@@ -36,16 +37,3 @@ class URLRouter:
 
     def add_route(self, route):
         self._routes[(route.method, route.path)] = route.coro
-
-def resolve(self, request):
-    for (method, pattern), handler in self._routes.items():
-        match = re.match(pattern, request.url.raw_path)
-
-        if match is None:
-            raise HTTPNotFound(reason=f"Could not find {request.url.raw_path!r}")
-
-        if method != request.method:
-            raise HTTPBadRequest(reason=f"{request.method!r} is not allowed for {request.url.raw_path!r}")
-
-        return match.groupdict(), handler
-

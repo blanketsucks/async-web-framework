@@ -1,7 +1,10 @@
 
-class ResourceMeta(type):
+class EndpointMeta(type):
     def __new__(cls, *args, **kwargs):
         name, bases, attrs = args
+        
+        attrs['__endpoint_route_prefix__'] = kwargs.get('url_prefix', '')
+        attrs['__endpoint_name__'] = kwargs.get('name', name) 
 
         routes = {}
         middlewares = []
@@ -13,7 +16,7 @@ class ResourceMeta(type):
                 is_static = isinstance(value, staticmethod)
 
                 try:
-                    route = getattr(value, '__resource_route__')
+                    route = getattr(value, '__endpoint_route__')
                     if is_static:
                         raise ValueError('Routes must not be static.')
 
@@ -22,7 +25,7 @@ class ResourceMeta(type):
                     pass
 
                 try:
-                    middleware = getattr(value, '__resource_middleware__')
+                    middleware = getattr(value, '__endpoint_middleware__')
                     if is_static:
                         raise ValueError('Middlewares must not be static.')
 
@@ -30,8 +33,8 @@ class ResourceMeta(type):
                 except AttributeError:
                     pass
 
-        self.__resource_routes__ = routes
-        self.__resource_middlewares = middlewares
+        self.__endpoint_routes__ = routes
+        self.__endpoint_middlewares = middlewares
 
         return self
 
@@ -39,11 +42,14 @@ class ExtensionMeta(type):
     def __new__(cls, *args, **kwargs):
         name, bases, attrs = args
 
+        attrs['__extension_route_prefix__'] = kwargs.get('url_prefix', '')
+        attrs['__extension_name__'] = kwargs.get('name', name) 
+        
         routes = {}
         listeners = {}
         middlewares = []
 
-        self = super().__new__(cls, name, bases, attrs, **kwargs)
+        self = super().__new__(cls, name, bases, attrs)
 
         for base in self.mro():
             for element, value in base.__dict__.items():

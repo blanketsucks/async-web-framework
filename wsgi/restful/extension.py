@@ -34,8 +34,9 @@ class Extension(metaclass=ExtensionMeta):
 
         for (method, path), handler in self.__extension_routes__.items():
             actual = functools.partial(handler, self)
+            actual_path = self.__extension_route_prefix__ + path
 
-            route = Route(path, method, actual)
+            route = Route(actual_path, method, actual)
             self.app.add_route(route)
 
         for middleware in self.__extension_middlewares__:

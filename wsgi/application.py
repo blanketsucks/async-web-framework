@@ -4,7 +4,7 @@ from .error import HTTPException
 from .server import Server
 from .router import URLRouter
 from .response import Response
-from .helper import format_exception
+from .helpers import format_exception
 from .tasks import Task
 
 import asyncio
@@ -14,7 +14,7 @@ import inspect
 import typing
 
 class Route:
-    def __init__(self, path: str, method: str, coro: typing.Awaitable) -> None:
+    def __init__(self, path: str, method: str, coro: typing.Coroutine) -> None:
         self._path = path
         self._method = method
         self._coro = coro
@@ -32,7 +32,7 @@ class Route:
         return self._coro
 
 class Middleware:
-    def __init__(self, coro: typing.Awaitable) -> None:
+    def __init__(self, coro: typing.Coroutine) -> None:
         self._coro = coro
 
     @property
@@ -40,7 +40,7 @@ class Middleware:
         return self._coro
 
 class Listener:
-    def __init__(self, coro: typing.Awaitable, name: str=None) -> None:
+    def __init__(self, coro: typing.Coroutine, name: str=None) -> None:
         self._event = name
         self._coro = coro
 
@@ -53,10 +53,6 @@ class Listener:
         return self._coro
 
 
-def make_server(app):
-    cls = Server(app.loop, app=app, handler=app._handler)
-    return cls
-
 class Application:
     """
     
@@ -65,9 +61,9 @@ class Application:
     `on_startup` -> `on_connection_made` -> `on_request` -> `on_socket_receive` -> `on_connection_lost` -> `on_shutdown`
     
     """
-    def __init__(self, *, routes: typing.List[Route]=None,
+    def __init__(self, routes: typing.List[Route]=None,
                 listeners: typing.List[Listener]=None,
-                middlewares: typing.List[Middleware]=None,
+                middlewares: typing.List[Middleware]=None, *,
                 loop: asyncio.AbstractEventLoop=None) -> None:
 
         self.loop = loop or asyncio.get_event_loop()
@@ -78,7 +74,12 @@ class Application:
         self._tasks: typing.List[Task] = []
 
         self._listeners = {}
+
         self._load_from_arguments(routes=routes, listeners=listeners, middlewares=middlewares)
+
+    def make_server(self, cls=Server):
+        res = cls(self.loop, app=self, handler=self._handler)
+        return res
 
     @property
     def router(self):
@@ -100,19 +101,6 @@ class Application:
     def tasks(self):
         return self._tasks
 
-    def listen(self, name: str=None):
-        def decorator(func):
-            return self.add_listener(func, name)
-        return decorator
-
-    def route(self, path: str, method: str):
-        def decorator(func):
-            route = Route(path, method, func)
-            self.add_route(route)
-
-            return route
-        return decorator
-
     def task(self, *, seconds=0, minutes=0, hours=0, count=None, loop=None):
         def wrapper(func):
             cls = Task(
@@ -127,48 +115,6 @@ class Application:
             self._tasks.append(cls)
             return cls
         return wrapper
-
-    def middleware(self):
-        def wrapper(func):
-            return self.add_middleware(func)
-        return wrapper
-
-    def add_middleware(self, middleware):
-        if not inspect.iscoroutinefunction(middleware):
-            raise RuntimeError('All middlewares must be async')
-
-        self._middlewares.append(middleware)
-        return Middleware(middleware)
-
-    def add_route(self, route: Route):
-        if not inspect.iscoroutinefunction(route.coro):
-            raise RuntimeError('All routes must be async')
-
-        self._router.add_route(route)
-
-    def add_listener(self, f, name: str=None):
-        if not inspect.iscoroutinefunction(f):
-            raise RuntimeError('All listeners must be async')
-
-        actual = f.__name__ if name is None else name
-
-        if actual in self._listeners:
-            self._listeners[actual].append(f)
-        else:
-            self._listeners[actual] = [f]
-
-        return Listener(f, actual)
-
-    async def dispatch(self, name: str, *args, **kwargs):
-        try:
-            listeners = self._listeners[name]
-        except KeyError:
-            return
-        
-        for listener in listeners:
-            await listener(*args, **kwargs)
-
-        return listeners
 
     def _load_from_arguments(self, routes: typing.List[Route]=None, listeners: typing.List[Listener]=None, 
                             middlewares: typing.List[Middleware]=None):
@@ -189,6 +135,8 @@ class Application:
                 coro = middleware.coro
                 self.add_middleware(coro)
 
+    # Running the app
+
     async def start(self, host: str=None, *, port: int=None):
         for task in self._tasks:
             task.start()
@@ -199,7 +147,7 @@ class Application:
         if not port:
             port = 8080
 
-        serv = make_server(self)
+        serv = self.make_server()
         server: asyncio.AbstractServer = await self.loop.create_server(lambda: serv, host=host, port=port)
 
         await self.dispatch('on_startup', host, port)
@@ -223,7 +171,7 @@ class Application:
         if not port:
             port = 8080
 
-        serv = make_server(self)
+        serv = self.make_server()
 
         server = self.loop.run_until_complete(
             self.loop.create_server(lambda: serv, host=host, port=port)
@@ -239,11 +187,11 @@ class Application:
             self.loop.run_until_complete(server.wait_closed())
             self.loop.stop()
 
+    # Route handler 
+
     async def _handler(self, request, response_writer):
         try:
-
             handler = self._router.resolve(request)
-            request.args = {}
 
             if len(self._middlewares) != 0:
                 for middleware in self._middlewares:
@@ -267,6 +215,99 @@ class Application:
             resp = format_exception(exc)
 
         response_writer(resp)
+
+    # Routing
+
+    def add_route(self, route: Route):
+        if not inspect.iscoroutinefunction(route.coro):
+            raise RuntimeError('All routes must be async')
+
+        self._router.add_route(route)
+
+    def route(self, path: str, method: str):
+        def decorator(func):
+            route = Route(path, method, func)
+            self.add_route(route)
+
+            return route
+        return decorator
+
+    def get(self, path: str):
+        def decorator(func):
+            route = Route(path, 'GET', func)
+            self.add_route(route)
+
+            return route
+        return decorator
+
+    def put(self, path: str):
+        def decorator(func):
+            route = Route(path, 'PUT', func)
+            self.add_route(route)
+
+            return route
+        return decorator
+
+    def post(self, path: str):
+        def decorator(func):
+            route = Route(path, 'POST', func)
+            self.add_route(route)
+
+            return route
+        return decorator
+
+    def delete(self, path: str):
+        def decorator(func):
+            route = Route(path, 'DELETE', func)
+            self.add_route(route)
+
+            return route
+        return decorator
+
+    # Listeners
+
+    def add_listener(self, f, name: str=None):
+        if not inspect.iscoroutinefunction(f):
+            raise RuntimeError('All listeners must be async')
+
+        actual = f.__name__ if name is None else name
+
+        if actual in self._listeners:
+            self._listeners[actual].append(f)
+        else:
+            self._listeners[actual] = [f]
+
+        return Listener(f, actual)
+
+    def listen(self, name: str=None):
+        def decorator(func):
+            return self.add_listener(func, name)
+        return decorator
+
+    async def dispatch(self, name: str, *args, **kwargs):
+        try:
+            listeners = self._listeners[name]
+        except KeyError:
+            return
+        
+        for listener in listeners:
+            await listener(*args, **kwargs)
+
+        return listeners
+
+    # Middlewares
+
+    def middleware(self):
+        def wrapper(func):
+            return self.add_middleware(func)
+        return wrapper
+
+    def add_middleware(self, middleware):
+        if not inspect.iscoroutinefunction(middleware):
+            raise RuntimeError('All middlewares must be async')
+
+        self._middlewares.append(middleware)
+        return Middleware(middleware)
 
     # Editing any of the following methods will do nothing since they're here as a refrence for listeners
 

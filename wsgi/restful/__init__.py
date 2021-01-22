@@ -1,5 +1,5 @@
 
-from .restful import RESTApp
+from .restful import App
 from .extension import Extension
-from .resource import Resource
-from .meta import ResourceMeta, ExtensionMeta
+from .endpoint import Endpoint
+from .meta import EndpointMeta, ExtensionMeta

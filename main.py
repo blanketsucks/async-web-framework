@@ -1,23 +1,46 @@
 
-from wsgi import Route, Listener, restful, html, database
-db = database.PostgresConnection()
+from wsgi import Request
+from wsgi import tasks
+from wsgi import database
 
-async def index(request):
-    return html('yes.html')
+INFO = {
+    "database": "Main",
+    "user": "postgres",
+    "password": "blanketsucks"
+}
 
-async def on_startup(host: str, port: int):
-    print('Running on {0!r}:{1}'.format(host, port))
+from wsgi.restful import App
+from wsgi.helpers import jsonify
 
-routes = [
-    Route('/', 'GET', index)
-]
-listeners = [
-    Listener(on_startup, 'on_startup')
-]
-extensions = [
-    'exttest'
-]
 
-app = restful.RESTApp(routes=routes, listeners=listeners, extensions=extensions)
+import asyncio
+loop = asyncio.get_event_loop()
+
+app = App(loop=loop)
+db = database.PostgresConnection(loop=loop, app=app)
+
+@app.listen('on_startup')
+async def startup(host, port):
+    await db.connect(**INFO)
+
+@app.listen('on_database_connect')
+async def connected(conn):
+    print(conn)
+    print('database connected')
+
+@app.listen('on_shutdown')
+async def close():
+    await db.close()
+    print('closed')
+
+@app.get('/')
+async def index(request: Request):
+    res = await db.fetch_all('SELECT * FROM economy')
+
+    return jsonify(welcome=f'{res}')
+
+@tasks.task(minutes=1, count=10)
+async def refresh():
+    print('refreshed')
 
 app.run()

@@ -1,5 +1,5 @@
 import traceback
-from .response import Response
+from ..response import Response
 import markdown as mark
 import codecs
 import json
