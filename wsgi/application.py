@@ -308,7 +308,7 @@ class Application:
             return self.add_protected_route(path, method, func)
         return decorator
 
-    def add_oauth2_route(self, path: str, method: str, validator=None):
+    def add_oauth2_route(self, path: str, method: str, validator=None, expires=60):
         async def func(req: Request):
             client_id = req.headers.get('client_id')
             client_secret = req.headers.get('client_secret')
@@ -321,7 +321,7 @@ class Application:
 
                 data = {
                     'user' : client_id,
-                    'exp' : datetime.datetime.utcnow() + datetime.timedelta(seconds=15)
+                    'exp' : datetime.datetime.utcnow() + datetime.timedelta(minutes=expires)
                 }
                 token = jwt.encode(data, secret_key)
                 return jsonify(access_token=token)
