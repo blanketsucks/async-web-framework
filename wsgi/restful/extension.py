@@ -1,10 +1,10 @@
 from .meta import ExtensionMeta
-from ..application import Route
+from ..app import Route
 import functools
 import typing
 
 if typing.TYPE_CHECKING:
-    from ..application import Application
+    from ..app import Application
     from .rest import App
 
 class Extension(metaclass=ExtensionMeta):
