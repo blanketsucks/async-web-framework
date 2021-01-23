@@ -3,16 +3,18 @@ import typing
 import yarl
 
 class Request:
-    _encoding = "utf_8"
+    _encoding = "utf-8"
 
-    def __init__(self, method, url, status_code, headers, version=None, body=None, app=None):
+    def __init__(self, method: bytes, url: bytes, status_code,
+                headers: typing.Dict[str, typing.Any], version=None, body=None):
+
         self._version = version
         self._status_code = status_code
         
         self._method = method.decode(self._encoding)
         self._url = yarl.URL(url.decode(self._encoding))
 
-        self._headers: typing.Dict[str, typing.Any] = headers
+        self._headers = headers
         self._body = body
 
         self._args: typing.Dict[str, typing.Any] = {}

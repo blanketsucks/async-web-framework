@@ -1,10 +1,10 @@
-import asyncio
-from asyncio import transports
-from typing import Optional
 
 from .httpparser import HTTPParserMixin
 from .request import Request
 
+import asyncio
+from asyncio import transports
+from typing import Optional
 from httptools import HttpRequestParser
 
 class Server(asyncio.Protocol, HTTPParserMixin):

@@ -1,4 +1,5 @@
 from .response import Response
+
 import json
 
 class HTTPException(Response, Exception):

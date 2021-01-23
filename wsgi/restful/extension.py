@@ -5,7 +5,7 @@ import typing
 
 if typing.TYPE_CHECKING:
     from ..application import Application
-    from .restful import App
+    from .rest import App
 
 class Extension(metaclass=ExtensionMeta):
     def __init__(self, app: typing.Union['Application', 'App']) -> None:
@@ -28,9 +28,11 @@ class Extension(metaclass=ExtensionMeta):
         return wrapper
 
     @staticmethod
-    def middleware(func):
-        func.__extension_middleware__ = func
-        return func
+    def middleware():
+        def decorator(func):
+            func.__extension_middleware__ = func
+            return func
+        return decorator
 
     def _unpack(self):
         for event, listener in self.__extension_listeners__.items():

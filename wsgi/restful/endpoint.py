@@ -1,11 +1,12 @@
 from .meta import EndpointMeta
 from ..application import Route
+
 import functools
 import typing
 
 if typing.TYPE_CHECKING:
     from ..application import Application
-    from .restful import App
+    from .rest import App
 
 class Endpoint(metaclass=EndpointMeta):
     def __init__(self, app: typing.Union['Application', 'App'], path: str) -> None:
@@ -22,9 +23,11 @@ class Endpoint(metaclass=EndpointMeta):
         return wrapper
 
     @staticmethod
-    def middleware(func):
-        func.__endpoint_middleware__ = func
-        return func
+    def middleware():
+        def decorator(func):
+            func.__endpoint_middleware__ = func
+            return func
+        return decorator
 
     def _unpack(self):
         for method, handler in self.__endpoint_routes__.items():

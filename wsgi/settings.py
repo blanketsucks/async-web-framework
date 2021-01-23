@@ -2,7 +2,6 @@
 import importlib
 import typing
 
-
 VALID_SETTINGS: typing.Tuple[str] = (
     'SECRET_KEY',
 )

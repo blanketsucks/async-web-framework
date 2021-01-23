@@ -1,6 +1,6 @@
 import http.server
 
-web_responses = http.server.BaseHTTPRequestHandler.responses
+responses = http.server.BaseHTTPRequestHandler.responses
 
 class Response:
     _encoding = "utf-8"
@@ -43,7 +43,7 @@ class Response:
         self._headers[key] = value
     
     def __str__(self):
-        status_msg, _ = web_responses.get(self._status)
+        status_msg, _ = responses.get(self._status)
         
         messages = [
             f"HTTP/{self._version} {self._status} {status_msg}",

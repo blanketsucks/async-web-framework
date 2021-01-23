@@ -2,11 +2,13 @@
 from .request import Request
 from .error import HTTPException
 from .server import Server
-from .router import URLRouter
+from .router import Router
+from .listeners import ListenersHandler
 from .response import Response
 from .helpers import format_exception, jsonify
 from .tasks import Task
 from .settings import Settings
+from .objects import Route, Listener, Middleware
 
 import asyncio
 import json
@@ -16,49 +18,6 @@ import typing
 
 import jwt
 import datetime
-
-import asyncpg
-import aioredis
-import aiosqlite
-
-class Route:
-    def __init__(self, path: str, method: str, coro: typing.Coroutine) -> None:
-        self._path = path
-        self._method = method
-        self._coro = coro
-
-    @property
-    def path(self):
-        return self._path
-
-    @property
-    def method(self):
-        return self._method
-
-    @property
-    def coro(self):
-        return self._coro
-
-class Middleware:
-    def __init__(self, coro: typing.Coroutine) -> None:
-        self._coro = coro
-
-    @property
-    def coro(self):
-        return self._coro
-
-class Listener:
-    def __init__(self, coro: typing.Coroutine, name: str=None) -> None:
-        self._event = name
-        self._coro = coro
-
-    @property
-    def event(self):
-        return self._event
-
-    @property
-    def coro(self):
-        return self._coro
 
 
 class Application:
@@ -77,11 +36,11 @@ class Application:
         self.loop = loop or asyncio.get_event_loop()
         self.settings = Settings()
 
-        self._router = URLRouter()
+        self._router = Router()
+        self._listener = ListenersHandler()
 
         self._middlewares: typing.List[typing.Coroutine] = []
         self._tasks: typing.List[Task] = []
-        self._listeners: typing.Dict[str, typing.List[typing.Coroutine]] = {}
 
         self._load_from_arguments(routes=routes, listeners=listeners, middlewares=middlewares)
 
@@ -102,16 +61,20 @@ class Application:
         return self._router
 
     @property
+    def listener_handler(self):
+        return self._listener
+
+    @property
     def middlewares(self):
         return self._middlewares
 
     @property
     def listeners(self):
-        return self._listeners
+        return self._listener.listeners
 
     @property
     def routes(self):
-        return self._router._routes
+        return self._router.routes
 
     @property
     def tasks(self):
@@ -286,7 +249,7 @@ class Application:
 
     def add_protected_route(self, path: str, method: str, coro: typing.Coroutine):
         async def func(request: Request):
-            token = self.get_oauth_token(request.headers)
+            _type, token = self.get_oauth_token(request.headers)
             valid = self.validate_token(token)
 
             if not valid:
@@ -356,7 +319,7 @@ class Application:
         route = Route(path, method, func)
         return self.add_route(route)
 
-    def oauth2_login(self, path: str, method: str, validator: typing.Coroutine=None, expires: int=60):
+    def oauth2(self, path: str, method: str, validator: typing.Coroutine=None, expires: int=60):
         def decorator(func):
             return self.add_oauth2_login_route(path, method, func, validator=validator, expires=expires)
         return decorator
@@ -366,26 +329,12 @@ class Application:
     def add_listener(self, f: typing.Coroutine, name: str=None) -> Listener:
         if not inspect.iscoroutinefunction(f):
             raise RuntimeError('All listeners must be async')
-
-        actual = f.__name__ if name is None else name
-
-        if actual in self._listeners:
-            self._listeners[actual].append(f)
-        else:
-            self._listeners[actual] = [f]
-    
-        return Listener(f, actual)
+        
+        return self._listener.add_listener(f, name)
 
 
     def remove_listener(self, func: typing.Coroutine=None, name: str=None):
-        if not func:
-            if name:
-                coros = self._listeners.pop(name)
-                return coros
-
-            raise TypeError('Only the function or the name can be None, not both.')
-
-        self._listeners[name].remove(func)
+        return self._listener.remove_listener(func, name)
 
     def listen(self, name: str=None):
         def decorator(func: typing.Coroutine):
@@ -394,7 +343,7 @@ class Application:
 
     async def dispatch(self, name: str, *args, **kwargs):
         try:
-            listeners = self._listeners[name]
+            listeners = self._listener.listeners[name]
         except KeyError:
             return
         
@@ -420,23 +369,4 @@ class Application:
     def remove_middleware(self, middleware: typing.Coroutine) -> typing.Coroutine:
         self._middlewares.remove(middleware)
         return middleware
-    
-    # Editing any of the following methods will do nothing since they're here as a refrence for listeners
 
-    async def on_startup(self, host: str, port: int): ...
-
-    async def on_shutdown(self): ...
-
-    async def on_error(self, exc: typing.Union[HTTPException, Exception]): ...
-
-    async def on_request(self, request: Request): ...
-
-    async def on_socket_receive(self, data: bytes): ...
-
-    async def on_connection_made(self, transport: asyncio.BaseTransport): ...
-
-    async def on_connection_lost(self, exc: typing.Optional[Exception]): ...
-
-    async def on_database_connect(self, connection: typing.Union[asyncpg.pool.Pool, aioredis.Redis, aiosqlite.Connection]): ...
-
-    async def on_database_close(self): ...

@@ -17,11 +17,15 @@ class RedisCluster:
 
     def slots(self):
         res = self.connection.cluster_slots()
-        self.connection.cluster_forget
+        self.connection.cluster
         return res
 
     def nodes(self):
         res = self.connection.cluster_nodes()
+        return res
+
+    def count_failure_reports(self, node_id):
+        res = self.connection.cluster_count_failure_reports(node_id)
         return res
 
     async def replicate(self, node_id):
@@ -30,6 +34,10 @@ class RedisCluster:
 
     async def forget(self, node_id):
         res = await self.connection.cluster_forget(node_id)
+        return res
+
+    async def reset(self, hard=False):
+        res = await self.connection.cluster_reset(hard=hard)
         return res
 
     def new(self, ip, port):
