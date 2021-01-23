@@ -1,11 +1,16 @@
 from .meta import EndpointMeta
 from ..application import Route
 import functools
+import typing
+
+if typing.TYPE_CHECKING:
+    from ..application import Application
+    from .restful import App
 
 class Endpoint(metaclass=EndpointMeta):
-    def __init__(self, app, path) -> None:
+    def __init__(self, app: typing.Union['Application', 'App'], path: str) -> None:
         self.app = app
-        self._path = path
+        self.path = path
 
     @staticmethod
     def route(method: str=None):
@@ -25,7 +30,7 @@ class Endpoint(metaclass=EndpointMeta):
         for method, handler in self.__endpoint_routes__.items():
             actual = functools.partial(handler, self)
 
-            route = Route(self._path, method, actual)
+            route = Route(self.path, method, actual)
             self.app.add_route(route)
 
         for middleware in self.__endpoint_middlewares__:
@@ -36,7 +41,7 @@ class Endpoint(metaclass=EndpointMeta):
 
     def _pack(self):
         for method, handler in self.__endpoint_routes__.items():
-            self.app.remove_route(self._path, method)
+            self.app.remove_route(self.path, method)
 
         for middleware in self.__endpoint_middlewares__:
             self.app.remove_middleware(middleware)

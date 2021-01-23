@@ -15,6 +15,8 @@ class Request:
         self._headers: typing.Dict[str, typing.Any] = headers
         self._body = body
 
+        self._args: typing.Dict[str, typing.Any] = {}
+
     @property
     def method(self):
         return self._method
@@ -32,8 +34,12 @@ class Request:
         return self._status_code
 
     @property
-    def args(self):
+    def params(self):
         return self._url.query
+
+    @property
+    def args(self):
+        return self._args
 
     def text(self):
         if self._body is not None:

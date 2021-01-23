@@ -1,9 +1,14 @@
 from .meta import ExtensionMeta
 from ..application import Route
 import functools
+import typing
+
+if typing.TYPE_CHECKING:
+    from ..application import Application
+    from .restful import App
 
 class Extension(metaclass=ExtensionMeta):
-    def __init__(self, app) -> None:
+    def __init__(self, app: typing.Union['Application', 'App']) -> None:
         self.app = app
 
     @staticmethod

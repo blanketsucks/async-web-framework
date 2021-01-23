@@ -10,18 +10,25 @@ class URLRouter:
         self._routes: typing.Dict[typing.Tuple[str, str], typing.Coroutine] = {}
 
     def resolve(self, request):
-        key = (request.method, request.url.path)
+        for (method, pattern), handler in self._routes.items():
+            match = re.match(pattern, request.url.raw_path)
 
-        if key not in self._routes:
-            raise HTTPNotFound(reason=f"Could not find {request.url.raw_path!r}")
+            if match is None:
+                key = (request.method, request.url.raw_path)
+                value = self._routes.get(key)
 
-        if key[0] != request.method:
-            raise HTTPBadRequest(reason=f"{request.method!r} is not allowed for {request.url.raw_path!r}")
+                if value is None:
+                    raise HTTPNotFound(reason=f"Could not find {request.url.raw_path!r}")
+
+                return {}, value
+
+            if method != request.method:
+                raise HTTPBadRequest(reason=f"{request.method!r} is not allowed for {request.url.raw_path!r}")
+
+            return match.groupdict(), handler
             
-        return self._routes[key]
-
-    def _format_pattern(self, path):
-        if not re.match(re.compile(self._param_regex), path):
+    def _format_pattern(self, path: str):
+        if not re.search(self._param_regex, path):
             return path
 
         regex = r""
@@ -36,9 +43,10 @@ class URLRouter:
         return regex
 
     def add_route(self, route):
-        self._routes[(route.method, route.path)] = route.coro
+        pattern = self._format_pattern(route.path)
+        print(pattern)
+        self._routes[(route.method, pattern)] = route.coro
 
     def remove_route(self, method: str, path: str):
         coro = self._routes.pop((method, path))
         return coro
-

@@ -207,7 +207,8 @@ class Application:
 
     async def _handler(self, request: Request, response_writer):
         try:
-            handler = self._router.resolve(request)
+            info, handler = self._router.resolve(request)
+            request._args = info
 
             if len(self._middlewares) != 0:
                 for middleware in self._middlewares:
@@ -235,7 +236,7 @@ class Application:
     # Routing
 
     def add_route(self, route: Route):
-        if not inspect.iscoroutine(route.coro):
+        if not inspect.iscoroutinefunction(route.coro):
             raise RuntimeError('Routes must be async.')
 
         self._router.add_route(route)
@@ -283,19 +284,12 @@ class Application:
             return route
         return decorator
 
-    def add_protected_route(self, path: str, method: str, coro):
+    def add_protected_route(self, path: str, method: str, coro: typing.Coroutine):
         async def func(request: Request):
-            token = request.args.get('token')
+            token = self.get_oauth_token(request.headers)
+            valid = self.validate_token(token)
 
-            if not token:
-                token = request.headers.get('token')
-
-                if not token:
-                    return jsonify(message='Invalid Token.', status=403)
-
-            try:
-                data = jwt.encode(token, self.get_setting('SECRET_KEY'))
-            except:
+            if not valid:
                 return jsonify(message='Invalid Token.', status=403)
 
             return coro(request)
@@ -304,42 +298,73 @@ class Application:
         return self.add_route(route)
 
     def protected(self, path: str, method: str):
-        def decorator(func):
+        def decorator(func: typing.Coroutine):
             return self.add_protected_route(path, method, func)
         return decorator
 
-    def add_oauth2_route(self, path: str, method: str, validator=None, expires=60):
+    def generate_oauth2_token(self, client_id: str, client_secret: str, *, validator: typing.Coroutine=None, expires: int=60):
+        if validator:
+            self.loop.run_until_complete(validator(client_secret))
+
+        secret_key = self.get_setting('SECRET_KEY')
+        data = {
+            'user' : client_id,
+            'exp' : datetime.datetime.utcnow() + datetime.timedelta(minutes=expires)
+        }
+    
+        token = jwt.encode(data, secret_key)
+        return token
+
+    def get_oauth_token(self, headers: typing.Dict[str, str]):
+        auth = headers.get('Authorization')
+
+        if not auth:
+            return None
+
+        _type, token = auth.split(' ')
+        return _type, token
+
+    def validate_token(self, token: str):
+        secret = self.get_setting('SECRET_KEY')
+
+        try:
+            data = jwt.decode(token, secret)
+        except:
+            return False
+
+        return True
+
+    def add_oauth2_login_route(self, path: str, method: str, coro: typing.Coroutine=None,
+                               validator: typing.Coroutine=None, expires: int=60):
+
         async def func(req: Request):
             client_id = req.headers.get('client_id')
             client_secret = req.headers.get('client_secret')
 
-            secret_key = self.get_setting('SECRET_KEY')
-
             if client_id and client_secret:
-                if validator:
-                    await validator(client_secret)
+                token = self.generate_oauth2_token(client_id, client_secret,
+                                                   validator=validator, expires=expires)
 
-                data = {
-                    'user' : client_id,
-                    'exp' : datetime.datetime.utcnow() + datetime.timedelta(minutes=expires)
-                }
-                token = jwt.encode(data, secret_key)
+                if coro:
+                    return await coro(req, token)
+                
                 return jsonify(access_token=token)
 
-            return jsonify(message='Missing client_id or client_secret.', status=403)
+            if not client_secret or not client_id:
+                return jsonify(message='Missing client_id or client_secret.', status=403)
 
         route = Route(path, method, func)
         return self.add_route(route)
 
-    def oauth2(self, path: str, method: str):
+    def oauth2_login(self, path: str, method: str, validator: typing.Coroutine=None, expires: int=60):
         def decorator(func):
-            return self.add_oauth2_route(path, method, func)
+            return self.add_oauth2_login_route(path, method, func, validator=validator, expires=expires)
         return decorator
 
     # Listeners
 
     def add_listener(self, f: typing.Coroutine, name: str=None) -> Listener:
-        if not inspect.iscoroutine(f):
+        if not inspect.iscoroutinefunction(f):
             raise RuntimeError('All listeners must be async')
 
         actual = f.__name__ if name is None else name
@@ -386,7 +411,7 @@ class Application:
         return wrapper
 
     def add_middleware(self, middleware: typing.Coroutine):
-        if not inspect.iscoroutine(middleware):
+        if not inspect.iscoroutinefunction(middleware):
             raise RuntimeError('All middlewares must be async')
 
         self._middlewares.append(middleware)
