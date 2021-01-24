@@ -1,0 +1,7 @@
+PyJwt
+aiosqlite
+aioredis
+asyncpg
+httptools
+aiohttp
+watchgod

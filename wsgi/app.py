@@ -6,7 +6,6 @@ from .router import Router
 from .listeners import ListenersHandler
 from .response import Response
 from .helpers import format_exception, jsonify
-from .tasks import Task
 from .settings import Settings
 from .objects import Route, Listener, Middleware
 
@@ -19,6 +18,10 @@ import typing
 import jwt
 import datetime
 
+import watchgod
+import asyncio
+import importlib.util
+import importlib
 
 class Application:
     """
@@ -31,7 +34,7 @@ class Application:
     def __init__(self, routes: typing.List[Route]=None,
                 listeners: typing.List[Listener]=None,
                 middlewares: typing.List[Middleware]=None, *,
-                loop: asyncio.AbstractEventLoop=None) -> None:
+                loop: asyncio.AbstractEventLoop=None, name=None) -> None:
 
         self.loop = loop or asyncio.get_event_loop()
         self.settings = Settings()
@@ -40,9 +43,23 @@ class Application:
         self._listener = ListenersHandler()
 
         self._middlewares: typing.List[typing.Coroutine] = []
-        self._tasks: typing.List[Task] = []
+        self._server = None
+
+        self.__datetime = datetime.datetime.utcnow().strftime('%Y-%m-%d | %H:%M:%S')
 
         self._load_from_arguments(routes=routes, listeners=listeners, middlewares=middlewares)
+
+    async def _watch_for_changes(self):
+        async for changes in watchgod.awatch('.', watcher_cls=watchgod.PythonWatcher, loop=self.loop):
+            for change in changes:
+                print(f"[{self.__datetime}]: Detected change in {change[1]}. Reloading.")
+                filepath = change[1][2:-3].replace('\\', '.')
+                
+                module = importlib.import_module(filepath)
+
+                importlib.reload(module)
+                await self.restart()
+
 
     def make_server(self, cls=Server):
         res = cls(self.loop, app=self, handler=self._handler)
@@ -55,6 +72,10 @@ class Application:
     def remove_setting(self, key: str):
         value = self.settings.pop(key)
         return value
+    
+    def set_setting(self, key, value):
+        self.settings[key] = value
+        return key, value
 
     @property
     def router(self):
@@ -76,25 +97,6 @@ class Application:
     def routes(self):
         return self._router.routes
 
-    @property
-    def tasks(self):
-        return self._tasks
-
-    def task(self, *, seconds=0, minutes=0, hours=0, count=None, loop=None):
-        def wrapper(func):
-            cls = Task(
-                func,
-                seconds,
-                minutes,
-                hours,
-                count,
-                loop
-            )
-
-            self._tasks.append(cls)
-            return cls
-        return wrapper
-
     def _load_from_arguments(self, routes: typing.List[Route]=None, listeners: typing.List[Listener]=None, 
                             middlewares: typing.List[Middleware]=None):
 
@@ -114,12 +116,9 @@ class Application:
                 coro = middleware.coro
                 self.add_middleware(coro)
 
-    # Running the app
+    # Running, closing and restarting the app
 
-    async def start(self, host: str=None, *, port: int=None):
-        for task in self._tasks:
-            task.start()
-
+    async def start(self, host: str=None, *, port: int=None, debug=False):
         if not host:
             host = '127.0.0.1'
 
@@ -127,44 +126,67 @@ class Application:
             port = 8080
 
         serv = self.make_server()
-        server: asyncio.AbstractServer = await self.loop.create_server(lambda: serv, host=host, port=port)
+        self._server = server = await self.loop.create_server(lambda: serv, host=host, port=port)
 
-        await self.dispatch('on_startup', host, port)
-
+        await self.dispatch("on_startup")
+        print(f'[{self.__datetime}]: App running at http://{host}:{port}')
         try:
+            if debug:
+                self.settings['DEBUG'] = True
+                await self._watch_for_changes()
+
             await server.serve_forever()
         except KeyboardInterrupt:
             await self.dispatch('on_shutdown')
             server.close()
-
+            
             await server.wait_closed()
             self.loop.stop()
 
-    def run(self, host: str=None, *, port: int=None):
-        for task in self._tasks:
-            task.start()
+    async def close(self):
+        if not self._server:
+            raise RuntimeError('The app is not running.')
 
+        await self.dispatch('on_shutdown')
+        self._server.close()
+
+        await self._server.wait_closed()
+
+    def run(self, host: str=None, *, port: int=None, debug=False):
         if not host:
             host = '127.0.0.1'
 
         if not port:
             port = 8080
 
+        self._port = port
+        self._host = host
+
         serv = self.make_server()
 
-        server = self.loop.run_until_complete(
+        self._server = server = self.loop.run_until_complete(
             self.loop.create_server(lambda: serv, host=host, port=port)
         )
-        self.loop.run_until_complete(self.dispatch('on_startup', host, port))
-
+        self.loop.run_until_complete(self.dispatch('on_startup'))
+        print(f'[{self.__datetime}]: App running at http://{host}:{port}')
         try:
+            if debug:
+                self.settings['DEBUG'] = True
+                self.loop.run_until_complete(self._watch_for_changes())
+
             self.loop.run_until_complete(server.serve_forever())
         except KeyboardInterrupt:
-            self.loop.run_until_complete(self.dispatch('on_shutdown'))
-            server.close()
-            
-            self.loop.run_until_complete(server.wait_closed())
-            self.loop.stop()
+            self.loop.run_until_complete(self.close())
+
+    async def restart(self):
+        await self.close()
+        debug = self.get_setting('DEBUG')
+
+        port = self._port
+        host = self._host
+
+        await self.start(host, port=port, debug=debug)
+        await self.dispatch('on_restart')
 
     # Route handler 
 

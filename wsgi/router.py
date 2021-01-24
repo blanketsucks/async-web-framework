@@ -1,4 +1,3 @@
-
 from .error import HTTPNotFound, HTTPBadRequest
 
 import re
@@ -25,7 +24,7 @@ class Router:
 
             if method != request.method:
                 raise HTTPBadRequest(reason=f"{request.method!r} is not allowed for {request.url.raw_path!r}")
-
+            
             return match.groupdict(), handler
             
     def _format_pattern(self, path: str):

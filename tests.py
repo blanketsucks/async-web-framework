@@ -1,12 +1,12 @@
 import wsgi
+import asyncio
+loop = asyncio.get_event_loop()
 
-from wsgi import restful
-from wsgi import helpers
+app = wsgi.Application(loop=loop)
 
-app = restful.App()
+@app.route('/test', 'GET')
+async def test(request):
+    return ''
 
-@app.route('/', 'GET')
-async def index(request: wsgi.Request):
-    return helpers.jsonify(Hello='World!')
-
-app.run()
+if __name__ == '__main__':
+    app.run(debug=True)

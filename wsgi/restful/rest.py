@@ -1,4 +1,4 @@
-from ..application import Application
+from ..app import Application
 from ..error import ExtensionLoadError
 from .endpoint import Endpoint
 from .extension import Extension

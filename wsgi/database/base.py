@@ -2,7 +2,7 @@ import asyncio
 import typing
 
 from .errors import NoConnections
-from ..application import Application
+from ..app import Application
 from ..restful import App
 
 class BaseConnection:
