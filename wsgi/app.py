@@ -1,7 +1,4 @@
-import multiprocessing
-multiprocessing.set_start_method('spawn')
 
-import os
 from .request import Request
 from .error import HTTPException
 from .server import Server
@@ -16,7 +13,6 @@ import json
 import functools
 import inspect
 import typing
-import sys
 
 import jwt
 import datetime
@@ -42,7 +38,7 @@ class Application:
     def __init__(self, routes: typing.List[Route]=None,
                 listeners: typing.List[Listener]=None,
                 middlewares: typing.List[Middleware]=None, *,
-                loop: asyncio.AbstractEventLoop=None) -> None:
+                loop: asyncio.AbstractEventLoop=None, name=None) -> None:
 
         self.loop = loop or asyncio.get_event_loop()
         self.settings = Settings()
@@ -53,6 +49,7 @@ class Application:
 
         self._server = None
         self.__datetime = datetime.datetime.utcnow().strftime('%Y-%m-%d | %H:%M:%S')
+        self.name = name
 
         self._load_from_arguments(routes=routes, listeners=listeners, middlewares=middlewares)
 
@@ -66,15 +63,7 @@ class Application:
                 module = importlib.import_module(filepath)
                 importlib.reload(module)
 
-                sys.exit(3)
                 await self.restart()
-
-    async def _watch_for_changes(self):
-        await watchgod.arun_process(
-            path=os.getcwd(),
-            target=self.restart,
-            watcher_cls=watchgod.PythonWatcher
-        )
 
 
     def get_database_connection(self) -> typing.Optional[typing.Union[asyncpg.pool.Pool, aioredis.Redis, aiosqlite.Connection]]:
