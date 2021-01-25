@@ -38,18 +38,17 @@ class Application:
     def __init__(self, routes: typing.List[Route]=None,
                 listeners: typing.List[Listener]=None,
                 middlewares: typing.List[Middleware]=None, *,
-                loop: asyncio.AbstractEventLoop=None, name=None) -> None:
+                loop: asyncio.AbstractEventLoop=None) -> None:
 
         self.loop = loop or asyncio.get_event_loop()
+        
         self.settings = Settings()
-
         self._router = Router()
         self._middlewares: typing.List[typing.Coroutine] = []
-        self._listeners: typing.Dict[str, typing.List[typing.Coroutine]] = {}
 
+        self._listeners: typing.Dict[str, typing.List[typing.Coroutine]] = {}
         self._server = None
         self.__datetime = datetime.datetime.utcnow().strftime('%Y-%m-%d | %H:%M:%S')
-        self.name = name
 
         self._load_from_arguments(routes=routes, listeners=listeners, middlewares=middlewares)
 
