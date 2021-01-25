@@ -1,42 +1,19 @@
-import os
-import wsgi
-import asyncio
+from wsgi import restful
 
-import typing
-import pathlib
-
-path = pathlib.Path('.')
-
-loop = asyncio.get_event_loop()
-app = wsgi.Application(loop=loop)
+app = restful.App()
 
 @app.route('/', 'GET')
-async def index(request: wsgi.Request):
-    return '!'
-
-@app.get('/te')
-async def tes(req):
-    return '?'
-
-@app.route('/ye/e', 'GET')
-async def uegbofe(res):
-    return ''
-
-@app.middleware()
-async def middleware(request: wsgi.Request, coro: typing.Coroutine):
-    print(f'[{app.__datetime}] Recieved a {request.method!r} at {request.url.raw_path!r}')
-
-    return await coro(request)
+async def index(request):
+    return '/'
 
 @app.listen('on_startup')
-async def star():
+async def start():
     print(app.routes)
 
-@app.listen('on_restart')
-async def restsrt():
-    print('RE')
+@app.route('/test', 'GET')
+async def test(request):
+    return '/test'
 
-
-
-if __name__ == '__main__': app.run('127.0.0.1', port=8080, debug=True)
+if __name__ == '__main__':
+    app.run(debug=True)
 

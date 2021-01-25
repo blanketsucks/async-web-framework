@@ -1,4 +1,5 @@
 
+import os
 from .request import Request
 from .error import HTTPException
 from .server import Server
@@ -26,7 +27,6 @@ import importlib.util
 import importlib
 import watchgod
 
-
 class Application:
     """
     
@@ -41,7 +41,7 @@ class Application:
                 loop: asyncio.AbstractEventLoop=None) -> None:
 
         self.loop = loop or asyncio.get_event_loop()
-        
+
         self.settings = Settings()
         self._router = Router()
         self._middlewares: typing.List[typing.Coroutine] = []
@@ -52,53 +52,19 @@ class Application:
 
         self._load_from_arguments(routes=routes, listeners=listeners, middlewares=middlewares)
 
-    async def _watch_for_changes(self):
-        async for changes in watchgod.awatch('./', watcher_cls=watchgod.PythonWatcher, loop=self.loop):
-            for change in changes:
-                print(change)
-                print(f"[{self.__datetime}]: Detected change in {change[1]}. Reloading.")
-                filepath = change[1][2:-3].replace('\\', '.')
+    # Private methods
 
+    async def _watch_for_changes(self):
+        async for changes in watchgod.awatch('.', watcher_cls=watchgod.PythonWatcher):
+            for change in changes:
+                print(f"[{self.__datetime}]: Detected change in {change[1]}. Reloading.")
+
+                filepath = change[1][2:-3].replace('\\', '.')
+                
                 module = importlib.import_module(filepath)
                 importlib.reload(module)
 
                 await self.restart()
-
-
-    def get_database_connection(self) -> typing.Optional[typing.Union[asyncpg.pool.Pool, aioredis.Redis, aiosqlite.Connection]]:
-        return self._database_connection
-
-    def make_server(self, cls=Server):
-        res = cls(self.loop, app=self, handler=self._handler)
-        return res
-        
-    def get_setting(self, key: str):
-        value = self.settings.get(key, None)
-        return value
-
-    def remove_setting(self, key: str):
-        value = self.settings.pop(key)
-        return value
-    
-    def set_setting(self, key, value):
-        self.settings[key] = value
-        return key, value
-
-    @property
-    def router(self):
-        return self._router
-
-    @property
-    def middlewares(self):
-        return self._middlewares
-
-    @property
-    def listeners(self):
-        return self._listeners
-
-    @property
-    def routes(self):
-        return self._router.routes
 
     def _load_from_arguments(self, routes: typing.List[Route]=None, listeners: typing.List[Listener]=None, 
                             middlewares: typing.List[Middleware]=None):
@@ -118,78 +84,6 @@ class Application:
             for middleware in middlewares:
                 coro = middleware.coro
                 self.add_middleware(coro)
-
-    # Running, closing and restarting the app
-
-    async def start(self, host: str=None, *, port: int=None, debug=False):
-        if not host:
-            host = '127.0.0.1'
-
-        if not port:
-            port = 8080
-
-        serv = self.make_server()
-        self._server = server = await self.loop.create_server(lambda: serv, host=host, port=port)
-
-        await self.dispatch("on_startup")
-        print(f'[{self.__datetime}]: App running at http://{host}:{port}')
-        try:
-            if debug:
-                self.settings['DEBUG'] = True
-                await self._watch_for_changes()
-
-            await server.serve_forever()
-        except KeyboardInterrupt:
-            await self.close()
-            
-
-    async def close(self):
-        if not self._server:
-            raise RuntimeError('The app is not running.')
-
-        await self.dispatch('on_shutdown')
-        self._server.close()
-
-        await self._server.wait_closed()
-
-    def run(self, host: str=None, *, port: int=None, debug=False):
-        if not host:
-            host = '127.0.0.1'
-
-        if not port:
-            port = 8080
-
-        self._running_port = port
-        self._running_host = host
-
-        serv = self.make_server()
-
-        self._server = server = self.loop.run_until_complete(
-            self.loop.create_server(lambda: serv, host=host, port=port)
-        )
-        
-        self.loop.run_until_complete(self.dispatch('on_startup'))
-        print(f'[{self.__datetime}]: App running at http://{host}:{port}')
-        try:
-            if debug:
-                self.set_setting('DEBUG', True)
-                self.loop.run_until_complete(self._watch_for_changes())
-
-            self.loop.run_until_complete(server.serve_forever())
-        except KeyboardInterrupt:
-            self.loop.run_until_complete(self.close())
-
-    async def restart(self):
-        await self.close()
-        debug = self.get_setting('DEBUG')
-
-        port = self._running_port
-        host = self._running_host
-
-        await self.dispatch('on_restart')
-        await self.start(host, port=port, debug=debug)
-
-    # Route handler 
 
     async def _handler(self, request: Request, response_writer):
         try:
@@ -218,6 +112,96 @@ class Application:
             resp = format_exception(exc)
 
         response_writer(resp)
+
+    # Properties 
+
+    @property
+    def router(self):
+        return self._router
+
+    @property
+    def middlewares(self):
+        return self._middlewares
+
+    @property
+    def listeners(self):
+        return self._listeners
+
+    @property
+    def routes(self):
+        return self._router.routes
+
+    # Some methods. idk
+
+    def get_database_connection(self) -> typing.Optional[typing.Union[asyncpg.pool.Pool, aioredis.Redis, aiosqlite.Connection]]:
+        return self._database_connection
+
+    def make_server(self, cls=Server):
+        res = cls(self.loop, app=self, handler=self._handler)
+        return res
+        
+    def get_setting(self, key: str):
+        value = self.settings.get(key, None)
+        return value
+
+    def remove_setting(self, key: str):
+        value = self.settings.pop(key)
+        return value
+    
+    def set_setting(self, key, value):
+        self.settings[key] = value
+        return key, value
+
+    # Running, closing and restarting the app
+
+    async def start(self, host: str=None, *, port: int=None, debug=False):
+        if not host:
+            host = '127.0.0.1'
+
+        if not port:
+            port = 8080
+
+        self._running_port = port
+        self._running_host = host
+
+        serv = self.make_server()
+        self._server = server = await self.loop.create_server(lambda: serv, host=host, port=port)
+
+        await self.dispatch("on_startup")
+        print(f'[{self.__datetime}]: App running at http://{host}:{port}')
+
+        if debug:
+            self.set_setting('DEBUG', True)
+            await self._watch_for_changes()
+
+        await server.serve_forever()
+
+
+    async def close(self):
+        if not self._server:
+            raise RuntimeError('The app is not running.')
+
+        await self.dispatch('on_shutdown')
+        self._server.close()
+
+        await self._server.wait_closed()
+
+    def run(self, host: str=None, *, port: int=None, debug=False):
+        try:
+            self.loop.run_until_complete(self.start(host, port=port, debug=debug))
+        except KeyboardInterrupt:
+            self.loop.run_until_complete(self.close())
+        finally:
+            self.loop.close()
+
+    async def restart(self):
+        await self.close()
+        debug = self.get_setting('DEBUG')
+
+        port = self._running_port
+        host = self._running_host
+
+        await self.start(host, port=port, debug=debug)
 
     # Routing
 
