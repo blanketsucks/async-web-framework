@@ -13,6 +13,7 @@ class PostgresConnection(BaseConnection):
                                         database=database, loop=self.loop, **kwargs
                                         ) 
         if self.app:
+            self.app._database_connection = conn
             await self.app.dispatch('on_database_connect', conn)
 
         self._connection = conn

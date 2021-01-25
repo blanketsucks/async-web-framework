@@ -10,6 +10,7 @@ class SQLiteConnection(BaseConnection):
         connection = await aiosqlite.connect(database, loop=self.loop, **kwargs)
 
         if self.app:
+            self.app._database_connection = connection
             await self.app.dispatch('on_database_connect', connection)
 
         self._connection = connection

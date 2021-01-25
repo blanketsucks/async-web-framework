@@ -50,6 +50,7 @@ class RedisConnection(BaseConnection):
         connection = await aioredis.create_redis_pool(address, db=db, password=password, loop=self.loop, **kwargs)
         
         if self.app:
+            self.app._database_connection = connection
             await self.app.dispatch('on_database_connect', connection)
 
         self._connection = connection
@@ -84,6 +85,10 @@ class RedisConnection(BaseConnection):
     async def close(self):
         if not self._connection:
             raise NoConnections('No connections has been made.')
+
+        if self.app:
+            self.app._database_connection = None
+            await self.app.dispatch('on_database_close')
 
         self._connection.close()
         await self._connection.wait_closed()

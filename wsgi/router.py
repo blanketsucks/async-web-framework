@@ -26,6 +26,8 @@ class Router:
                 raise HTTPBadRequest(reason=f"{request.method!r} is not allowed for {request.url.raw_path!r}")
             
             return match.groupdict(), handler
+
+        raise HTTPNotFound(reason='Could not find {0}'.format(request.url.raw_path))
             
     def _format_pattern(self, path: str):
         if not re.search(self._param_regex, path):

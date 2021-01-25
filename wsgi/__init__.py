@@ -8,4 +8,3 @@ from .router import Router
 from .server import Server
 from .settings import Settings
 from .objects import Route, Middleware, Listener
-from .listeners import ListenersHandler

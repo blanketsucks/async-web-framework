@@ -24,6 +24,7 @@ class BaseConnection:
             raise NoConnections('No connections have been made.')
 
         if self.app:
+            self.app._database_connection = None
             await self.app.dispatch('on_database_close')
 
         await self._connection.close()
