@@ -2,7 +2,10 @@ from .response import Response
 
 import json
 
-class HTTPException(Response, Exception):
+class AppError(Exception):
+    pass
+
+class HTTPException(Response, AppError):
     status_code = None
 
     def __init__(self, reason=None, content_type=None):
@@ -18,10 +21,9 @@ class HTTPException(Response, Exception):
         Response.__init__(self,
                         body=self._reason,
                         status=self.status_code,
-                        content_type=self._content_type or "text/plain",
-                        )
+                        content_type=self._content_type or "text/plain")
 
-        Exception.__init__(self, self._reason)
+        AppError.__init__(self, self._reason)
 
 
 class HTTPNotFound(HTTPException):
@@ -39,6 +41,8 @@ class HTTPFound(HTTPException):
         super().__init__(reason=reason, content_type=content_type)
         self.add_header("Location", location)
 
-class ExtensionLoadError(Exception):
+class ExtensionLoadError(AppError):
     pass
 
+class InvalidSetting(AppError):
+    pass

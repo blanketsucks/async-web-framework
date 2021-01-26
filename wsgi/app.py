@@ -1,5 +1,4 @@
 
-import os
 from .request import Request
 from .error import HTTPException
 from .server import Server
@@ -9,11 +8,12 @@ from .helpers import format_exception, jsonify
 from .settings import Settings
 from .objects import Route, Listener, Middleware
 
-import asyncio
 import json
 import functools
 import inspect
 import typing
+import traceback
+import sys
 
 import jwt
 import datetime
@@ -21,7 +21,6 @@ import asyncpg
 import aiosqlite
 import aioredis
 
-import watchgod
 import asyncio
 import importlib.util
 import importlib
@@ -41,14 +40,19 @@ class Application:
                 loop: asyncio.AbstractEventLoop=None) -> None:
 
         self.loop = loop or asyncio.get_event_loop()
-
         self.settings = Settings()
+
+        self._database_connection = None
         self._router = Router()
         self._middlewares: typing.List[typing.Coroutine] = []
 
         self._listeners: typing.Dict[str, typing.List[typing.Coroutine]] = {}
         self._server = None
         self.__datetime = datetime.datetime.utcnow().strftime('%Y-%m-%d | %H:%M:%S')
+
+        self._running_host = '127.0.0.1'
+        self._running_port = 8080
+        self._ready = asyncio.Event(loop=self.loop)
 
         self._load_from_arguments(routes=routes, listeners=listeners, middlewares=middlewares)
 
@@ -66,7 +70,8 @@ class Application:
 
                 await self.restart()
 
-    def _load_from_arguments(self, routes: typing.List[Route]=None, listeners: typing.List[Listener]=None, 
+    def _load_from_arguments(self, routes: typing.List[Route]=None,
+                            listeners: typing.List[Listener]=None,
                             middlewares: typing.List[Middleware]=None):
 
         if routes:
@@ -86,6 +91,9 @@ class Application:
                 self.add_middleware(coro)
 
     async def _handler(self, request: Request, response_writer):
+        handler = None
+        resp = None
+
         try:
             info, handler = self._router.resolve(request)
             request._args = info
@@ -105,13 +113,27 @@ class Application:
 
         except HTTPException as exc:
             await self.dispatch('on_error', exc)
-            resp = exc
+            self._error(handler.__name__)
 
         except Exception as exc:
             await self.dispatch('on_error', exc)
+            self._error(handler.__name__)
+
             resp = format_exception(exc)
 
         response_writer(resp)
+
+    def _error(self, function):
+        print('Ignoring exception in {}'.format(function), file=sys.stderr)
+        traceback.print_exc()
+
+    # Ready up stuff
+
+    async def wait_until_startup(self):
+        await self._ready.wait()
+
+    def is_ready(self):
+        return self._ready.is_set()
 
     # Properties 
 
@@ -168,14 +190,14 @@ class Application:
         self._server = server = await self.loop.create_server(lambda: serv, host=host, port=port)
 
         await self.dispatch("on_startup")
-        print(f'[{self.__datetime}]: App running at http://{host}:{port}')
+        self._ready.set()
 
+        print(f'[{self.__datetime}]: App started. Running at http://{host}:{port}.')
         if debug:
             self.set_setting('DEBUG', True)
             await self._watch_for_changes()
 
         await server.serve_forever()
-
 
     async def close(self):
         if not self._server:
@@ -195,13 +217,27 @@ class Application:
             self.loop.close()
 
     async def restart(self):
-        await self.close()
+        """
+        The main reason i just dont call `close` and then `start` is because of the listeners dispatched inside of them.
+        Not having `on_shutdown` and `on_startup` be called on each save would be very nice i believe.
+        """
+        self._server.close()
+        await self._server.wait_closed()
+
         debug = self.get_setting('DEBUG')
 
         port = self._running_port
         host = self._running_host
 
-        await self.start(host, port=port, debug=debug)
+        serv = self.make_server()
+        self._server = server = await self.loop.create_server(lambda: serv, host=host, port=port)
+        
+        await self.dispatch('on_restart')
+        print(f'[{self.__datetime}]: App restarted. Running at http://{host}:{port}.')
+        if debug:
+            await self._watch_for_changes()
+
+        await server.serve_forever()
 
     # Routing
 
@@ -262,7 +298,7 @@ class Application:
             if not valid:
                 return jsonify(message='Invalid Token.', status=403)
 
-            return coro(request)
+            return await coro(request)
 
         route = Route(path, method, func)
         return self.add_route(route)
@@ -339,10 +375,10 @@ class Application:
         
         actual = f.__name__ if name is None else name
 
-        if actual in self.listeners:
-            self.listeners[actual].append(f)
+        if actual in self._listeners:
+            self._listeners[actual].append(f)
         else:
-            self.listeners[actual] = [f]
+            self._listeners[actual] = [f]
     
         return Listener(f, actual)
 
@@ -356,7 +392,6 @@ class Application:
 
         self._listeners[name].remove(func)
 
-
     def listen(self, name: str=None):
         def decorator(func: typing.Coroutine):
             return self.add_listener(func, name)
@@ -368,9 +403,7 @@ class Application:
         except KeyError:
             return
         
-        for listener in listeners:
-            await listener(*args, **kwargs)
-
+        await asyncio.gather(*[listener(*args, **kwargs) for listener in listeners], loop=self.loop)
         return listeners
 
     # Middlewares

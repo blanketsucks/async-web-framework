@@ -32,8 +32,9 @@ class Endpoint(metaclass=EndpointMeta):
     def _unpack(self):
         for method, handler in self.__endpoint_routes__.items():
             actual = functools.partial(handler, self)
+            actual_path = self.__endpoint_route_prefix__ + self.path
 
-            route = Route(self.path, method, actual)
+            route = Route(actual_path, method, actual)
             self.app.add_route(route)
 
         for middleware in self.__endpoint_middlewares__:
@@ -50,4 +51,3 @@ class Endpoint(metaclass=EndpointMeta):
             self.app.remove_middleware(middleware)
 
         return self
-        

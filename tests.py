@@ -1,19 +1,18 @@
 from wsgi import restful
+from wsgi import tasks
+import wsgi
 
-app = restful.App()
-
-@app.route('/', 'GET')
-async def index(request):
-    return '/'
+app = wsgi.Application()
 
 @app.listen('on_startup')
 async def start():
-    print(app.routes)
+    print('START')
 
-@app.route('/test', 'GET')
-async def test(request):
-    return '/test'
+@app.route('/', 'GET')
+async def index(request):
+    return {request.url: request.headers}
+
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.loop.run_until_complete(app.start())
 

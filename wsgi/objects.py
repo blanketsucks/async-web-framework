@@ -38,4 +38,3 @@ class Listener:
     @property
     def coro(self):
         return self._coro
-

@@ -1,10 +1,11 @@
-
 import importlib
 import typing
 
+from .error import InvalidSetting
+
 class Settings(dict):
     def __init__(self, *args, **kwargs):
-        self.VALID_SETTINGS: typing.Tuple[str] = (
+        self.VALID_SETTINGS: typing.Tuple = (
             'SECRET_KEY',
             'DEBUG'
         )
@@ -12,8 +13,8 @@ class Settings(dict):
         super().__init__(*args, **kwargs)
 
     def __setitem__(self, k, v) -> None:
-        if not k in self.VALID_SETTINGS:
-            raise ValueError(f'{k} is not a valid setting.')
+        if k not in self.VALID_SETTINGS:
+            raise InvalidSetting(f'{k} is not a valid setting.')
 
         return super().__setitem__(k, v)
 
@@ -25,7 +26,7 @@ class Settings(dict):
             return None
 
         res = setting()
-        
+
         for k, v in res.items():
             self[k] = v
 

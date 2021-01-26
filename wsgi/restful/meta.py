@@ -9,7 +9,7 @@ class EndpointMeta(type):
         routes = {}
         middlewares = []
 
-        self = super().__new__(cls, name, bases, attrs, **kwargs)
+        self = super().__new__(cls, name, bases, attrs)
 
         for base in self.mro():
             for element, value in base.__dict__.items():
@@ -34,7 +34,7 @@ class EndpointMeta(type):
                     pass
 
         self.__endpoint_routes__ = routes
-        self.__endpoint_middlewares = middlewares
+        self.__endpoint_middlewares__ = middlewares
 
         return self
 

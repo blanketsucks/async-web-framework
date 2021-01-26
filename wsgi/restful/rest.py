@@ -6,7 +6,7 @@ from .extension import Extension
 import importlib
 import typing
 
-class RestBase:
+class App(Application):
     def __init__(self,
                 endpoints: typing.List[dict]=None,
                 extensions: typing.List[str]=None,
@@ -88,6 +88,3 @@ class RestBase:
                 self.load_extension(extension)
 
         super()._load_from_arguments(routes, listeners, middlewares)
-
-class App(Application, RestBase):
-    pass

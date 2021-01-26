@@ -3,6 +3,6 @@ aiosqlite
 aioredis
 asyncpg
 httptools
-aiohttp
+yarl
 watchgod
 markdown
