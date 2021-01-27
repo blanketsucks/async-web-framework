@@ -5,11 +5,10 @@ import functools
 import typing
 
 if typing.TYPE_CHECKING:
-    from ..app import Application
     from .rest import App
 
 class Endpoint(metaclass=EndpointMeta):
-    def __init__(self, app: typing.Union['Application', 'App'], path: str) -> None:
+    def __init__(self, app: 'App', path: str) -> None:
         self.app = app
         self.path = path
 

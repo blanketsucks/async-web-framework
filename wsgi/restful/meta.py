@@ -1,3 +1,7 @@
+from ..error import (RouteRegistrationError,
+                    ListenerRegistrationError,
+                    MiddlewareRegistrationError
+                    )
 
 class EndpointMeta(type):
     def __new__(cls, *args, **kwargs):
@@ -18,7 +22,7 @@ class EndpointMeta(type):
                 try:
                     route = getattr(value, '__endpoint_route__')
                     if is_static:
-                        raise ValueError('Routes must not be static.')
+                        raise RouteRegistrationError('Routes must not be static.')
 
                     routes[route] = value
                 except AttributeError:
@@ -27,7 +31,7 @@ class EndpointMeta(type):
                 try:
                     middleware = getattr(value, '__endpoint_middleware__')
                     if is_static:
-                        raise ValueError('Middlewares must not be static.')
+                        raise MiddlewareRegistrationError('Middlewares must not be static.')
 
                     middlewares.append(middleware)
                 except AttributeError:
@@ -58,7 +62,7 @@ class ExtensionMeta(type):
                 try:
                     route = getattr(value, '__extension_route__')
                     if is_static:
-                        raise ValueError('Routes must not be static.')
+                        raise RouteRegistrationError('Routes must not be static.')
 
                     routes[route] = value
                 except AttributeError:
@@ -67,7 +71,7 @@ class ExtensionMeta(type):
                 try:
                     middleware = getattr(value, '__extension_middleware__')
                     if is_static:
-                        raise ValueError('Middlewares must not be static.')
+                        raise MiddlewareRegistrationError('Middlewares must not be static.')
 
                     middlewares.append(middleware)
                 except AttributeError:
@@ -76,7 +80,7 @@ class ExtensionMeta(type):
                 try:
                     listener = getattr(value, '__extension_listener__')
                     if is_static:
-                        raise ValueError('Listeners must not be static')
+                        raise ListenerRegistrationError('Listeners must not be static')
 
                     listeners[listener] = value
                 except AttributeError:

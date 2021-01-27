@@ -1,18 +1,19 @@
 from wsgi import restful
-from wsgi import tasks
-import wsgi
 
-app = wsgi.Application()
+app = restful.App()
 
-@app.listen('on_startup')
-async def start():
-    print('START')
+class Endpoint(restful.Extension, name='endpoint_test'):
+    pass
 
-@app.route('/', 'GET')
-async def index(request):
-    return {request.url: request.headers}
+class Extension(restful.Endpoint, name='extension_test'):
+    pass
 
+app.add_endpoint(Extension, '/test')
+app.add_extension(Endpoint(app))
+
+print(app.extensions)
+print(app.endpoints)
 
 if __name__ == '__main__':
-    app.loop.run_until_complete(app.start())
+    app.run() 
 

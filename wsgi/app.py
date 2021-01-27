@@ -1,6 +1,6 @@
 
 from .request import Request
-from .error import HTTPException
+from .error import *
 from .server import Server
 from .router import Router
 from .response import Response
@@ -113,19 +113,14 @@ class Application:
 
         except HTTPException as exc:
             await self.dispatch('on_error', exc)
-            self._error(handler.__name__)
+            resp = format_exception(exc)
 
         except Exception as exc:
             await self.dispatch('on_error', exc)
-            self._error(handler.__name__)
-
             resp = format_exception(exc)
 
         response_writer(resp)
 
-    def _error(self, function):
-        print('Ignoring exception in {}'.format(function), file=sys.stderr)
-        traceback.print_exc()
 
     # Ready up stuff
 
@@ -176,7 +171,7 @@ class Application:
 
     # Running, closing and restarting the app
 
-    async def start(self, host: str=None, *, port: int=None, debug=False):
+    async def start(self, host: typing.Optional[str]=None, *, port: typing.Optional[int]=None, debug: bool=False):
         if not host:
             host = '127.0.0.1'
 
@@ -208,9 +203,9 @@ class Application:
 
         await self._server.wait_closed()
 
-    def run(self, host: str=None, *, port: int=None, debug=False):
+    def run(self, *args, **kwargs):
         try:
-            self.loop.run_until_complete(self.start(host, port=port, debug=debug))
+            self.loop.run_until_complete(self.start(*args, **kwargs))
         except KeyboardInterrupt:
             self.loop.run_until_complete(self.close())
         finally:
@@ -243,7 +238,10 @@ class Application:
 
     def add_route(self, route: Route):
         if not inspect.iscoroutinefunction(route.coro):
-            raise RuntimeError('Routes must be async.')
+            raise RouteRegistrationError('Routes must be async.')
+
+        if (route.method, route.path) in self._router.routes:
+            raise RouteRegistrationError('{0!r} is already a route.'.format(route.path))
 
         self._router.add_route(route)
         return route
@@ -371,7 +369,7 @@ class Application:
 
     def add_listener(self, f: typing.Coroutine, name: str=None) -> Listener:
         if not inspect.iscoroutinefunction(f):
-            raise RuntimeError('All listeners must be async')
+            raise ListenerRegistrationError('All listeners must be async')
         
         actual = f.__name__ if name is None else name
 
@@ -415,7 +413,7 @@ class Application:
 
     def add_middleware(self, middleware: typing.Coroutine):
         if not inspect.iscoroutinefunction(middleware):
-            raise RuntimeError('All middlewares must be async')
+            raise MiddlewareRegistrationError('All middlewares must be async')
 
         self._middlewares.append(middleware)
         return Middleware(middleware)

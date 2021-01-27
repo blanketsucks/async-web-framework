@@ -1,8 +1,8 @@
 from .response import Response
-
 import json
 
 class AppError(Exception):
+    """Base inheritance class for errors that occur during the Application's runtime."""
     pass
 
 class HTTPException(Response, AppError):
@@ -41,8 +41,36 @@ class HTTPFound(HTTPException):
         super().__init__(reason=reason, content_type=content_type)
         self.add_header("Location", location)
 
-class ExtensionLoadError(AppError):
+class EndpointError(AppError):
+    pass
+
+class EndpointLoadError(EndpointError):
+    pass
+
+class EndpointNotFound(EndpointError):
+    pass
+
+class ExtensionError(AppError):
+    pass
+
+class ExtensionLoadError(ExtensionError):
+    pass
+
+class ExtensionNotFound(ExtensionError):
     pass
 
 class InvalidSetting(AppError):
     pass
+
+class RegistrationError(AppError):
+    pass        
+
+class RouteRegistrationError(RegistrationError):
+    pass
+
+class ListenerRegistrationError(RegistrationError):
+    pass
+
+class MiddlewareRegistrationError(RegistrationError):
+    pass
+

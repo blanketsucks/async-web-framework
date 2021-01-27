@@ -8,7 +8,7 @@ if typing.TYPE_CHECKING:
     from .rest import App
 
 class Extension(metaclass=ExtensionMeta):
-    def __init__(self, app: typing.Union['Application', 'App']) -> None:
+    def __init__(self, app: 'App') -> None:
         self.app = app
 
     @staticmethod

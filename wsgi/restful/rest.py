@@ -1,5 +1,5 @@
 from ..app import Application
-from ..error import ExtensionLoadError
+from ..error import ExtensionLoadError, ExtensionNotFound, EndpointLoadError, EndpointNotFound
 from .endpoint import Endpoint
 from .extension import Extension
 
@@ -39,7 +39,7 @@ class App(Application):
     
     def add_extension(self, extension):
         if not isinstance(extension, Extension):
-            raise ValueError('Extensions must inherit from Extension')
+            raise ExtensionLoadError('Expected Extension but got {0!r} instead.'.format(extension.__name__))
 
         ext = extension._unpack()
         self._extensions[ext.__extension_name__] = ext
@@ -47,6 +47,9 @@ class App(Application):
         return ext
 
     def remove_extension(self, name: str):
+        if not name in self._extensions:
+            raise ExtensionNotFound('{0!r} was not found.'.format(name))
+
         extension = self._extensions.pop(name)
         extension._pack()
 
@@ -54,7 +57,7 @@ class App(Application):
 
     def add_endpoint(self, cls, path: str):
         if not issubclass(cls, Endpoint):
-            raise RuntimeError('Expected Endpoint but got {0!r} instead.'.format(cls.__name__))
+            raise EndpointLoadError('Expected Endpoint but got {0!r} instead.'.format(cls.__name__))
         
         res = cls(self, path)
         res._unpack()
@@ -63,6 +66,9 @@ class App(Application):
         return res
 
     def remove_endpoint(self, name: str):
+        if not name in self._endpoints:
+            raise EndpointNotFound('{0!r} was not found.'.format(name))
+
         endpoint = self._endpoints.pop(name)
         endpoint._pack()
 
