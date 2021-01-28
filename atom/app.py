@@ -47,7 +47,6 @@ class Application:
 
         self._listeners: typing.Dict[str, typing.List[typing.Coroutine]] = {}
         self._server = None
-        self.__datetime = datetime.datetime.utcnow().strftime('%Y-%m-%d | %H:%M:%S')
 
         self._running_host = '127.0.0.1'
         self._running_port = 8080
@@ -60,6 +59,7 @@ class Application:
     async def _watch_for_changes(self):
         async for changes in watchgod.awatch('.', watcher_cls=watchgod.PythonWatcher):
             for change in changes:
+                self.__datetime = datetime.datetime.utcnow().strftime('%Y-%m-%d | %H:%M:%S')
                 print(f"[{self.__datetime}]: Detected change in {change[1]}. Reloading.")
 
                 filepath = change[1][2:-3].replace('\\', '.')
@@ -186,7 +186,7 @@ class Application:
         await self.dispatch("on_startup")
         self._ready.set()
 
-        print(f'[{self.__datetime}]: App started. Running at http://{host}:{port}.')
+        print(f'[{datetime.datetime.utcnow().strftime("%Y-%m-%d | %H:%M:%S")}]: App started. Running at http://{host}:{port}.')
         if debug:
             self.set_setting('DEBUG', True)
             await self._watch_for_changes()
@@ -227,7 +227,7 @@ class Application:
         self._server = server = await self.loop.create_server(lambda: serv, host=host, port=port)
         
         await self.dispatch('on_restart')
-        print(f'[{self.__datetime}]: App restarted. Running at http://{host}:{port}.')
+        print(f'[{datetime.datetime.utcnow().strftime("%Y-%m-%d | %H:%M:%S")}]: App restarted. Running at http://{host}:{port}.')
         if debug:
             await self._watch_for_changes()
 
