@@ -18,13 +18,11 @@ class Router:
 
             if method != request.method:
                 raise HTTPBadRequest(reason=f"{request.method!r} is not allowed for {request.url.raw_path!r}")
-            
-            print('Match: {}'.format(match))
+             
             return match.groupdict(), handler
 
     def _format_pattern(self, path: str):
         if not re.search(self._param_regex, path):
-            print('Not matched')
             return path
 
         regex = r""
@@ -36,14 +34,11 @@ class Router:
             regex += r"(?P<%s>\w+)" % param
             last_pos = match.end()
 
-        print('Matched: {}'.format(regex))
         return regex
 
     def add_route(self, route):
         pattern = self._format_pattern(route.path)
-        print(pattern)
         self.routes[(route.method, pattern)] = route.coro
-        print(self.routes)
 
     def remove_route(self, method: str, path: str):
         coro = self.routes.pop((method, path))

@@ -1,5 +1,6 @@
 import importlib
 import typing
+import pathlib
 
 from .error import InvalidSetting
 
@@ -18,7 +19,10 @@ class Settings(dict):
 
         return super().__setitem__(k, v)
 
-    def from_file(self, fp: str) -> typing.Optional[typing.Dict[str, typing.Any]]:
+    def from_file(self, fp: typing.Union[str, pathlib.Path]) -> typing.Optional[typing.Dict[str, typing.Any]]:
+        if isinstance(fp, pathlib.Path):
+            fp = fp.name
+
         module = importlib.import_module(fp)
         setting = getattr(module, 'load_settings')
 

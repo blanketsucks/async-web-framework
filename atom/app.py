@@ -12,8 +12,7 @@ import json
 import functools
 import inspect
 import typing
-import traceback
-import sys
+import yarl
 
 import jwt
 import datetime
@@ -249,46 +248,39 @@ class Application:
     def remove_route(self, path: str, method: str):
         return self._router.remove_route(method, path)
 
-    def route(self, path: str, method: str):
+    def route(self, path: typing.Union[str, yarl.URL], method: str):
         def decorator(func: typing.Coroutine):
-            route = Route(path, method, func)
+            actual = path
+
+            if isinstance(path, yarl.URL):
+                actual = path.raw_path
+
+            route = Route(actual, method, func)
             return self.add_route(route)
 
         return decorator
 
-    def get(self, path: str):
+    def get(self, path: typing.Union[str, yarl.URL]):
         def decorator(func: typing.Coroutine):
-            route = Route(path, 'GET', func)
-            self.add_route(route)
-
-            return route
+            return self.route(path, 'GET')(func)
         return decorator
 
-    def put(self, path: str):
+    def put(self, path: typing.Union[str, yarl.URL]):
         def decorator(func: typing.Coroutine):
-            route = Route(path, 'PUT', func)
-            self.add_route(route)
-
-            return route
+            return self.route(path, 'PUT')(func)
         return decorator
 
-    def post(self, path: str):
+    def post(self, path: typing.Union[str, yarl.URL]):
         def decorator(func: typing.Coroutine):
-            route = Route(path, 'POST', func)
-            self.add_route(route)
-
-            return route
+            return self.route(path, 'POST')(func)
         return decorator
 
-    def delete(self, path: str):
+    def delete(self, path: typing.Union[str, yarl.URL]):
         def decorator(func: typing.Coroutine):
-            route = Route(path, 'DELETE', func)
-            self.add_route(route)
-
-            return route
+            return self.route(path, 'DELETE')(func)
         return decorator
 
-    def add_protected_route(self, path: str, method: str, coro: typing.Coroutine):
+    def add_protected_route(self, path: typing.Union[str, yarl.URL], method: str, coro: typing.Coroutine):
         async def func(request: Request):
             _type, token = self.get_oauth_token(request.headers)
             valid = self.validate_token(token)
@@ -298,10 +290,13 @@ class Application:
 
             return await coro(request)
 
+        if isinstance(path, yarl.URL):
+            path = path.raw_path
+
         route = Route(path, method, func)
         return self.add_route(route)
 
-    def protected(self, path: str, method: str):
+    def protected(self, path: typing.Union[str, yarl.URL], method: str):
         def decorator(func: typing.Coroutine):
             return self.add_protected_route(path, method, func)
         return decorator
@@ -328,7 +323,7 @@ class Application:
         _type, token = auth.split(' ')
         return _type, token
 
-    def validate_token(self, token: str):
+    def validate_token(self, token: typing.Union[str, bytes]):
         secret = self.get_setting('SECRET_KEY')
 
         try:
@@ -338,8 +333,8 @@ class Application:
 
         return True
 
-    def add_oauth2_login_route(self, path: str, method: str, coro: typing.Coroutine=None,
-                               validator: typing.Coroutine=None, expires: int=60):
+    def add_oauth2_login_route(self, path: typing.Union[str, yarl.URL], method: str,
+                            coro: typing.Coroutine=None, validator: typing.Coroutine=None, expires: int=60):
 
         async def func(req: Request):
             client_id = req.headers.get('client_id')
@@ -347,7 +342,7 @@ class Application:
 
             if client_id and client_secret:
                 token = self.generate_oauth2_token(client_id, client_secret,
-                                                   validator=validator, expires=expires)
+                                                validator=validator, expires=expires)
 
                 if coro:
                     return await coro(req, token)
@@ -357,10 +352,14 @@ class Application:
             if not client_secret or not client_id:
                 return jsonify(message='Missing client_id or client_secret.', status=403)
 
+        if isinstance(path, yarl.URL):
+            path = path.raw_path
+
         route = Route(path, method, func)
         return self.add_route(route)
 
-    def oauth2(self, path: str, method: str, validator: typing.Coroutine=None, expires: int=60):
+    def oauth2(self, path: typing.Union[str, yarl.URL], method: str,
+            validator: typing.Coroutine=None, expires: int=60):
         def decorator(func):
             return self.add_oauth2_login_route(path, method, func, validator=validator, expires=expires)
         return decorator
@@ -441,3 +440,7 @@ class Application:
     async def on_database_connect(self, connection: typing.Union[asyncpg.pool.Pool, aioredis.Redis, aiosqlite.Connection]): ...
 
     async def on_database_close(self): ...
+
+    async def __call__(self, *args, **kwds):
+        await self.start(*args, **kwds)
+        

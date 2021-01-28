@@ -4,7 +4,6 @@ import functools
 import typing
 
 if typing.TYPE_CHECKING:
-    from ..app import Application
     from .rest import App
 
 class Extension(metaclass=ExtensionMeta):
