@@ -1,8 +1,0 @@
-PyJwt
-aiosqlite
-aioredis
-asyncpg
-httptools
-yarl
-watchgod
-markdown

@@ -18,6 +18,7 @@ class Route:
     def coro(self):
         return self._coro
 
+
 class Middleware:
     def __init__(self, coro: typing.Coroutine) -> None:
         self._coro = coro
@@ -25,6 +26,7 @@ class Middleware:
     @property
     def coro(self):
         return self._coro
+
 
 class Listener:
     def __init__(self, coro: typing.Coroutine, name: str=None) -> None:

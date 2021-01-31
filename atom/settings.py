@@ -2,7 +2,7 @@ import importlib
 import typing
 import pathlib
 
-from .error import InvalidSetting
+from .errors import InvalidSetting
 
 class Settings(dict):
     def __init__(self, *args, **kwargs):

@@ -1,4 +1,4 @@
-from .error import HTTPNotFound, HTTPBadRequest
+from .errors import HTTPNotFound, HTTPBadRequest
 
 import re
 import typing
@@ -14,12 +14,14 @@ class Router:
             match = re.match(pattern, request.url.raw_path)
 
             if match is None:
-                raise HTTPNotFound(reason=f"Could not find {request.url.raw_path!r}")
+                pass
 
-            if method != request.method:
-                raise HTTPBadRequest(reason=f"{request.method!r} is not allowed for {request.url.raw_path!r}")
-             
-            return match.groupdict(), handler
+            if match:
+                if method != request.method:
+                    raise HTTPBadRequest(reason=f"{request.method!r} is not allowed for {request.url.raw_path!r}")
+                
+                return match.groupdict(), handler
+        raise HTTPNotFound(reason=f'Could not find {request.url.raw_path!r}.')
 
     def _format_pattern(self, path: str):
         if not re.search(self._param_regex, path):

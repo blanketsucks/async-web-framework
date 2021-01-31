@@ -1,4 +1,4 @@
-from ..error import (RouteRegistrationError,
+from ..errors import (RouteRegistrationError,
                     ListenerRegistrationError,
                     MiddlewareRegistrationError
                     )

@@ -1,10 +1,10 @@
 
 from .request import Request
-from .error import *
+from .errors import *
 from .server import Server
 from .router import Router
 from .response import Response
-from .helpers import format_exception, jsonify
+from .utils import format_exception, jsonify
 from .settings import Settings
 from .objects import Route, Listener, Middleware
 
@@ -21,7 +21,6 @@ import aiosqlite
 import aioredis
 
 import asyncio
-import importlib.util
 import importlib
 import watchgod
 
@@ -421,9 +420,10 @@ class Application:
         self._middlewares.remove(middleware)
         return middleware
 
-    # Editing any of the following methods will do nothing since they're here as a refrence for listeners
+    # Editing any of the following methods will do nothing since they're here as a refrence for listeners.
+    # Unless you manually add them inside a subclass.
 
-    async def on_startup(self, host: str, port: int): ...
+    async def on_startup(self): ...
 
     async def on_shutdown(self): ...
 
@@ -441,6 +441,4 @@ class Application:
 
     async def on_database_close(self): ...
 
-    async def __call__(self, *args, **kwds):
-        await self.start(*args, **kwds)
-        
+    

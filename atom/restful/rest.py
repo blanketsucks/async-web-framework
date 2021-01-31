@@ -1,5 +1,5 @@
 from ..app import Application
-from ..error import ExtensionLoadError, ExtensionNotFound, EndpointLoadError, EndpointNotFound
+from ..errors import ExtensionLoadError, ExtensionNotFound, EndpointLoadError, EndpointNotFound
 from .endpoint import Endpoint
 from .extension import Extension
 

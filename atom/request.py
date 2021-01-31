@@ -47,8 +47,12 @@ class Request:
         if self._body is not None:
             return self._body.decode(self._encoding)
 
+        return None
+
     def json(self, **kwargs):
         text = self.text()
+
         if text is not None:
             return json.loads(text, **kwargs)
+        return None
     
