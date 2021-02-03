@@ -371,6 +371,17 @@ class Application(AppBase):
             return self.add_oauth2_login_route(path, method, func, validator=validator, expires=expires)
         return decorator
 
+    # dispatching
+
+    async def dispatch(self, name: str, *args, **kwargs):
+        try:
+            listeners = self._listeners[name]
+        except KeyError:
+            return
+        
+        await asyncio.gather(*[listener(*args, **kwargs) for listener in listeners], loop=self.loop)
+        return listeners
+
     # Shards
 
     def register_shard(self, shard: Shard):

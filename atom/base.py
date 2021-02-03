@@ -94,14 +94,6 @@ class AppBase:
             return self.add_listener(func, name)
         return decorator
 
-    async def dispatch(self, name: str, *args, **kwargs):
-        try:
-            listeners = self._listeners[name]
-        except KeyError:
-            return
-        
-        await asyncio.gather(*[listener(*args, **kwargs) for listener in listeners], loop=self.loop)
-        return listeners
 
     def middleware(self):
         def wrapper(func: typing.Coroutine):
