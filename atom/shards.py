@@ -19,3 +19,5 @@ class Shard(AppBase):
         if (route.method, route.path) in self._router.routes:
             raise RouteRegistrationError('{0!r} is already a route.'.format(route.path))
 
+        self._routes[(route.path, route.method)] = route.coro
+        return route
