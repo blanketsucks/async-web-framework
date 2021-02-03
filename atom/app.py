@@ -3,10 +3,12 @@ from .request import Request
 from .errors import *
 from .server import Server
 from .router import Router
-from .response import Response
+from .response import Response, JSONResponse
 from .utils import format_exception, jsonify
 from .settings import Settings
 from .objects import Route, Listener, Middleware
+from .shards import Shard
+from .base import AppBase
 
 import json
 import functools
@@ -24,7 +26,7 @@ import asyncio
 import importlib
 import watchgod
 
-class Application:
+class Application(AppBase):
     """
     
     ## Listeners order
@@ -42,16 +44,15 @@ class Application:
 
         self._database_connection = None
         self._router = Router()
-        self._middlewares: typing.List[typing.Coroutine] = []
 
-        self._listeners: typing.Dict[str, typing.List[typing.Coroutine]] = {}
         self._server = None
-
         self._running_host = '127.0.0.1'
+
         self._running_port = 8080
         self._ready = asyncio.Event(loop=self.loop)
 
-        self._load_from_arguments(routes=routes, listeners=listeners, middlewares=middlewares)
+        self._shards: typing.List[Shard] = []
+        super().__init__(routes, listeners, middlewares)
 
     # Private methods
 
@@ -88,23 +89,41 @@ class Application:
                 coro = middleware.coro
                 self.add_middleware(coro)
 
+    def _convert(self, func, args):
+        return_args = []
+        params = inspect.signature(func)
+
+        for key, value in params.parameters.items():
+            for name, match in args.items():
+                if key == name:
+                    try:
+                        param = value.annotation(match)
+                    except ValueError:
+                        fut = 'Failed conversion to {0!r} for paramater {1!r}.'.format(value.annotation.__name__, key)
+                        raise BadConversion(fut) from None
+                    else:
+                        return_args.append(param)
+
+        print(return_args)
+        return return_args
+
     async def _handler(self, request: Request, response_writer):
         handler = None
         resp = None
 
         try:
-            info, handler = self._router.resolve(request)
-            request._args = info
+            args, handler = self._router.resolve(request)
 
             if len(self._middlewares) != 0:
                 for middleware in self._middlewares:
                     handler = functools.partial(middleware, handler)
-                
-            resp = await handler(request)
+            
+            args = self._convert(handler, args)
+            resp = await handler(request, *args)
 
             if isinstance(resp, dict) or isinstance(resp, list):
                 data = json.dumps(resp)
-                resp = Response(data, content_type='application/json')
+                resp = JSONResponse(data)
 
             if isinstance(resp, str):
                 resp = Response(resp)
@@ -135,16 +154,16 @@ class Application:
         return self._router
 
     @property
-    def middlewares(self):
-        return self._middlewares
-
-    @property
-    def listeners(self):
-        return self._listeners
-
-    @property
     def routes(self):
         return self._router.routes
+
+    @property
+    def shards(self):
+        return self._shards
+
+    @property
+    def shard_count(self):
+        return len(self._shards)
 
     # Some methods. idk
 
@@ -187,7 +206,7 @@ class Application:
 
         print(f'[{datetime.datetime.utcnow().strftime("%Y-%m-%d | %H:%M:%S")}]: App started. Running at http://{host}:{port}.')
         if debug:
-            self.set_setting('DEBUG', True)
+            self.settings['DEBUG'] = True
             await self._watch_for_changes()
 
         await server.serve_forever()
@@ -232,6 +251,7 @@ class Application:
 
         await server.serve_forever()
 
+
     # Routing
 
     def add_route(self, route: Route):
@@ -246,18 +266,6 @@ class Application:
 
     def remove_route(self, path: str, method: str):
         return self._router.remove_route(method, path)
-
-    def route(self, path: typing.Union[str, yarl.URL], method: str):
-        def decorator(func: typing.Coroutine):
-            actual = path
-
-            if isinstance(path, yarl.URL):
-                actual = path.raw_path
-
-            route = Route(actual, method, func)
-            return self.add_route(route)
-
-        return decorator
 
     def get(self, path: typing.Union[str, yarl.URL]):
         def decorator(func: typing.Coroutine):
@@ -363,62 +371,18 @@ class Application:
             return self.add_oauth2_login_route(path, method, func, validator=validator, expires=expires)
         return decorator
 
-    # Listeners
+    # Shards
 
-    def add_listener(self, f: typing.Coroutine, name: str=None) -> Listener:
-        if not inspect.iscoroutinefunction(f):
-            raise ListenerRegistrationError('All listeners must be async')
-        
-        actual = f.__name__ if name is None else name
+    def register_shard(self, shard: Shard):
+        shard(self)
 
-        if actual in self._listeners:
-            self._listeners[actual].append(f)
-        else:
-            self._listeners[actual] = [f]
-    
-        return Listener(f, actual)
+        self._router.routes.update(shard._routes)
+        self._listeners.update(shard._listeners)
+        self._middlewares.extend(shard._middlewares)
 
-    def remove_listener(self, func: typing.Coroutine=None, name: str=None):
-        if not func:
-            if name:
-                coros = self._listeners.pop(name)
-                return coros
+        self._shards.append(shard)
 
-            raise TypeError('Only the function or the name can be None, not both.')
 
-        self._listeners[name].remove(func)
-
-    def listen(self, name: str=None):
-        def decorator(func: typing.Coroutine):
-            return self.add_listener(func, name)
-        return decorator
-
-    async def dispatch(self, name: str, *args, **kwargs):
-        try:
-            listeners = self._listeners[name]
-        except KeyError:
-            return
-        
-        await asyncio.gather(*[listener(*args, **kwargs) for listener in listeners], loop=self.loop)
-        return listeners
-
-    # Middlewares
-
-    def middleware(self):
-        def wrapper(func: typing.Coroutine):
-            return self.add_middleware(func)
-        return wrapper
-
-    def add_middleware(self, middleware: typing.Coroutine):
-        if not inspect.iscoroutinefunction(middleware):
-            raise MiddlewareRegistrationError('All middlewares must be async')
-
-        self._middlewares.append(middleware)
-        return Middleware(middleware)
-
-    def remove_middleware(self, middleware: typing.Coroutine) -> typing.Coroutine:
-        self._middlewares.remove(middleware)
-        return middleware
 
     # Editing any of the following methods will do nothing since they're here as a refrence for listeners.
     # Unless you manually add them inside a subclass.

@@ -5,6 +5,9 @@ class AppError(Exception):
     """Base inheritance class for errors that occur during the Application's runtime."""
     pass
 
+class BadConversion(AppError):
+    pass
+
 class HTTPException(Response, AppError):
     status_code = None
 

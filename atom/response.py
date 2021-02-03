@@ -1,4 +1,5 @@
 import http.server
+import typing
 
 responses = http.server.BaseHTTPRequestHandler.responses
 
@@ -59,3 +60,11 @@ class Response:
             messages.append("\r\n" + self._body)
 
         return "\r\n".join(messages)
+
+class HTMLResponse(Response):
+    def __init__(self, body='', status=200, headers=None, version='1.1'):
+        super().__init__(body=body, status=status, content_type='text/html', headers=headers, version=version)
+
+class JSONResponse(Response):
+    def __init__(self, body='', status=200, headers=None, version='1.1'):
+        super().__init__(body=body, status=status, content_type='application/json', headers=headers, version=version)

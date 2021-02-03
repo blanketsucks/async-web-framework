@@ -1,5 +1,5 @@
 import traceback
-from .response import Response
+from .response import Response, HTMLResponse, JSONResponse
 import markdown as mark
 import codecs
 import json
@@ -27,7 +27,7 @@ def jsonify(*, response=True, **kwargs):
     data = json.dumps(kwargs)
 
     if response:
-        resp = Response(body=data, content_type='application/json')
+        resp = JSONResponse(data)
         return resp
 
     return data
@@ -37,10 +37,10 @@ def markdown(fp: str):
         content = file.read()
         resp = mark.markdown(content)
 
-        return Response(body=resp, content_type='text/html')
-
+        return HTMLResponse(resp)
+        
 def render_html(fp: str):
     with codecs.open(fp, 'r') as file:
         resp = file.read()
-        return Response(body=resp, content_type='text/html')
+        return HTMLResponse(resp)
 
