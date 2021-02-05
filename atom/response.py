@@ -3,9 +3,13 @@ import typing
 
 responses = http.server.BaseHTTPRequestHandler.responses
 
-class Response:
-    _encoding = "utf-8"
+__all__ = (
+    'Response',
+    'HTMLResponse',
+    'JSONResponse'
+)
 
+class Response:
     def __init__(self, body='',
                 status=200, content_type="text/plain",
                 headers=None, version="1.1"):
@@ -14,6 +18,7 @@ class Response:
         self._status = status
         self._body = body
         self._content_type = content_type
+        self._encoding = "utf-8"
 
         if headers is None:
             headers = {}

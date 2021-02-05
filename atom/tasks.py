@@ -23,34 +23,22 @@ class Task:
             self.loop = asyncio.get_event_loop()
 
         self._parse_duration(seconds, minutes, hours)
-        self._task = None
 
-        self._after_task = None
-        self._before_task = None
+        self._task = None
+        self.is_running = False
 
 
     async def _prepare(self):
-        if self.count:
-            async def loop():
-                counter = 0
-                await self._call('before_task')
+        counter = 0
+        await self._call('before_task')
 
-                while counter < self.count:
-                    await self.coro()
-                    await asyncio.sleep(self._duration)
-                    counter += 1
+        while counter < self.count:
+            await self.coro()
+            await asyncio.sleep(self._duration)
+            counter += 1
 
-                await self._call('after_task')
+        await self._call('after_task')
 
-            return loop
-
-        async def loop():
-            await self._call('before_task')
-
-            while True:
-                await self.coro()
-
-        return loop
 
     def _parse_duration(self, seconds, minutes, hours):
         duration = seconds + (minutes * 60.0) + (hours * 3600.0)
@@ -60,6 +48,8 @@ class Task:
         self._duration = duration
 
     def start(self):
+        self.is_running = True
+
         self._task = self.loop.create_task(self._prepare())
         return self._task
 

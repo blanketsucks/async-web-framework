@@ -15,13 +15,11 @@ import functools
 import inspect
 import typing
 import yarl
-
 import jwt
 import datetime
 import asyncpg
 import aiosqlite
 import aioredis
-
 import asyncio
 import importlib
 import watchgod
@@ -51,7 +49,7 @@ class Application(AppBase):
         self._running_port = 8080
         self._ready = asyncio.Event(loop=self.loop)
 
-        self._shards: typing.List[Shard] = []
+        self._shards: typing.Dict[str, Shard] = {}
         super().__init__(routes, listeners, middlewares)
 
     # Private methods
@@ -68,6 +66,10 @@ class Application(AppBase):
                 importlib.reload(module)
 
                 await self.restart()
+
+    def _start_tasks(self):
+        for task in self._tasks:
+            task.start()
 
     def _load_from_arguments(self, routes: typing.List[Route]=None,
                             listeners: typing.List[Listener]=None,
@@ -104,7 +106,6 @@ class Application(AppBase):
                     else:
                         return_args.append(param)
 
-        print(return_args)
         return return_args
 
     async def _handler(self, request: Request, response_writer):
@@ -165,6 +166,10 @@ class Application(AppBase):
     def shard_count(self):
         return len(self._shards)
 
+    @property
+    def running_tasks(self):
+        return len([task for task in self._tasks if task.is_running])
+
     # Some methods. idk
 
     def get_database_connection(self) -> typing.Optional[typing.Union[asyncpg.pool.Pool, aioredis.Redis, aiosqlite.Connection]]:
@@ -203,6 +208,7 @@ class Application(AppBase):
 
         await self.dispatch("on_startup")
         self._ready.set()
+        print(self._ready.is_set())
 
         print(f'[{datetime.datetime.utcnow().strftime("%Y-%m-%d | %H:%M:%S")}]: App started. Running at http://{host}:{port}.')
         if debug:
@@ -221,6 +227,7 @@ class Application(AppBase):
         await self._server.wait_closed()
 
     def run(self, *args, **kwargs):
+        self._start_tasks()
         try:
             self.loop.run_until_complete(self.start(*args, **kwargs))
         except KeyboardInterrupt:
@@ -379,21 +386,33 @@ class Application(AppBase):
         except KeyError:
             return
         
-        await asyncio.gather(*[listener(*args, **kwargs) for listener in listeners], loop=self.loop)
-        return listeners
+        return await asyncio.gather(*[listener(*args, **kwargs) for listener in listeners], loop=self.loop)
 
     # Shards
 
     def register_shard(self, shard: Shard):
-        shard(self)
+        shard._inject(self)
+        self._shards[shard.name] = shard
 
-        self._router.routes.update(shard._routes)
-        self._listeners.update(shard._listeners)
-        self._middlewares.extend(shard._middlewares)
+        return shard
+    # Getting stuff
 
-        self._shards.append(shard)
+    def get_route(self, path: str, method: str):
+        try:
+            handler = self._router.routes[(path, method)]
+        except KeyError:
+            return None
 
+        route = Route(path, method, handler)
+        return route
 
+    def get_shard(self, name: str):
+        try:
+            shard = self._shards[name]
+        except KeyError:
+            return None
+
+        return shard
 
     # Editing any of the following methods will do nothing since they're here as a refrence for listeners.
     # Unless you manually add them inside a subclass.

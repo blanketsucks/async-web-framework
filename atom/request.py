@@ -1,52 +1,63 @@
 import json
 import typing
 import yarl
+import asyncio
 
 class Request:
-    _encoding = "utf-8"
+    __slots__ = (
+        '_encoding', 'version', 'status_code', 'method',
+        'url', 'headers', 'body', 'transport'
+    )
 
-    def __init__(self, method: bytes, url: bytes, status_code,
-                headers: typing.Dict[str, typing.Any], version=None, body=None):
+    def __init__(self, method: str, url: bytes, status_code,
+                headers: typing.Dict, transport: asyncio.BaseTransport,
+                version: str=None, body=None):
 
-        self._version = version
-        self._status_code = status_code
-        
-        self._method = method.decode(self._encoding)
-        self._url = yarl.URL(url.decode(self._encoding))
+        self._encoding = "utf-8"
 
-        self._headers = headers
-        self._body = body
-
-    @property
-    def method(self):
-        return self._method
-
-    @property
-    def url(self):
-        return self._url
+        self.version = version
+        self.status_code = status_code
+        self.method = method
+        self.url = yarl.URL(url)
+        self.headers = headers
+        self.body = body
+        self.transport = transport
 
     @property
-    def headers(self):
-        return self._headers
+    def user_agent(self):
+        value = self.headers.get('User-Agent')
+        return {
+            'User-Agent': value
+        }
 
     @property
-    def status(self):
-        return self._status_code
+    def host(self):
+        value = self.headers.get('Host')
+        return {
+            'Host': value
+        }
+
+    @property
+    def connection(self):
+        value = self.headers.get('Connection')
+        return {
+            'Connection': value
+        }
 
     @property
     def params(self):
-        return self._url.query
+        return self.url.query
 
     def text(self):
-        if self._body is not None:
-            return self._body.decode(self._encoding)
+        if self.body:
+            return self.body.decode(self._encoding)
 
         return None
 
     def json(self, **kwargs):
         text = self.text()
 
-        if text is not None:
+        if text:
             return json.loads(text, **kwargs)
         return None
     

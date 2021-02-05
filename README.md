@@ -2,7 +2,7 @@
 
 ## Example Usage
 
-```python
+```py
 import atom
 import asyncio
 import typing

@@ -1,8 +1,10 @@
+import asyncio
+
 from .objects import Route, Listener, Middleware
 from .errors import *
+from .tasks import Task
 
 import typing
-import asyncio
 import yarl
 import inspect
 
@@ -10,12 +12,15 @@ class AppBase:
     def __init__(self, routes: typing.List[Route]=None,
                 listeners: typing.List[Listener]=None,
                 middlewares: typing.List[Middleware]=None, *,
-                url_prefix: str=None) -> None:
+                url_prefix: str=None,
+                loop: asyncio.AbstractEventLoop=None) -> None:
         
         self.url_prefix = '' if not url_prefix else url_prefix
+        self.loop = loop or asyncio.get_event_loop()
 
         self._listeners: typing.Dict[str, typing.List[typing.Coroutine]] = {}
         self._middlewares: typing.List[typing.Coroutine] = []
+        self._tasks: typing.List[Task] = []
 
 
         self._load_from_arguments(routes, listeners, middlewares)
@@ -23,6 +28,10 @@ class AppBase:
     @property
     def listeners(self):
         return self._listeners
+
+    @property
+    def tasks(self):
+        return self._tasks
 
     @property
     def middlewares(self):
@@ -70,7 +79,7 @@ class AppBase:
         if not inspect.iscoroutinefunction(f):
             raise ListenerRegistrationError('All listeners must be async')
         
-        actual = f.__name__ if name is None else name
+        actual = f.__name__.lower() if name is None else name.lower()
 
         if actual in self._listeners:
             self._listeners[actual].append(f)
@@ -82,7 +91,7 @@ class AppBase:
     def remove_listener(self, func: typing.Coroutine=None, name: str=None):
         if not func:
             if name:
-                coros = self._listeners.pop(name)
+                coros = self._listeners.pop(name.lower())
                 return coros
 
             raise TypeError('Only the function or the name can be None, not both.')
@@ -94,6 +103,25 @@ class AppBase:
             return self.add_listener(func, name)
         return decorator
 
+    def add_task(self, coro, *, seconds: int=0, minutes: int=0, hours: int=0, count: int=0):
+        kwargs = {
+            'coro': coro,
+            'seconds': seconds,
+            'minutes': minutes,
+            'hours': hours,
+            'count': count,
+            'loop': self.loop
+        }
+
+        task = Task(**kwargs)
+        self._tasks.append(task)
+
+        return task
+
+    def task(self, *, seconds: int=0, minutes: int=0, hours: int=0, count: int=0):
+        def decorator(coro):
+            return self.add_task(coro, seconds=seconds, minutes=minutes, hours=hours, count=count)
+        return decorator
 
     def middleware(self):
         def wrapper(func: typing.Coroutine):
@@ -110,3 +138,11 @@ class AppBase:
     def remove_middleware(self, middleware: typing.Coroutine) -> typing.Coroutine:
         self._middlewares.remove(middleware)
         return middleware
+
+    def get_listener(self, name: str):
+        try:
+            listener = self._listeners[name]
+        except KeyError:
+            return None
+
+        return listener

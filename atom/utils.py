@@ -4,6 +4,13 @@ import markdown as mark
 import codecs
 import json
 
+__all__ = (
+    'format_exception',
+    'jsonify',
+    'markdown',
+    'render_html'
+)
+
 
 def format_exception(exc):
     server_exception_templ = """
@@ -33,14 +40,18 @@ def jsonify(*, response=True, **kwargs):
     return data
 
 def markdown(fp: str):
-    with open(fp, 'r') as file:
+    actual = fp + '.md'
+
+    with open(actual, 'r') as file:
         content = file.read()
         resp = mark.markdown(content)
 
         return HTMLResponse(resp)
         
 def render_html(fp: str):
-    with codecs.open(fp, 'r') as file:
+    actual = fp + '.html'
+
+    with codecs.open(actual, 'r') as file:
         resp = file.read()
         return HTMLResponse(resp)
 
