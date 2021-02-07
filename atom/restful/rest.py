@@ -5,19 +5,20 @@ from .extension import Extension
 
 import importlib
 import typing
+import inspect
 
 class App(Application):
     def __init__(self,
-                endpoints: typing.List[dict]=None,
+                endpoints: typing.List[typing.Dict[str, Endpoint]]=None,
                 extensions: typing.List[str]=None,
                 **kwargs) -> None:
         
         self._endpoints: typing.Dict[str, Endpoint] = {}
         self._extensions: typing.Dict[str, Extension] = {}
 
-        super().__init__(loop=kwargs.get('loop'))
+        super().__init__(**kwargs)
+        self._load_others(extensions, endpoints)
 
-        self._load_from_arguments(endpoints, extensions, **kwargs)
 
     @property
     def endpoints(self):
@@ -27,25 +28,28 @@ class App(Application):
     def extensions(self):
         return self._extensions
     
-    def load_extension(self, filepath: str):
-        module = importlib.import_module(filepath)
-
+    def register_extension(self, filepath: str) -> typing.List[Extension]:
         try:
-            load = getattr(module, 'load')
-        except AttributeError:
-            raise ExtensionLoadError('Missing load function.')
+            module = importlib.import_module(filepath)
+        except Exception as exc:
+            raise ExtensionLoadError('Failed to load {0!r}.'.format(filepath)) from exc
 
-        load(self)
+        localexts: typing.List[Extension] = []
+
+        for key, value in module.__dict__.items():
+            if inspect.isclass(value):
+                if issubclass(value, Extension):
+                    ext = value(self)
+                    ext._unpack()
+
+                    localexts.append(ext)
+                    self._extensions[ext.__extension_name__] = ext
+
+        if not localexts:
+            raise ExtensionNotFound('No extensions were found for file {0!r}.'.format(filepath))
+
+        return localexts
     
-    def add_extension(self, extension):
-        if not isinstance(extension, Extension):
-            raise ExtensionLoadError('Expected Extension but got {0!r} instead.'.format(extension.__name__))
-
-        ext = extension._unpack()
-        self._extensions[ext.__extension_name__] = ext
-
-        return ext
-
     def remove_extension(self, name: str):
         if not name in self._extensions:
             raise ExtensionNotFound('{0!r} was not found.'.format(name))
@@ -55,7 +59,7 @@ class App(Application):
 
         return extension
 
-    def add_endpoint(self, cls, path: str):
+    def register_endpoint(self, cls, path: str):
         if not issubclass(cls, Endpoint):
             raise EndpointLoadError('Expected Endpoint but got {0!r} instead.'.format(cls.__name__))
         
@@ -76,21 +80,18 @@ class App(Application):
 
     def endpoint(self, path: str):
         def decorator(cls):
-            return self.add_endpoint(cls, path)
+            return self.register_endpoint(cls, path)
         return decorator
 
-    def _load_from_arguments(self, endpoints=None, extensions=None, **kwargs):
-        routes = kwargs.get('routes')
-        listeners = kwargs.get('listeners')
-        middlewares = kwargs.get('middlewares')
+    def _load_others(self, extensions=None, endpoints=None):
+        if extensions:
+            for ext in extensions:
+                self.register_extension(ext)
 
         if endpoints:
-            for resource in endpoints:
-                for cls, path in resource.items():
-                    self.add_endpoint(cls, path)
+            for endpoint in endpoints:
+                for path, cls in endpoint:
+                    self.register_endpoint(cls, path)
 
-        if extensions:
-            for extension in extensions:
-                self.load_extension(extension)
+        return self
 
-        super()._load_from_arguments(routes, listeners, middlewares)

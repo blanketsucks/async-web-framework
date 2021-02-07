@@ -3,16 +3,18 @@ from .response import Response, HTMLResponse, JSONResponse
 import markdown as mark
 import codecs
 import json
+import traceback
 
 __all__ = (
     'format_exception',
     'jsonify',
     'markdown',
-    'render_html'
+    'render_html',
 )
 
-
 def format_exception(exc):
+
+
     server_exception_templ = """
     <div>
         <h1>500 Internal server error</h1>
@@ -31,7 +33,7 @@ def format_exception(exc):
 
 def jsonify(*, response=True, **kwargs):
     """Inspired by Flask's jsonify"""
-    data = json.dumps(kwargs)
+    data = json.dumps(kwargs, indent=4)
 
     if response:
         resp = JSONResponse(data)

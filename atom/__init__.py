@@ -8,10 +8,10 @@ from .response import *
 from .objects import *
 from .utils import *
 
-from .app import Application
+from .app import Application, HTTPView
 from .request import Request
 from .router import Router
-from .server import Server
+from .server import *
 from .settings import Settings
 from .base import AppBase
 from .shards import Shard

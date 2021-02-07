@@ -2,47 +2,47 @@ import typing
 
 __all__ = (
     'Route',
+    'WebsocketRoute',
     'Middleware',
     'Listener'
 )
 
 class Route:
     def __init__(self, path: str, method: str, coro: typing.Coroutine) -> None:
-        self._path = path
-        self._method = method
-        self._coro = coro
+        self.path = path
+        self.method = method
+        self.coro = coro
 
-    @property
-    def path(self):
-        return self._path
+    def __repr__(self) -> str:
+        return '<Route path={0.path!r} method={0.method!r}>'.format(self)
 
-    @property
-    def method(self):
-        return self._method
+    async def __call__(self, *args, **kwargs):
+        return await self._coro(*args, **kwargs)
 
-    @property
-    def coro(self):
-        return self._coro
+class WebsocketRoute:
+    def __init__(self, path: str, method: str, coro: typing.Coroutine) -> None:
+        self.path = path
+        self.method = method
+        self.coro = coro
+        self.subprotocols = None
 
+    def __repr__(self) -> str:
+        return '<WebsocketRoute path={0.path!r} method={0.method!r}>'.format(self)
 
+    async def __call__(self, *args, **kwargs):
+        return await self.coro(*args, **kwargs)
+        
 class Middleware:
     def __init__(self, coro: typing.Coroutine) -> None:
-        self._coro = coro
+        self.coro = coro
 
-    @property
-    def coro(self):
-        return self._coro
-
+    async def __call__(self, *args, **kwargs):
+        return await self.coro(*args, **kwargs)
 
 class Listener:
     def __init__(self, coro: typing.Coroutine, name: str=None) -> None:
-        self._event = name
-        self._coro = coro
+        self.event = name
+        self.coro = coro
 
-    @property
-    def event(self):
-        return self._event
-
-    @property
-    def coro(self):
-        return self._coro
+    async def __call__(self, *args, **kwargs):
+        return await self.coro(*args, **kwargs)

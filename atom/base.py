@@ -23,7 +23,7 @@ class AppBase:
         self._tasks: typing.List[Task] = []
 
 
-        self._load_from_arguments(routes, listeners, middlewares)
+        self._load_from_arguments(routes=routes, listeners=listeners, middlewares=middlewares)
 
     @property
     def listeners(self):
@@ -37,7 +37,7 @@ class AppBase:
     def middlewares(self):
         return self._middlewares
 
-    def _load_from_arguments(self, routes: typing.List[Route]=None,
+    def _load_from_arguments(self, *, routes: typing.List[Route]=None,
                             listeners: typing.List[Listener]=None,
                             middlewares: typing.List[Middleware]=None):
 
@@ -58,9 +58,6 @@ class AppBase:
                 self.add_middleware(coro)
 
     def add_route(self, route: Route):
-        raise NotImplementedError
-
-    def remove_route(self, path: str, method: str):
         raise NotImplementedError
 
     def route(self, path: typing.Union[str, yarl.URL], method: str):

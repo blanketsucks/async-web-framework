@@ -1,41 +1,79 @@
 import importlib
 import typing
+import os
 import pathlib
 
 from .errors import InvalidSetting
 
-class Settings(dict):
-    def __init__(self, *args, **kwargs):
-        self.VALID_SETTINGS: typing.Tuple = (
-            'SECRET_KEY',
-            'DEBUG'
-        )
+DEFAULT_SETTINGS = {
+    'HOST': '127.0.0.1',
+    'PORT': 8080,
+    'DEBUG': False,
+    'SECRET_KEY': None
+}
 
-        super().__init__(*args, **kwargs)
+VALID_SETTINGS: typing.Tuple = (
+    'SECRET_KEY',
+    'DEBUG',
+    'PORT',
+    'HOST'
+)
+ENV_PREFIX = 'ATOM_'
+
+class Settings(dict):
+    def __init__(self, settings_file: typing.Union[str, pathlib.Path]=None, load_env: bool=False):
+
+        if load_env:
+            self.from_env_vars()
+
+        if settings_file:
+            self.from_file(settings_file)
+
+        super().__init__(**DEFAULT_SETTINGS)
 
     def __setitem__(self, k, v) -> None:
-        if k not in self.VALID_SETTINGS:
+        if k not in VALID_SETTINGS:
             raise InvalidSetting(f'{k} is not a valid setting.')
 
         return super().__setitem__(k, v)
 
-    def from_file(self, fp: typing.Union[str, pathlib.Path]) -> typing.Optional[typing.Dict[str, typing.Any]]:
+    def __setattr__(self, name: str, value) -> None:
+        if name not in VALID_SETTINGS:
+            raise InvalidSetting(f'{name} is not a valid setting.')
+
+        self[name] = value
+
+    def __getattr__(self, name: str):
+        try:
+            value = self[name]
+        except KeyError:
+            raise InvalidSetting(f'{name} is not a valid setting.') from None
+
+        return value
+
+    def from_file(self, fp: typing.Union[str, pathlib.Path]):
         if isinstance(fp, pathlib.Path):
             fp = fp.name
 
         module = importlib.import_module(fp)
-        setting = getattr(module, 'load_settings')
+        for name, value in module.__dict__.items():
+            if name in VALID_SETTINGS:
+                self[name] = value
+                
+        return self
 
-        if not setting:
-            return None
+    def from_env_vars(self):
+        envs = os.environ
 
-        res = setting()
+        for name, value in envs.items():
+            if name.startswith(ENV_PREFIX):
+                prefix, key = name.split(ENV_PREFIX, maxsplit=1)
 
-        for k, v in res.items():
-            self[k] = v
+                if key in VALID_SETTINGS:
+                    self[key] = value
 
-        return res
+                else:
+                    raise InvalidSetting(f'{key} is not a valid setting.')
 
-    def reset_all(self):
-        for k in self.keys():
-            del self[k]
+        return self 
+

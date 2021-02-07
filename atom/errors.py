@@ -1,13 +1,17 @@
-from .response import Response
+from .response import Response, responses
 import json
+
+excs = {}
 
 __all__ = (
     'AppError',
     'BadConversion',
     'HTTPException',
-    'HTTPNotFound',
-    'HTTPBadRequest',
-    'HTTPFound',
+    'NotFound',
+    'BadRequest',
+    'Found',
+    'Unauthorized',
+    'Forbidden',
     'EndpointError',
     'EndpointLoadError',
     'EndpointNotFound',
@@ -18,8 +22,25 @@ __all__ = (
     'RouteRegistrationError',
     'ListenerRegistrationError',
     'MiddlewareRegistrationError',
-    'InvalidSetting'
+    'ShardRegistrationError',
+    'ViewRegistrationError',
+    'WebsocketRouteRegistrationError',
+    'InvalidSetting',
+    'abort',
+    'status'
 )
+
+def status(code: int):
+    def decorator(cls):
+        status_code = getattr(cls, 'status_code', None)
+
+        if not status_code:
+            status_code = code
+            cls.status_code = status_code
+
+        excs[status_code] = cls
+        return cls
+    return decorator
 
 class AppError(Exception):
     """Base inheritance class for errors that occur during the Application's runtime."""
@@ -28,11 +49,11 @@ class AppError(Exception):
 class BadConversion(AppError):
     pass
 
+
 class HTTPException(Response, AppError):
     status_code = None
-    
-    def __init__(self, reason=None, content_type=None):
 
+    def __init__(self, reason=None, content_type=None):
         self._reason = reason
         self._content_type = content_type
         
@@ -48,18 +69,25 @@ class HTTPException(Response, AppError):
 
         AppError.__init__(self, self._reason)
 
-
-class HTTPNotFound(HTTPException):
+@status(404)
+class NotFound(HTTPException):
     status_code = 404
 
-
-class HTTPBadRequest(HTTPException):
+@status(400)
+class BadRequest(HTTPException):
     status_code = 400
 
+@status(403)
+class Forbidden(HTTPException):
+    pass
 
-class HTTPFound(HTTPException):
-    status_code = 302
+@status(401)
+class Unauthorized(HTTPException):
+    pass
 
+
+@status(302)
+class Found(HTTPException):
     def __init__(self, location, reason=None, content_type=None):
         super().__init__(reason=reason, content_type=content_type)
         self.add_header("Location", location)
@@ -91,9 +119,26 @@ class RegistrationError(AppError):
 class RouteRegistrationError(RegistrationError):
     pass
 
+class WebsocketRouteRegistrationError(RegistrationError):
+    pass
+
+
 class ListenerRegistrationError(RegistrationError):
     pass
 
 class MiddlewareRegistrationError(RegistrationError):
     pass
 
+class ShardRegistrationError(RegistrationError):
+    pass
+
+class ViewRegistrationError(RegistrationError):
+    pass
+
+
+def abort(status_code: int, *, message: str=None):
+    if not message:
+        message, _ = responses.get(status_code)
+
+    error = excs.get(status_code, HTTPException)
+    return error(reason=message, status_code=status_code)

@@ -1,17 +1,16 @@
 
 from .request import Request
 from .errors import *
-from .server import Server
+from .server import HTTPProtocol, WebsocketProtocol
 from .router import Router
 from .response import Response, JSONResponse
 from .utils import format_exception, jsonify
 from .settings import Settings
-from .objects import Route, Listener, Middleware
+from .objects import Route, Listener, Middleware, WebsocketRoute
 from .shards import Shard
 from .base import AppBase
 
 import json
-import functools
 import inspect
 import typing
 import yarl
@@ -21,8 +20,18 @@ import asyncpg
 import aiosqlite
 import aioredis
 import asyncio
+import pathlib
 import importlib
 import watchgod
+
+METHODS = ("GET", "POST", "PUT", "HEAD", "OPTIONS", "PATCH", "DELETE")
+
+class HTTPView:
+    async def dispatch(self, request, *args, **kwargs):
+        coro = getattr(self, request.method.lower(), None)
+
+        if coro:
+            await coro(*args, **kwargs)
 
 class Application(AppBase):
     """
@@ -35,22 +44,36 @@ class Application(AppBase):
     def __init__(self, routes: typing.List[Route]=None,
                 listeners: typing.List[Listener]=None,
                 middlewares: typing.List[Middleware]=None, *,
-                loop: asyncio.AbstractEventLoop=None) -> None:
+                loop: asyncio.AbstractEventLoop=None,
+                url_prefix: str=None,
+                settings_file: typing.Union[str, pathlib.Path]=None,
+                load_settings_from_env: bool=False) -> None:
 
         self.loop = loop or asyncio.get_event_loop()
         self.settings = Settings()
 
+        if settings_file:
+            self.settings.from_file(settings_file)
+
+        if load_settings_from_env:
+            self.settings.from_env_vars()
+
         self._database_connection = None
-        self._router = Router()
-
+        self.router = Router()
         self._server = None
-        self._running_host = '127.0.0.1'
-
-        self._running_port = 8080
         self._ready = asyncio.Event(loop=self.loop)
 
-        self._shards: typing.Dict[str, Shard] = {}
-        super().__init__(routes, listeners, middlewares)
+        self.url_prefix = url_prefix
+        self.shards: typing.Dict[str, Shard] = {}
+        self.views = []
+
+        self._is_websocket = False
+        super().__init__(routes=routes,
+                        listeners=listeners,
+                        middlewares=middlewares,
+                        url_prefix=url_prefix,
+                        loop=self.loop
+                        )
 
     # Private methods
 
@@ -71,26 +94,6 @@ class Application(AppBase):
         for task in self._tasks:
             task.start()
 
-    def _load_from_arguments(self, routes: typing.List[Route]=None,
-                            listeners: typing.List[Listener]=None,
-                            middlewares: typing.List[Middleware]=None):
-
-        if routes:
-            for route in routes:
-                self.add_route(route)
-
-        if listeners:
-            for listener in listeners:
-                coro = listener.coro
-                name = listener.event
-
-                self.add_listener(coro, name)
-
-        if middlewares:
-            for middleware in middlewares:
-                coro = middleware.coro
-                self.add_middleware(coro)
-
     def _convert(self, func, args):
         return_args = []
         params = inspect.signature(func)
@@ -109,36 +112,44 @@ class Application(AppBase):
         return return_args
 
     async def _handler(self, request: Request, response_writer):
-        handler = None
         resp = None
 
         try:
-            args, handler = self._router.resolve(request)
+            args, route = self.router.resolve(request)
 
             if len(self._middlewares) != 0:
-                for middleware in self._middlewares:
-                    handler = functools.partial(middleware, handler)
-            
-            args = self._convert(handler, args)
-            resp = await handler(request, *args)
+                await asyncio.gather(*[middleware(request, route.coro) for middleware in self._middlewares])
 
-            if isinstance(resp, dict) or isinstance(resp, list):
-                data = json.dumps(resp)
-                resp = JSONResponse(data)
+            args = self._convert(route.coro, args)
 
-            if isinstance(resp, str):
-                resp = Response(resp)
+            if isinstance(route, Route):
+                resp = await route(request, *args)
+
+                if isinstance(resp, dict) or isinstance(resp, list):
+                    data = json.dumps(resp)
+                    resp = JSONResponse(data)
+
+                if isinstance(resp, str):
+                    resp = Response(resp)
+
+            if isinstance(route, WebsocketRoute):
+                print('Dispatching websocket...')
+                protocol = request.protocol
+                print(protocol)
+                ws = await protocol._websocket(request, route.subprotocols)
+                print(ws)
+
+                task = self.loop.create_task(route(request, ws, *args))
 
         except HTTPException as exc:
-            await self.dispatch('on_error', exc)
             resp = format_exception(exc)
+            raise exc
 
         except Exception as exc:
-            await self.dispatch('on_error', exc)
             resp = format_exception(exc)
+            raise exc
 
         response_writer(resp)
-
 
     # Ready up stuff
 
@@ -151,20 +162,12 @@ class Application(AppBase):
     # Properties 
 
     @property
-    def router(self):
-        return self._router
-
-    @property
     def routes(self):
-        return self._router.routes
-
-    @property
-    def shards(self):
-        return self._shards
+        return self.router.routes
 
     @property
     def shard_count(self):
-        return len(self._shards)
+        return len(self.shards)
 
     @property
     def running_tasks(self):
@@ -175,44 +178,28 @@ class Application(AppBase):
     def get_database_connection(self) -> typing.Optional[typing.Union[asyncpg.pool.Pool, aioredis.Redis, aiosqlite.Connection]]:
         return self._database_connection
 
-    def make_server(self, cls=Server):
-        res = cls(self.loop, app=self, handler=self._handler)
+    def make_server(self, cls: typing.Union[HTTPProtocol, WebsocketProtocol]=...) -> typing.Union[HTTPProtocol, WebsocketProtocol]:
+        cls = WebsocketProtocol if self._is_websocket else HTTPProtocol
+            
+        res = cls(loop=self.loop, app=self)
         return res
-        
-    def get_setting(self, key: str):
-        value = self.settings.get(key, None)
-        return value
-
-    def remove_setting(self, key: str):
-        value = self.settings.pop(key)
-        return value
-    
-    def set_setting(self, key, value):
-        self.settings[key] = value
-        return key, value
 
     # Running, closing and restarting the app
 
     async def start(self, host: typing.Optional[str]=None, *, port: typing.Optional[int]=None, debug: bool=False):
-        if not host:
-            host = '127.0.0.1'
-
-        if not port:
-            port = 8080
-
-        self._running_port = port
-        self._running_host = host
+        port = port or self.settings.PORT
+        host = host or self.settings.HOST
+        debug = debug or self.settings.DEBUG
 
         serv = self.make_server()
         self._server = server = await self.loop.create_server(lambda: serv, host=host, port=port)
 
         await self.dispatch("on_startup")
         self._ready.set()
-        print(self._ready.is_set())
-
+        
         print(f'[{datetime.datetime.utcnow().strftime("%Y-%m-%d | %H:%M:%S")}]: App started. Running at http://{host}:{port}.')
         if debug:
-            self.settings['DEBUG'] = True
+            self.settings.DEBUG = True
             await self._watch_for_changes()
 
         await server.serve_forever()
@@ -220,6 +207,9 @@ class Application(AppBase):
     async def close(self):
         if not self._server:
             raise RuntimeError('The app is not running.')
+
+        for task in self._tasks:
+            task.stop()
 
         await self.dispatch('on_shutdown')
         self._server.close()
@@ -243,10 +233,10 @@ class Application(AppBase):
         self._server.close()
         await self._server.wait_closed()
 
-        debug = self.get_setting('DEBUG')
+        debug = self.settings.DEBUG
 
-        port = self._running_port
-        host = self._running_host
+        port = self.settings.PORT
+        host = self.settings.HOST
 
         serv = self.make_server()
         self._server = server = await self.loop.create_server(lambda: serv, host=host, port=port)
@@ -258,45 +248,51 @@ class Application(AppBase):
 
         await server.serve_forever()
 
+    # websocket stuff
+
+    def enable_websockets(self):
+        self._is_websocket = True
+
+    def disable_websockets(self):
+        self._is_websocket = False
+
+    def websocket(self, path: str, method: str, *, subprotocols=None):
+        def decorator(coro):
+            self.enable_websockets()
+
+            route = WebsocketRoute(path, method, coro)
+            route.subprotocols = subprotocols
+
+            return self.add_route(route, websocket=True)
+        return decorator
 
     # Routing
 
-    def add_route(self, route: Route):
+    def add_route(self, route: typing.Union[Route, WebsocketRoute], *, websocket: bool=False):
+        if not websocket:
+            if not isinstance(route, Route):
+                raise RouteRegistrationError('Expected Route but got {0!r} instead.'.format(route.__class__.__name__))
+
         if not inspect.iscoroutinefunction(route.coro):
             raise RouteRegistrationError('Routes must be async.')
 
-        if (route.method, route.path) in self._router.routes:
+        if route in self.router.routes:
             raise RouteRegistrationError('{0!r} is already a route.'.format(route.path))
 
-        self._router.add_route(route)
+        if websocket:
+            if not isinstance(route, WebsocketRoute):
+                fmt = 'Expected WebsocketRoute but got {0!r} instead'
+                raise WebsocketRouteRegistrationError(fmt.format(route.__class__.__name__))
+
+            self.router.add_route(route.path, route.method, route.coro, websocket=True)
+            return route
+
+        self.router.add_route(route)
         return route
-
-    def remove_route(self, path: str, method: str):
-        return self._router.remove_route(method, path)
-
-    def get(self, path: typing.Union[str, yarl.URL]):
-        def decorator(func: typing.Coroutine):
-            return self.route(path, 'GET')(func)
-        return decorator
-
-    def put(self, path: typing.Union[str, yarl.URL]):
-        def decorator(func: typing.Coroutine):
-            return self.route(path, 'PUT')(func)
-        return decorator
-
-    def post(self, path: typing.Union[str, yarl.URL]):
-        def decorator(func: typing.Coroutine):
-            return self.route(path, 'POST')(func)
-        return decorator
-
-    def delete(self, path: typing.Union[str, yarl.URL]):
-        def decorator(func: typing.Coroutine):
-            return self.route(path, 'DELETE')(func)
-        return decorator
 
     def add_protected_route(self, path: typing.Union[str, yarl.URL], method: str, coro: typing.Coroutine):
         async def func(request: Request):
-            _type, token = self.get_oauth_token(request.headers)
+            token = request.token
             valid = self.validate_token(token)
 
             if not valid:
@@ -315,30 +311,29 @@ class Application(AppBase):
             return self.add_protected_route(path, method, func)
         return decorator
 
-    def generate_oauth2_token(self, client_id: str, client_secret: str, *, validator: typing.Coroutine=None, expires: int=60):
+    async def generate_oauth2_token(self,
+                                    client_id: str, 
+                                    client_secret: str, *,
+                                    validator: typing.Coroutine=None, 
+                                    expires: int=60) -> typing.Optional[bytes]:
         if validator:
-            self.loop.run_until_complete(validator(client_secret))
+            await validator(client_secret)
 
-        secret_key = self.get_setting('SECRET_KEY')
-        data = {
-            'user' : client_id,
-            'exp' : datetime.datetime.utcnow() + datetime.timedelta(minutes=expires)
-        }
-    
-        token = jwt.encode(data, secret_key)
-        return token
-
-    def get_oauth_token(self, headers: typing.Dict[str, str]):
-        auth = headers.get('Authorization')
-
-        if not auth:
+        try:
+            secret_key = self.settings.SECRET_KEY
+            data = {
+                'user' : client_id,
+                'exp' : datetime.datetime.utcnow() + datetime.timedelta(minutes=expires)
+            }
+        
+            token = jwt.encode(data, secret_key)
+            return token
+        except Exception:
             return None
 
-        _type, token = auth.split(' ')
-        return _type, token
 
     def validate_token(self, token: typing.Union[str, bytes]):
-        secret = self.get_setting('SECRET_KEY')
+        secret = self.settings.SECRET_KEY
 
         try:
             data = jwt.decode(token, secret)
@@ -347,35 +342,76 @@ class Application(AppBase):
 
         return True
 
-    def add_oauth2_login_route(self, path: typing.Union[str, yarl.URL], method: str,
-                            coro: typing.Coroutine=None, validator: typing.Coroutine=None, expires: int=60):
+    def add_oauth2_login_route(self, 
+                               path: typing.Union[str, yarl.URL],
+                               method: str,
+                               coro: typing.Coroutine=None,
+                               validator: typing.Coroutine=None,
+                               expires: int=60, *,
+                               websocket_route: bool=False
+                               ) -> typing.Union[Route, WebsocketRoute]:
+        if isinstance(path, yarl.URL):
+            path = path.raw_path
 
-        async def func(req: Request):
-            client_id = req.headers.get('client_id')
-            client_secret = req.headers.get('client_secret')
+        if websocket_route:
+            async def with_websocket(req: Request, websocket):
+                client_id = req.headers.get('client_id')
+                client_secret = req.headers.get('client_secret')
+
+                if client_id and client_secret:
+                    token = self.generate_oauth2_token(
+                        client_id=client_id,
+                        client_secret=client_secret,
+                        validator=validator, 
+                        expires=expires
+                    )
+
+                    if coro:
+                        return await coro(req, websocket, token)
+                    
+                    return jsonify(access_token=token)
+
+                if not client_secret or not client_id:
+                    return abort(message='Missing client_id or client_secret.', status_code=403)
+
+                route = WebsocketRoute(path, method, with_websocket)
+                return self.add_route(route, websocket=True)
+
+        async def without_websocket(request: Request):
+            client_id = request.headers.get('client_id')
+            client_secret = request.headers.get('client_secret')
 
             if client_id and client_secret:
                 token = self.generate_oauth2_token(client_id, client_secret,
                                                 validator=validator, expires=expires)
 
                 if coro:
-                    return await coro(req, token)
+                    return await coro(request,token)
                 
                 return jsonify(access_token=token)
 
             if not client_secret or not client_id:
-                return jsonify(message='Missing client_id or client_secret.', status=403)
+                return abort(message='Missing client_id or client_secret.', status_code=403)
 
-        if isinstance(path, yarl.URL):
-            path = path.raw_path
-
-        route = Route(path, method, func)
+        route = Route(path, method, without_websocket)
         return self.add_route(route)
 
-    def oauth2(self, path: typing.Union[str, yarl.URL], method: str,
-            validator: typing.Coroutine=None, expires: int=60):
+    def oauth2(self,
+               path: typing.Union[str, yarl.URL],
+               method: str,
+               validator: typing.Coroutine=None,
+               expires: int=60, *,
+               websocket_route: bool=False
+               )-> typing.Union[Route, WebsocketRoute]:
         def decorator(func):
-            return self.add_oauth2_login_route(path, method, func, validator=validator, expires=expires)
+            return self.add_oauth2_login_route(
+                path=path,
+                method=method, 
+                corr=func,
+                validator=validator, 
+                expires=expires,
+                websocket_route=websocket_route
+            )
         return decorator
 
     # dispatching
@@ -392,47 +428,34 @@ class Application(AppBase):
 
     def register_shard(self, shard: Shard):
         shard._inject(self)
-        self._shards[shard.name] = shard
+        self.shards[shard.name] = shard
 
         return shard
+
+    # Views
+
+    def register_view(self, view: HTTPView, path: str):
+        if not issubclass(view, HTTPView):
+            raise ViewRegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__))
+
+        for method in METHODS:
+            if method.lower() in view.__dict__:
+                coro = view.__dict__[method.lower()]
+
+                route = Route(path, coro.__name__.upper(), coro)
+                self.add_route(route)  
+
+        self.views.append(view)
+        return view
+
+
     # Getting stuff
-
-    def get_route(self, path: str, method: str):
-        try:
-            handler = self._router.routes[(path, method)]
-        except KeyError:
-            return None
-
-        route = Route(path, method, handler)
-        return route
 
     def get_shard(self, name: str):
         try:
-            shard = self._shards[name]
+            shard = self.shards[name]
         except KeyError:
             return None
 
         return shard
-
-    # Editing any of the following methods will do nothing since they're here as a refrence for listeners.
-    # Unless you manually add them inside a subclass.
-
-    async def on_startup(self): ...
-
-    async def on_shutdown(self): ...
-
-    async def on_error(self, exc: typing.Union[HTTPException, Exception]): ...
-
-    async def on_request(self, request: Request): ...
-
-    async def on_socket_receive(self, data: bytes): ...
-
-    async def on_connection_made(self, transport: asyncio.BaseTransport): ...
-
-    async def on_connection_lost(self, exc: typing.Optional[Exception]): ...
-
-    async def on_database_connect(self, connection: typing.Union[asyncpg.pool.Pool, aioredis.Redis, aiosqlite.Connection]): ...
-
-    async def on_database_close(self): ...
-
     

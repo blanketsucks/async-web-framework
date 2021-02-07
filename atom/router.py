@@ -1,27 +1,31 @@
-from .errors import HTTPNotFound, HTTPBadRequest
+from .errors import NotFound, BadRequest
+from .objects import Route, WebsocketRoute
 
 import re
 import typing
+
 
 class Router:
     _param_regex = r"{(?P<param>\w+)}"
 
     def __init__(self) -> None:
-        self.routes: typing.Dict[typing.Tuple[str, str], typing.Coroutine] = {}
+        self.routes: typing.List[typing.Union[Route, WebsocketRoute]] = []
 
-    def resolve(self, request):
-        for (method, pattern), handler in self.routes.items():
-            match = re.match(pattern, request.url.raw_path)
+    def resolve(self, request) -> typing.Tuple[typing.Dict, typing.Union[Route, WebsocketRoute]]:
+        for route in self.routes:
+            match = re.match(route.path, request.url.raw_path)
 
             if match is None:
-                pass
+                continue
 
             if match:
-                if method != request.method:
-                    raise HTTPBadRequest(reason=f"{request.method!r} is not allowed for {request.url.raw_path!r}")
+                if route.method != request.method:
+                    raise BadRequest(reason=f"{request.method!r} is not allowed for {request.url.raw_path!r}")
                 
-                return match.groupdict(), handler
-        raise HTTPNotFound(reason=f'Could not find {request.url.raw_path!r}.')
+
+                return match.groupdict(), route
+        
+        raise NotFound(reason=f'Could not find {request.url.raw_path!r}')
 
     def _format_pattern(self, path: str):
         if not re.search(self._param_regex, path):
@@ -38,10 +42,15 @@ class Router:
 
         return regex
 
-    def add_route(self, route):
-        pattern = self._format_pattern(route.path)
-        self.routes[(route.method, pattern)] = route.coro
+    def add_route(self, path: str, method: str, coroutine: typing.Coroutine, *, websocket: bool=False):
+        pattern = self._format_pattern(path)
+        route = Route(pattern, method, coroutine)
 
-    def remove_route(self, method: str, path: str):
-        coro = self.routes.pop((method, path))
-        return coro
+        if websocket:
+            route = WebsocketRoute(pattern, method, coroutine)
+
+        self.routes.append(route)
+        return route
+
+    
+
