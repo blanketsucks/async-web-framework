@@ -1,4 +1,4 @@
-from ..errors import (RouteRegistrationError,
+from atom.errors import (RouteRegistrationError,
                     ListenerRegistrationError,
                     MiddlewareRegistrationError
                     )

@@ -1,7 +1,7 @@
 
 from .request import Request
 from .errors import *
-from .server import HTTPProtocol, WebsocketProtocol
+from .server import *
 from .router import Router
 from .response import Response, JSONResponse
 from .utils import format_exception, jsonify
@@ -24,7 +24,13 @@ import pathlib
 import importlib
 import watchgod
 
-METHODS = ("GET", "POST", "PUT", "HEAD", "OPTIONS", "PATCH", "DELETE")
+__all__ = (
+    'VALID_METHODS',
+    'HTTPView',
+    'Application'
+)
+
+VALID_METHODS = ("GET", "POST", "PUT", "HEAD", "OPTIONS", "PATCH", "DELETE")
 
 class HTTPView:
     async def dispatch(self, request, *args, **kwargs):
@@ -67,6 +73,7 @@ class Application(AppBase):
         self.shards: typing.Dict[str, Shard] = {}
         self.views = []
 
+        self._websocket_tasks = []
         self._is_websocket = False
         super().__init__(routes=routes,
                         listeners=listeners,
@@ -87,8 +94,6 @@ class Application(AppBase):
                 
                 module = importlib.import_module(filepath)
                 importlib.reload(module)
-
-                await self.restart()
 
     def _start_tasks(self):
         for task in self._tasks:
@@ -135,11 +140,10 @@ class Application(AppBase):
             if isinstance(route, WebsocketRoute):
                 print('Dispatching websocket...')
                 protocol = request.protocol
-                print(protocol)
                 ws = await protocol._websocket(request, route.subprotocols)
-                print(ws)
 
                 task = self.loop.create_task(route(request, ws, *args))
+                self._websocket_tasks.append(task)
 
         except HTTPException as exc:
             resp = format_exception(exc)
@@ -178,88 +182,81 @@ class Application(AppBase):
     def get_database_connection(self) -> typing.Optional[typing.Union[asyncpg.pool.Pool, aioredis.Redis, aiosqlite.Connection]]:
         return self._database_connection
 
-    def make_server(self, cls: typing.Union[HTTPProtocol, WebsocketProtocol]=...) -> typing.Union[HTTPProtocol, WebsocketProtocol]:
-        cls = WebsocketProtocol if self._is_websocket else HTTPProtocol
-            
-        res = cls(loop=self.loop, app=self)
-        return res
 
     # Running, closing and restarting the app
 
-    async def start(self, host: typing.Optional[str]=None, *, port: typing.Optional[int]=None, debug: bool=False):
-        port = port or self.settings.PORT
-        host = host or self.settings.HOST
-        debug = debug or self.settings.DEBUG
-
-        serv = self.make_server()
-        self._server = server = await self.loop.create_server(lambda: serv, host=host, port=port)
-
-        await self.dispatch("on_startup")
-        self._ready.set()
+    async def start(self,
+                    host: str=None,
+                    port: int=None, 
+                    *,
+                    debug: bool=False,
+                    websocket: bool=False,
+                    unix: bool=False,
+                    path: str=None,
+                    websocket_timeout: float = 20,
+                    websocket_ping_interval: float = 20,
+                    websocket_ping_timeout: float = 20,
+                    websocket_max_size: int= None,
+                    websocket_max_queue: int= None,
+                    websocket_read_limit: int = 2 ** 16,
+                    websocket_write_limit: int = 2 ** 16,
+                    **kwargs):
         
-        print(f'[{datetime.datetime.utcnow().strftime("%Y-%m-%d | %H:%M:%S")}]: App started. Running at http://{host}:{port}.')
+        async def runner():
+            return await run_server(self, self.loop, host, port, **kwargs)
+
+        if websocket:
+            async def runner():
+                return await run_websocket_server(
+                    self, self.loop, host, port,
+                    timeout=websocket_timeout,
+                    ping_interval=websocket_ping_interval,
+                    ping_timeout=websocket_ping_timeout,
+                    max_size=websocket_max_size,
+                    max_queue=websocket_max_queue,
+                    read_limit=websocket_read_limit,
+                    write_limit=websocket_write_limit, **kwargs
+                )
+
+            if unix:
+                async def runner():
+                    return await run_unix_server(
+                        self, self.loop, path, websocket=True,
+                        websocket_timeout=websocket_timeout,
+                        websocket_ping_interval=websocket_ping_interval,
+                        websocket_ping_timeout=websocket_ping_timeout,
+                        websocket_max_size=websocket_max_size,
+                        websocket_max_queue=websocket_max_queue,
+                        websocket_read_limit=websocket_read_limit,
+                        websocket_write_limit=websocket_write_limit, **kwargs
+                    )
+
+        if unix and not websocket:
+            async def runner():
+                return await run_unix_server(
+                    self, self.loop, path, **kwargs
+                )
+
+        async def actual():
+            return await runner()
+
         if debug:
-            self.settings.DEBUG = True
-            await self._watch_for_changes()
+            async def actual():
+                await self._watch_for_changes()
+                return await runner()
 
-        await server.serve_forever()
+        print(f'[{datetime.datetime.utcnow().strftime("%Y-%m-%d | %H:%M:%S")}] App running.')
+        return await actual()
 
-    async def close(self):
-        if not self._server:
-            raise RuntimeError('The app is not running.')
-
-        for task in self._tasks:
-            task.stop()
-
-        await self.dispatch('on_shutdown')
-        self._server.close()
-
-        await self._server.wait_closed()
-
-    def run(self, *args, **kwargs):
-        self._start_tasks()
-        try:
-            self.loop.run_until_complete(self.start(*args, **kwargs))
-        except KeyboardInterrupt:
-            self.loop.run_until_complete(self.close())
-        finally:
-            self.loop.close()
-
-    async def restart(self):
-        """
-        The main reason i just dont call `close` and then `start` is because of the listeners dispatched inside of them.
-        Not having `on_shutdown` and `on_startup` be called on each save would be very nice i believe.
-        """
-        self._server.close()
-        await self._server.wait_closed()
-
-        debug = self.settings.DEBUG
-
-        port = self.settings.PORT
-        host = self.settings.HOST
-
-        serv = self.make_server()
-        self._server = server = await self.loop.create_server(lambda: serv, host=host, port=port)
-        
-        await self.dispatch('on_restart')
-        print(f'[{datetime.datetime.utcnow().strftime("%Y-%m-%d | %H:%M:%S")}]: App restarted. Running at http://{host}:{port}.')
-        if debug:
-            await self._watch_for_changes()
-
-        await server.serve_forever()
 
     # websocket stuff
 
-    def enable_websockets(self):
-        self._is_websocket = True
-
-    def disable_websockets(self):
-        self._is_websocket = False
-
-    def websocket(self, path: str, method: str, *, subprotocols=None):
+    def websocket(self, 
+                  path: str, 
+                  method: str, 
+                  *, 
+                  subprotocols=None):
         def decorator(coro):
-            self.enable_websockets()
-
             route = WebsocketRoute(path, method, coro)
             route.subprotocols = subprotocols
 
@@ -268,7 +265,10 @@ class Application(AppBase):
 
     # Routing
 
-    def add_route(self, route: typing.Union[Route, WebsocketRoute], *, websocket: bool=False):
+    def add_route(self,
+                  route: typing.Union[Route, WebsocketRoute],
+                  *, 
+                  websocket: bool=False):
         if not websocket:
             if not isinstance(route, Route):
                 raise RouteRegistrationError('Expected Route but got {0!r} instead.'.format(route.__class__.__name__))
@@ -287,10 +287,13 @@ class Application(AppBase):
             self.router.add_route(route.path, route.method, route.coro, websocket=True)
             return route
 
-        self.router.add_route(route)
+        self.router.add_route(route.path, route.method, route.coro)
         return route
 
-    def add_protected_route(self, path: typing.Union[str, yarl.URL], method: str, coro: typing.Coroutine):
+    def add_protected_route(self, 
+                            path: typing.Union[str, yarl.URL],
+                            method: str,
+                            coro: typing.Coroutine):
         async def func(request: Request):
             token = request.token
             valid = self.validate_token(token)
@@ -313,7 +316,8 @@ class Application(AppBase):
 
     async def generate_oauth2_token(self,
                                     client_id: str, 
-                                    client_secret: str, *,
+                                    client_secret: str, 
+                                    *,
                                     validator: typing.Coroutine=None, 
                                     expires: int=60) -> typing.Optional[bytes]:
         if validator:
@@ -438,7 +442,7 @@ class Application(AppBase):
         if not issubclass(view, HTTPView):
             raise ViewRegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__))
 
-        for method in METHODS:
+        for method in VALID_METHODS:
             if method.lower() in view.__dict__:
                 coro = view.__dict__[method.lower()]
 
@@ -447,7 +451,6 @@ class Application(AppBase):
 
         self.views.append(view)
         return view
-
 
     # Getting stuff
 

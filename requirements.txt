@@ -1,0 +1,10 @@
+yarl
+websockets
+httptools
+markdown
+aioredis
+asyncpg
+aiosqlite
+watchgod
+multidict # just incase
+jwt

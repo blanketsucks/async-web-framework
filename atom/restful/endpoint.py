@@ -1,5 +1,5 @@
 from .meta import EndpointMeta
-from ..app import Route
+from atom.app import Route
 
 import functools
 import typing

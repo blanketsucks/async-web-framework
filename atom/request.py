@@ -1,15 +1,18 @@
 import json
 import typing
 import yarl
-import asyncio
 from http.cookies import SimpleCookie
 from multidict import CIMultiDict
 
 if typing.TYPE_CHECKING:
     from .server import ConnectionInfo, HTTPProtocol, WebsocketProtocol
-    from .app import Application
 
-class Header(CIMultiDict):
+__all__ = (
+    'Headers',
+    'Request'
+)
+
+class Headers(CIMultiDict):
     def get_all(self, key):
         return self.getall(key, default=[])
 
@@ -36,7 +39,7 @@ class Request:
         self.status_code = status_code
         self.method = method
         self.url = yarl.URL(url)
-        self.headers = Header(headers)
+        self.headers = Headers(headers)
         self.body = body
         self.protocol = protocol
         self.connection_info = connection_info

@@ -2,8 +2,8 @@ import asyncio
 import typing
 
 from .errors import NoConnections
-from ..app import Application
-from ..restful import App
+from atom.app import Application
+from atom.restful import App
 
 class BaseConnection:
     def __init__(self, loop: asyncio.AbstractEventLoop=None, *, app: typing.Union[Application, App]=None) -> None:

@@ -1,5 +1,5 @@
 from .meta import ExtensionMeta
-from ..app import Route
+from atom.app import Route
 import functools
 import typing
 

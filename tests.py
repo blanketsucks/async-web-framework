@@ -3,19 +3,20 @@ from atom import restful
 import atom
 
 app = restful.App()
-app._is_websocket = True
 
-@app.websocket('/feed', 'GET', subprotocols='wpcp,')
+@app.websocket('/feed', 'GET', subprotocols=('wpcp',))
 async def web(request: atom.Request, websocket: atom.WebsocketProtocolConnection):
-    print('Dispatched WS.')
-    while True:
-        data = 'hello!'
-        print('Sending: ' + data)
-        await websocket.send(data)
-        data = await websocket.recv()
-        print('Received: ' + data)
+    data = 'hello!'
+    print('Sending: ' + data)
+    print('Closing...')
+    await websocket.close()
+
+@app.route('/', 'GET')
+async def index(req):
+    return ''
 
 print(app.routes)
 
 if __name__ == '__main__':
-    app.run()
+    # asyncio.run raises an error here, idk why
+    app.loop.run_until_complete(app.start())
