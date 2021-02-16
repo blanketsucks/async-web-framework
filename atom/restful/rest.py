@@ -7,7 +7,7 @@ import importlib
 import typing
 import inspect
 
-class App(Application):
+class RESTApplication(Application):
     def __init__(self,
                 endpoints: typing.List[typing.Dict[str, Endpoint]]=None,
                 extensions: typing.List[str]=None,

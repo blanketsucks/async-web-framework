@@ -333,16 +333,10 @@ async def _serve(
     loop: asyncio.AbstractEventLoop,
     server: asyncio.AbstractServer
 ):
+    app._server = server
+
     await app.dispatch('on_startup')
-    try:
-        await server.serve_forever()
-    except KeyboardInterrupt:
-        server.close()
-
-        await server.wait_closed()
-        await app.dispatch('on_shutdown')
-
-        loop.close()
+    await server.serve_forever()
 
 async def run_server(
     app: 'Application',

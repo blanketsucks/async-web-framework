@@ -3,6 +3,7 @@ import asyncio
 from .objects import Route, Listener, Middleware
 from .errors import *
 from .tasks import Task
+from .utils import VALID_LISTENERS
 
 import typing
 import yarl
@@ -78,6 +79,9 @@ class AppBase:
         
         actual = f.__name__.lower() if name is None else name.lower()
 
+        if actual not in VALID_LISTENERS:
+            raise ListenerRegistrationError(f'{actual} is not a valid listener.')
+
         if actual in self._listeners:
             self._listeners[actual].append(f)
         else:
@@ -136,10 +140,6 @@ class AppBase:
         self._middlewares.remove(middleware)
         return middleware
 
-    def get_listener(self, name: str):
-        try:
-            listener = self._listeners[name]
-        except KeyError:
-            return None
-
-        return listener
+    def get_listeners(self, name: str) -> typing.Iterator[typing.Coroutine]:
+        for listener in self._listeners[name]:
+            yield listener

@@ -4,28 +4,11 @@ import os
 import pathlib
 
 from .errors import InvalidSetting
+from .utils import DEFAULT_SETTINGS, VALID_SETTINGS, SETTING_ENV_PREFIX
 
 __all__ = (
-    'DEFAULT_SETTINGS',
-    'VALID_SETTINGS',
-    'ENV_PREFIX',
-    'Settings'
+    'Settings',
 )
-
-DEFAULT_SETTINGS = {
-    'HOST': '127.0.0.1',
-    'PORT': 8080,
-    'DEBUG': False,
-    'SECRET_KEY': None
-}
-
-VALID_SETTINGS: typing.Tuple = (
-    'SECRET_KEY',
-    'DEBUG',
-    'PORT',
-    'HOST'
-)
-ENV_PREFIX = 'ATOM_'
 
 class Settings(dict):
     def __init__(self, settings_file: typing.Union[str, pathlib.Path]=None, load_env: bool=False):
@@ -73,8 +56,8 @@ class Settings(dict):
         envs = os.environ
 
         for name, value in envs.items():
-            if name.startswith(ENV_PREFIX):
-                prefix, key = name.split(ENV_PREFIX, maxsplit=1)
+            if name.startswith(SETTING_ENV_PREFIX):
+                prefix, key = name.split(SETTING_ENV_PREFIX, maxsplit=1)
 
                 if key in VALID_SETTINGS:
                     self[key] = value

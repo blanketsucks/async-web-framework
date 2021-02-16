@@ -4,13 +4,63 @@ import markdown as mark
 import codecs
 import json
 import traceback
+import warnings
+import functools
+import typing
+
 
 __all__ = (
     'format_exception',
     'jsonify',
     'markdown',
     'render_html',
+    'deprecated',
+    'DEFAULT_SETTINGS',
+    'VALID_SETTINGS',
+    'SETTING_ENV_PREFIX',
+    'VALID_LISTENERS'
 )
+
+DEFAULT_SETTINGS = {
+    'HOST': '127.0.0.1',
+    'PORT': 8080,
+    'DEBUG': False,
+    'SECRET_KEY': None
+}
+
+VALID_SETTINGS: typing.Tuple = (
+    'SECRET_KEY',
+    'DEBUG',
+    'PORT',
+    'HOST'
+)
+SETTING_ENV_PREFIX = 'ATOM_'
+
+VALID_LISTENERS: typing.Tuple = (
+    'on_startup',
+    'on_shutdown',
+    'on_connection_made',
+    'on_connection_lost',
+    'on_socket_receive',
+    'on_database_connect',
+    'on_database_close',
+    'on_request'
+)
+
+def deprecated(other=None):
+    def wrapper(func):
+        warnings.simplefilter('always', DeprecationWarning)
+
+        if other:
+            warning = f'{func.__name__} is deprecated, use {other} instead.'
+        else:
+            warning = f'{func.__name__} is deprecated.'
+
+        warnings.warn(warning, DeprecationWarning, stacklevel=3)
+        warnings.simplefilter('default', DeprecationWarning)
+
+        return func
+    return wrapper
 
 def format_exception(exc):
 

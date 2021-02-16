@@ -4,7 +4,7 @@ from .errors import *
 from .server import *
 from .router import Router
 from .response import Response, JSONResponse
-from .utils import format_exception, jsonify
+from .utils import format_exception, jsonify, deprecated
 from .settings import Settings
 from .objects import Route, Listener, Middleware, WebsocketRoute
 from .shards import Shard
@@ -27,7 +27,8 @@ import watchgod
 __all__ = (
     'VALID_METHODS',
     'HTTPView',
-    'Application'
+    'Application',
+    'WebsocketHTTPView'
 )
 
 VALID_METHODS = ("GET", "POST", "PUT", "HEAD", "OPTIONS", "PATCH", "DELETE")
@@ -38,6 +39,13 @@ class HTTPView:
 
         if coro:
             await coro(*args, **kwargs)
+
+    def add(self, method: str, coro: typing.Coroutine):
+        setattr(self, method, coro)
+
+class WebsocketHTTPView(HTTPView):
+    pass
+
 
 class Application(AppBase):
     """
@@ -67,7 +75,7 @@ class Application(AppBase):
         self._database_connection = None
         self.router = Router()
         self._server = None
-        self._ready = asyncio.Event(loop=self.loop)
+        self._ready = asyncio.Event()
 
         self.url_prefix = url_prefix
         self.shards: typing.Dict[str, Shard] = {}
@@ -138,7 +146,6 @@ class Application(AppBase):
                     resp = Response(resp)
 
             if isinstance(route, WebsocketRoute):
-                print('Dispatching websocket...')
                 protocol = request.protocol
                 ws = await protocol._websocket(request, route.subprotocols)
 
@@ -163,11 +170,7 @@ class Application(AppBase):
     def is_ready(self):
         return self._ready.is_set()
 
-    # Properties 
-
-    @property
-    def routes(self):
-        return self.router.routes
+    # Properties
 
     @property
     def shard_count(self):
@@ -188,18 +191,18 @@ class Application(AppBase):
     async def start(self,
                     host: str=None,
                     port: int=None, 
+                    path: str=None,
                     *,
                     debug: bool=False,
                     websocket: bool=False,
                     unix: bool=False,
-                    path: str=None,
-                    websocket_timeout: float = 20,
-                    websocket_ping_interval: float = 20,
-                    websocket_ping_timeout: float = 20,
-                    websocket_max_size: int= None,
-                    websocket_max_queue: int= None,
-                    websocket_read_limit: int = 2 ** 16,
-                    websocket_write_limit: int = 2 ** 16,
+                    websocket_timeout: float=20,
+                    websocket_ping_interval: float=20,
+                    websocket_ping_timeout: float=20,
+                    websocket_max_size: int=None,
+                    websocket_max_queue: int=None,
+                    websocket_read_limit: int=2 ** 16,
+                    websocket_write_limit: int=2 ** 16,
                     **kwargs):
         
         async def runner():
@@ -248,7 +251,24 @@ class Application(AppBase):
         print(f'[{datetime.datetime.utcnow().strftime("%Y-%m-%d | %H:%M:%S")}] App running.')
         return await actual()
 
+    async def close(self):
+        server = self._server
+        if not server:
+            raise AppError('The Application is not running')
 
+        server.close()
+
+        await self.dispatch('on_shutdown')
+        await server.wait_closed()
+
+    def run(self, *args, **kwargs):
+        try:
+            self.loop.run_until_complete(self.start(*args, **kwargs))
+        except KeyboardInterrupt:
+            self.loop.run_until_complete(self.close())
+        finally:
+            self.loop.close()
+            
     # websocket stuff
 
     def websocket(self, 
@@ -418,6 +438,91 @@ class Application(AppBase):
             )
         return decorator
 
+
+    def get(self, 
+            path: typing.Union[str, yarl.URL], 
+            *, 
+            websocket: bool=False, 
+            websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'GET', websocket_subprotocols)
+
+            return self.route(path, 'GET')(func)
+        return decorator
+
+    def put(self, 
+            path: typing.Union[str, yarl.URL], 
+            *, 
+            websocket: bool=False, 
+            websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'PUT', websocket_subprotocols)
+
+            return self.route(path, 'PUT')(func)
+        return decorator
+
+    def post(self, 
+            path: typing.Union[str, yarl.URL], 
+            *, 
+            websocket: bool=False, 
+            websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'POST', websocket_subprotocols)
+
+            return self.route(path, 'POST')(func)
+        return decorator
+
+    def delete(self, 
+            path: typing.Union[str, yarl.URL], 
+            *, 
+            websocket: bool=False, 
+            websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'DELETE', websocket_subprotocols)
+
+            return self.route(path, 'DELETE')(func)
+        return decorator
+
+    def head(self, 
+            path: typing.Union[str, yarl.URL], 
+            *, 
+            websocket: bool=False, 
+            websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'HEAD', websocket_subprotocols)
+
+            return self.route(path, 'HEAD')(func)
+        return decorator
+
+    def options(self, 
+            path: typing.Union[str, yarl.URL], 
+            *, 
+            websocket: bool=False, 
+            websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'OPTIONS', websocket_subprotocols)
+
+            return self.route(path, 'OPTIONS')(func)
+        return decorator
+
+    def patch(self, 
+            path: typing.Union[str, yarl.URL], 
+            *, 
+            websocket: bool=False, 
+            websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'PATCH', websocket_subprotocols)
+
+            return self.route(path, 'PATCH')(func)
+        return decorator
+
     # dispatching
 
     async def dispatch(self, name: str, *args, **kwargs):
@@ -452,7 +557,25 @@ class Application(AppBase):
         self.views.append(view)
         return view
 
+    def register_websocket_view(self, view: WebsocketHTTPView, path: str):
+        if not issubclass(view, WebsocketHTTPView):
+            raise ViewRegistrationError('Expected WebsocketHTTPView but got {0!r} instead.'.format(view.__class__.__name__))
+
+        for method in VALID_METHODS:
+            if method.lower() in view.__dict__:
+                coro = view.__dict__[method.lower()]
+
+                route = WebsocketRoute(path, coro.__name__.upper(), coro)
+                self.add_route(route, websocket=True)  
+
+        self.views.append(view)
+        return view
+
     # Getting stuff
+
+    def get_routes(self) -> typing.Iterator[typing.Union[Route, WebsocketRoute]]:
+        for route in self.router.routes:
+            yield route
 
     def get_shard(self, name: str):
         try:

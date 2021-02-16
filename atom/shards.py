@@ -1,8 +1,10 @@
 import typing
 import inspect
 
-from .errors import RouteRegistrationError
-from .objects import Route
+import yarl
+
+from .errors import RouteRegistrationError, WebsocketRouteRegistrationError
+from .objects import Route, WebsocketRoute
 from .base import AppBase
 
 class Shard(AppBase):
@@ -10,22 +12,131 @@ class Shard(AppBase):
         self.url_prefix = url_prefix
         self.name = name
 
-        self._routes = {}
+        self.routes = []
         super().__init__(url_prefix=self.url_prefix)
 
-    @property
-    def routes(self):
-        return self._routes
-    
-    def add_route(self, route: Route):
+    def get_routes(self):
+        for route in self._routes:
+            yield route
+
+    def websocket(self, 
+                  path: str, 
+                  method: str, 
+                  *, 
+                  subprotocols=None):
+        def decorator(coro):
+            route = WebsocketRoute(path, method, coro)
+            route.subprotocols = subprotocols
+
+            return self.add_route(route, websocket=True)
+        return decorator
+
+    def add_route(self, route: typing.Union[Route, WebsocketRoute], *, websocket: bool=False):
+        if not websocket:
+            if not isinstance(route, Route):
+                raise RouteRegistrationError('Expected Route but got {0!r} instead.'.format(route.__class__.__name__))
+
         if not inspect.iscoroutinefunction(route.coro):
             raise RouteRegistrationError('Routes must be async.')
 
-        if (route.method, route.path) in self._routes:
+        if route in self.router.routes:
             raise RouteRegistrationError('{0!r} is already a route.'.format(route.path))
 
-        self._routes[(route.path, route.method)] = route.coro
+        if websocket:
+            if not isinstance(route, WebsocketRoute):
+                fmt = 'Expected WebsocketRoute but got {0!r} instead'
+                raise WebsocketRouteRegistrationError(fmt.format(route.__class__.__name__))
+
+            self.routes.append(route)
+            return route
+
+        self.routes.append(route)
         return route
+
+    def get(self, 
+            path: typing.Union[str, yarl.URL], 
+            *, 
+            websocket: bool=False, 
+            websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'GET', websocket_subprotocols)
+
+            return self.route(path, 'GET')(func)
+        return decorator
+
+    def put(self, 
+            path: typing.Union[str, yarl.URL], 
+            *, 
+            websocket: bool=False, 
+            websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'PUT', websocket_subprotocols)
+
+            return self.route(path, 'PUT')(func)
+        return decorator
+
+    def post(self, 
+            path: typing.Union[str, yarl.URL], 
+            *, 
+            websocket: bool=False, 
+            websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'POST', websocket_subprotocols)
+
+            return self.route(path, 'POST')(func)
+        return decorator
+
+    def delete(self, 
+            path: typing.Union[str, yarl.URL], 
+            *, 
+            websocket: bool=False, 
+            websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'DELETE', websocket_subprotocols)
+
+            return self.route(path, 'DELETE')(func)
+        return decorator
+
+    def head(self, 
+            path: typing.Union[str, yarl.URL], 
+            *, 
+            websocket: bool=False, 
+            websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'HEAD', websocket_subprotocols)
+
+            return self.route(path, 'HEAD')(func)
+        return decorator
+
+    def options(self, 
+                path: typing.Union[str, yarl.URL], 
+                *, 
+                websocket: bool=False, 
+                websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'OPTIONS', websocket_subprotocols)
+
+            return self.route(path, 'OPTIONS')(func)
+        return decorator
+
+    def patch(self, 
+            path: typing.Union[str, yarl.URL], 
+            *, 
+            websocket: bool=False, 
+            websocket_subprotocols=None):
+        def decorator(func):
+            if websocket:
+                return self.websocket(path, 'PATCH', websocket_subprotocols)
+
+            return self.route(path, 'PATCH')(func)
+        return decorator
+
 
     def _inject(self, app):
         for middleware in self._middlewares:
@@ -34,9 +145,11 @@ class Shard(AppBase):
         for name, listener in self._listeners.items():
             app.add_listener(listener, name)
 
-        for (path, method), coro in self._routes.items():
-            route = Route(path, method, coro)
-            app.add_route(route)
+        for route in self.routes:
+            if isinstance(route, WebsocketRoute):
+                app.add_route(route, websocket=True)
+            else:
+                app.add_route(route)
 
         for task in self._tasks:
             app.add_task(task)
