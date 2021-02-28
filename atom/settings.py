@@ -65,5 +65,7 @@ class Settings(dict):
                 else:
                     raise InvalidSetting(f'{key} is not a valid setting.')
 
-        return self 
+        return self
 
+    def __repr__(self) -> str:
+        return '<Settings>'

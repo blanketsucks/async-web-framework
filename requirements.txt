@@ -6,5 +6,5 @@ aioredis
 asyncpg
 aiosqlite
 watchgod
-multidict # just incase
+multidict
 jwt

@@ -1,22 +1,35 @@
 import typing
 import inspect
-
+import warnings
 import yarl
 
 from .errors import RouteRegistrationError, WebsocketRouteRegistrationError
 from .objects import Route, WebsocketRoute
-from .base import AppBase
+from .base import Base
 
-class Shard(AppBase):
-    def __init__(self, name: str, *, url_prefix: str='') -> None:
-        self.url_prefix = url_prefix
+if typing.TYPE_CHECKING:
+    from .app import Application
+    from .restful import RESTApplication
+
+__all__ = (
+    'Shard'
+)
+
+class Shard(Base):
+    def __init__(self, name: str, *, url_prefix: str='', app: typing.Union['Application', 'RESTApplication']=None) -> None:
+        super().__init__(url_prefix=url_prefix)
+
         self.name = name
-
         self.routes = []
-        super().__init__(url_prefix=self.url_prefix)
+
+        if app:
+            self.app = app
+
+            self._inject(self.app)
+            self.app.shards[self.name] = self
 
     def get_routes(self):
-        for route in self._routes:
+        for route in self.routes:
             yield route
 
     def websocket(self, 
@@ -39,7 +52,7 @@ class Shard(AppBase):
         if not inspect.iscoroutinefunction(route.coro):
             raise RouteRegistrationError('Routes must be async.')
 
-        if route in self.router.routes:
+        if route in self.routes:
             raise RouteRegistrationError('{0!r} is already a route.'.format(route.path))
 
         if websocket:
@@ -139,7 +152,7 @@ class Shard(AppBase):
 
 
     def _inject(self, app):
-        for middleware in self._middlewares:
+        for middleware in self.middlewares:
             app.add_middleware(middleware)
 
         for name, listener in self._listeners.items():

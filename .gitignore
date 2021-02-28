@@ -2,3 +2,7 @@ test.py
 __pycache__
 .vscode
 .idea
+
+dist
+build
+atom.egg-info

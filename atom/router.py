@@ -4,6 +4,9 @@ from .objects import Route, WebsocketRoute
 import re
 import typing
 
+__all__ = (
+    'Router'
+)
 
 class Router:
     _param_regex = r"{(?P<param>\w+)}"

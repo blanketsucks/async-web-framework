@@ -9,7 +9,11 @@ import typing
 import yarl
 import inspect
 
-class AppBase:
+__all__ = (
+    'Base'
+)
+
+class Base:
     def __init__(self, routes: typing.List[Route]=None,
                 listeners: typing.List[Listener]=None,
                 middlewares: typing.List[Middleware]=None, *,

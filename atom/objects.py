@@ -17,7 +17,7 @@ class Route:
         return '<Route path={0.path!r} method={0.method!r}>'.format(self)
 
     async def __call__(self, *args, **kwargs):
-        return await self._coro(*args, **kwargs)
+        return await self.coro(*args, **kwargs)
 
 class WebsocketRoute:
     def __init__(self, path: str, method: str, coro: typing.Coroutine) -> None:

@@ -16,7 +16,7 @@ class Response:
                 status=200, content_type="text/plain",
                 headers=None, version="1.1"):
 
-        self._version = version
+        self.version = version
         self._status = status
         self._body = body
         self._content_type = content_type
@@ -49,12 +49,15 @@ class Response:
 
     def add_header(self, key, value):
         self._headers[key] = value
+
+    def __repr__(self) -> str:
+        return '<Response body={0.body!r} content_type={0.content_type!r} status={0.status} version={0.version}>'.format(self)
     
-    def __str__(self):
+    def as_string(self):
         status_msg, _ = responses.get(int(self._status))
         
         messages = [
-            f"HTTP/{self._version} {self._status} {status_msg}",
+            f"HTTP/{self.version} {self._status} {status_msg}",
             f"Content-Type: {self._content_type}",
             f"Content-Length: {len(self._body)}",
         ]

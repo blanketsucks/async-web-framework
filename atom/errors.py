@@ -71,11 +71,11 @@ class HTTPException(Response, AppError):
 
 @status(404)
 class NotFound(HTTPException):
-    status_code = 404
+    pass
 
 @status(400)
 class BadRequest(HTTPException):
-    status_code = 400
+    pass
 
 @status(403)
 class Forbidden(HTTPException):

@@ -117,9 +117,6 @@ class HTTPProtocol(asyncio.Protocol):
         self.handler_task = self.loop.create_task(
             self.handler(self.request, self.response_writer)
         )
-        self.loop.create_task(
-            self.app.dispatch('on_request', self.request)
-        )
 
     def connection_made(self, transport: asyncio.Transport) -> None:
         self.loop.create_task(self.app.dispatch('on_connection_made', transport))
@@ -131,8 +128,10 @@ class HTTPProtocol(asyncio.Protocol):
         self.transport = None
         self.loop.create_task(self.app.dispatch('on_connection_lost', exc))
 
-    def response_writer(self, response: Response):
-        self.transport.write(str(response).encode(self.encoding))
+    def response_writer(self, response: str):
+        self.transport.write(response.encode(self.encoding))
+
+        self.app._request.clear()
         self.transport.close()
 
     def data_received(self, data: bytes) -> None:
@@ -184,6 +183,9 @@ class HTTPProtocol(asyncio.Protocol):
             socket=socket
         )
 
+    def __repr__(self) -> str:
+        return '<HTTPProtocol transport={0.transport}>'.format(self)
+
 class WebsocketProtocol(HTTPProtocol):
     def __init__(self,
                 timeout: float=20,
@@ -206,6 +208,9 @@ class WebsocketProtocol(HTTPProtocol):
         self.max_queue = max_queue
         self.read_limit = read_limit
         self.write_limit = write_limit
+
+    def __repr__(self) -> str:
+        return '<WebsocketProtocol transport={0.transport}>'.format(self)
 
     def data_received(self, data: bytes) -> None:
         if self.websocket:
@@ -354,9 +359,7 @@ async def run_server(
     )
 
     server: asyncio.AbstractServer = await loop.create_server(
-        protocol_factory=protocol,
-        host=host,
-        port=port, **kwargs
+        lambda: protocol, host, port, **kwargs
     )
 
     await _serve(app, loop, server)

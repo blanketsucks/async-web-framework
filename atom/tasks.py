@@ -1,5 +1,10 @@
 import asyncio
 
+__all__ = (
+    'task',
+    'Task'
+)
+
 def task(*, seconds=0, minutes=0, hours=0, count=None, loop=None):
     def wrapper(func):
         cls = Task(
@@ -32,13 +37,15 @@ class Task:
         counter = 0
         await self._call('before_task')
 
-        while counter < self.count:
+        while True:
             await self.coro()
             await asyncio.sleep(self._duration)
             counter += 1
 
-        await self._call('after_task')
+            if self.count == counter:
+                break
 
+        await self._call('after_task')
 
     def _parse_duration(self, seconds, minutes, hours):
         duration = seconds + (minutes * 60.0) + (hours * 3600.0)

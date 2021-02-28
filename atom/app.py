@@ -1,16 +1,16 @@
 
-from .request import Request
+from .request import Request, _RequestContextManager
 from .errors import *
 from .server import *
 from .router import Router
-from .response import Response, JSONResponse
-from .utils import format_exception, jsonify, deprecated
+from .utils import format_exception, jsonify
 from .settings import Settings
 from .objects import Route, Listener, Middleware, WebsocketRoute
 from .shards import Shard
-from .base import AppBase
+from .base import Base
+from .context import Context, _ContextManager
+from .cache import Cache
 
-import json
 import inspect
 import typing
 import yarl
@@ -19,6 +19,7 @@ import datetime
 import asyncpg
 import aiosqlite
 import aioredis
+import aiohttp
 import asyncio
 import pathlib
 import importlib
@@ -43,11 +44,12 @@ class HTTPView:
     def add(self, method: str, coro: typing.Coroutine):
         setattr(self, method, coro)
 
+
 class WebsocketHTTPView(HTTPView):
     pass
 
 
-class Application(AppBase):
+class Application(Base):
     """
     
     ## Listeners order
@@ -61,10 +63,12 @@ class Application(AppBase):
                 loop: asyncio.AbstractEventLoop=None,
                 url_prefix: str=None,
                 settings_file: typing.Union[str, pathlib.Path]=None,
-                load_settings_from_env: bool=False) -> None:
+                load_settings_from_env: bool=False,
+                routes_cache_maxsize: int=64) -> None:
 
         self.loop = loop or asyncio.get_event_loop()
         self.settings = Settings()
+        self.cache = Cache(routes_maxsize=routes_cache_maxsize)
 
         if settings_file:
             self.settings.from_file(settings_file)
@@ -76,19 +80,24 @@ class Application(AppBase):
         self.router = Router()
         self._server = None
         self._ready = asyncio.Event()
-
+        self._request = asyncio.Event()
         self.url_prefix = url_prefix
         self.shards: typing.Dict[str, Shard] = {}
         self.views = []
-
         self._websocket_tasks = []
         self._is_websocket = False
+        self.__session = None
+
         super().__init__(routes=routes,
                         listeners=listeners,
                         middlewares=middlewares,
                         url_prefix=url_prefix,
                         loop=self.loop
                         )
+
+    def __repr__(self) -> str:
+        # {0.__class__.__name__} because of the subclass: RESTApplication
+        return '<{0.__class__.__name__} settings={0.settings} cache={0.cache}>'.format(self)
 
     # Private methods
 
@@ -126,43 +135,61 @@ class Application(AppBase):
 
     async def _handler(self, request: Request, response_writer):
         resp = None
-
         try:
             args, route = self.router.resolve(request)
+            self.cache.add_route(route, request)
 
             if len(self._middlewares) != 0:
                 await asyncio.gather(*[middleware(request, route.coro) for middleware in self._middlewares])
 
             args = self._convert(route.coro, args)
+            ctx = Context(app=self, request=request)
 
             if isinstance(route, Route):
-                resp = await route(request, *args)
-
-                if isinstance(resp, dict) or isinstance(resp, list):
-                    data = json.dumps(resp)
-                    resp = JSONResponse(data)
-
-                if isinstance(resp, str):
-                    resp = Response(resp)
+                resp = await route(ctx, *args)
 
             if isinstance(route, WebsocketRoute):
                 protocol = request.protocol
                 ws = await protocol._websocket(request, route.subprotocols)
 
-                task = self.loop.create_task(route(request, ws, *args))
+                task = self.loop.create_task(route(ctx, ws, *args))
                 self._websocket_tasks.append(task)
 
+            if isinstance(resp, Context):
+                resp = resp.response
+
+                if resp is None:
+                    raise RuntimeError('A route should not return None')
+
+            self.cache.set(context=ctx, response=resp, request=request)  
         except HTTPException as exc:
             resp = format_exception(exc)
-            raise exc
 
         except Exception as exc:
             resp = format_exception(exc)
-            raise exc
+  
+        self._request.set()
+        response_writer(resp.as_string())
 
-        response_writer(resp)
+    # context managers
+
+    def context(self):
+        if not self.cache.context:
+            raise RuntimeError('a Context object has not been set')
+        
+        return _ContextManager(self.cache.context)
+
+    def request(self):
+        if not self.cache.request:
+            raise RuntimeError('a Request object has not been set')
+
+        return 
+
 
     # Ready up stuff
+
+    async def wait_until_request(self):
+        await self._request.wait()
 
     async def wait_until_startup(self):
         await self._ready.wait()
@@ -249,6 +276,8 @@ class Application(AppBase):
                 return await runner()
 
         print(f'[{datetime.datetime.utcnow().strftime("%Y-%m-%d | %H:%M:%S")}] App running.')
+
+        self._ready.set()
         return await actual()
 
     async def close(self):
@@ -585,3 +614,13 @@ class Application(AppBase):
 
         return shard
     
+    # test client
+
+    def request(self, route: str, method: str, **kwargs):
+        if not self.__session or self.__session.closed:
+            self.__session = aiohttp.ClientSession(loop=self.loop)
+
+        url = self.settings.HOST + route
+        session = self.__session
+
+        return _RequestContextManager(session, url, method, **kwargs)

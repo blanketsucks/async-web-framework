@@ -3,6 +3,7 @@ import typing
 import yarl
 from http.cookies import SimpleCookie
 from multidict import CIMultiDict
+import aiohttp
 
 if typing.TYPE_CHECKING:
     from .server import ConnectionInfo, HTTPProtocol, WebsocketProtocol
@@ -11,6 +12,26 @@ __all__ = (
     'Headers',
     'Request'
 )
+
+class _RequestContextManager:
+    def __init__(self, session: aiohttp.ClientSession, url: str, method: str, **kwargs) -> None:
+        self.__session = session
+
+        self.url = url
+        self.method = method
+        self.kwargs = kwargs
+
+    async def __aenter__(self):
+        method = self.method
+        url = self.url
+        kwargs = self.kwargs
+
+        async with self.__session.request(method, url, **kwargs) as resp:
+            return resp
+
+    async def __aexit__(self, _type, value, tb):
+        await self.__session.close()
+        return self
 
 class Headers(CIMultiDict):
     def get_all(self, key):
@@ -35,7 +56,7 @@ class Request:
 
         self._encoding = "utf-8"
 
-        self.version = version
+        self.version = version[:-1]
         self.status_code = status_code
         self.method = method
         self.url = yarl.URL(url)
@@ -124,4 +145,5 @@ class Request:
         return None
 
     def __repr__(self) -> str:
-        return '<Request url={0.url.raw_path} method={0.method}>'.format(self)
+        return '<Request url={0.url.raw_path!r} method={0.method!r} status={0.status_code} version={0.version!r} '\
+                'headers={0.headers} socket={0.socket} ssl={0.ssl} protocol={0.protocol} cookies={0.cookies}>'.format(self)

@@ -7,6 +7,7 @@ import traceback
 import warnings
 import functools
 import typing
+import aiohttp
 
 
 __all__ = (
@@ -20,6 +21,7 @@ __all__ = (
     'SETTING_ENV_PREFIX',
     'VALID_LISTENERS'
 )
+
 
 DEFAULT_SETTINGS = {
     'HOST': '127.0.0.1',
@@ -39,12 +41,12 @@ SETTING_ENV_PREFIX = 'ATOM_'
 VALID_LISTENERS: typing.Tuple = (
     'on_startup',
     'on_shutdown',
+    'on_error',
     'on_connection_made',
     'on_connection_lost',
     'on_socket_receive',
     'on_database_connect',
     'on_database_close',
-    'on_request'
 )
 
 def deprecated(other=None):
