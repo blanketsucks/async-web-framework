@@ -57,11 +57,6 @@ class HTTPException(Response, AppError):
         self._reason = reason
         self._content_type = content_type
         
-        if isinstance(reason, dict) or isinstance(reason, list):
-            self._reason = json.dumps(reason)
-            self._content_type = 'application/json'
-
-
         Response.__init__(self,
                         body=self._reason,
                         status=self.status_code,

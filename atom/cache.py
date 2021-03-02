@@ -8,11 +8,11 @@ import asyncio
 import typing
 
 __all__ = (
-    'Routes',
+    'RouteCache',
     'Cache'
 )
 
-class Routes(dict):
+class RouteCache(dict):
     def __init__(self, maxsize: int=64, *args, **kwargs):
         self.maxsize = maxsize
         self.currentsize = 0
@@ -67,7 +67,7 @@ class Routes(dict):
 
 class Cache(dict):
     def __init__(self, routes_maxsize: int=64, *args, **kwargs):
-        self._routes = Routes(routes_maxsize)
+        self._routes = RouteCache(routes_maxsize)
     
     @property
     def routes(self):

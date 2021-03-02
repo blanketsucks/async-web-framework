@@ -3,13 +3,14 @@ from .request import Request
 from .errors import *
 from .server import *
 from .router import Router
-from .utils import format_exception, jsonify
+from .utils import format_exception, jsonify, VALID_METHODS
 from .settings import Settings
 from .objects import Route, Listener, Middleware, WebsocketRoute
 from .shards import Shard
 from .base import Base
 from .context import Context, _ContextManager
 from .cache import Cache
+from .views import HTTPView, WebsocketHTTPView
 
 import inspect
 import typing
@@ -47,27 +48,8 @@ class _RequestContextManager:
 
 __all__ = (
     'VALID_METHODS',
-    'HTTPView',
     'Application',
-    'WebsocketHTTPView'
 )
-
-VALID_METHODS = ("GET", "POST", "PUT", "HEAD", "OPTIONS", "PATCH", "DELETE")
-
-class HTTPView:
-    async def dispatch(self, request, *args, **kwargs):
-        coro = getattr(self, request.method.lower(), None)
-
-        if coro:
-            await coro(*args, **kwargs)
-
-    def add(self, method: str, coro: typing.Coroutine):
-        setattr(self, method, coro)
-
-
-class WebsocketHTTPView(HTTPView):
-    pass
-
 
 class Application(Base):
     """

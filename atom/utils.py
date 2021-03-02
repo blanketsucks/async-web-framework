@@ -20,7 +20,8 @@ __all__ = (
     'DEFAULT_SETTINGS',
     'VALID_SETTINGS',
     'SETTING_ENV_PREFIX',
-    'VALID_LISTENERS'
+    'VALID_LISTENERS',
+    'VALID_METHODS'
 )
 
 
@@ -38,6 +39,16 @@ VALID_SETTINGS: typing.Tuple = (
     'HOST'
 )
 SETTING_ENV_PREFIX = 'ATOM_'
+
+VALID_METHODS = (
+    "GET", 
+    "POST", 
+    "PUT", 
+    "HEAD", 
+    "OPTIONS", 
+    "PATCH", 
+    "DELETE"
+)
 
 VALID_LISTENERS: typing.Tuple = (
     'on_startup',
