@@ -1,5 +1,5 @@
 
-from .request import Request, _RequestContextManager
+from .request import Request
 from .errors import *
 from .server import *
 from .router import Router
@@ -24,6 +24,26 @@ import asyncio
 import pathlib
 import importlib
 import watchgod
+
+class _RequestContextManager:
+    def __init__(self, session: aiohttp.ClientSession, url: str, method: str, **kwargs) -> None:
+        self.__session = session
+
+        self.url = url
+        self.method = method
+        self.kwargs = kwargs
+
+    async def __aenter__(self):
+        method = self.method
+        url = self.url
+        kwargs = self.kwargs
+
+        async with self.__session.request(method, url, **kwargs) as resp:
+            return resp
+
+    async def __aexit__(self, _type, value, tb):
+        await self.__session.close()
+        return self
 
 __all__ = (
     'VALID_METHODS',
@@ -66,8 +86,14 @@ class Application(Base):
                 load_settings_from_env: bool=False,
                 routes_cache_maxsize: int=64) -> None:
 
+        self._ready = asyncio.Event()
+        self._request = asyncio.Event()
+
         self.loop = loop or asyncio.get_event_loop()
+        self.url_prefix = url_prefix
+
         self.settings = Settings()
+        self.router = Router()
         self.cache = Cache(routes_maxsize=routes_cache_maxsize)
 
         if settings_file:
@@ -76,17 +102,14 @@ class Application(Base):
         if load_settings_from_env:
             self.settings.from_env_vars()
 
-        self._database_connection = None
-        self.router = Router()
-        self._server = None
-        self._ready = asyncio.Event()
-        self._request = asyncio.Event()
-        self.url_prefix = url_prefix
         self.shards: typing.Dict[str, Shard] = {}
-        self.views = []
-        self._websocket_tasks = []
-        self._is_websocket = False
-        self.__session = None
+        self.views: typing.List[typing.Union[HTTPView, WebsocketHTTPView]] = []
+        self._websocket_tasks: typing.List[asyncio.Task] = []
+
+        self._is_websocket: bool = False
+        self.__session: aiohttp.ClientSession = None
+        self._server: asyncio.AbstractServer = None
+        self._database_connection = None
 
         super().__init__(routes=routes,
                         listeners=listeners,
@@ -113,8 +136,8 @@ class Application(Base):
                 importlib.reload(module)
 
     def _start_tasks(self):
-        for task in self._tasks:
-            task.start()
+            for task in self._tasks:
+                task.start()
 
     def _convert(self, func, args):
         return_args = []
@@ -179,13 +202,6 @@ class Application(Base):
         
         return _ContextManager(self.cache.context)
 
-    def request(self):
-        if not self.cache.request:
-            raise RuntimeError('a Request object has not been set')
-
-        return 
-
-
     # Ready up stuff
 
     async def wait_until_request(self):
@@ -206,6 +222,10 @@ class Application(Base):
     @property
     def running_tasks(self):
         return len([task for task in self._tasks if task.is_running])
+
+    @property
+    def sockets(self) -> typing.Tuple:
+        return self._server.sockets if self._server else ()
 
     # Some methods. idk
 
@@ -276,8 +296,9 @@ class Application(Base):
                 return await runner()
 
         print(f'[{datetime.datetime.utcnow().strftime("%Y-%m-%d | %H:%M:%S")}] App running.')
-
         self._ready.set()
+
+        self._start_tasks()
         return await actual()
 
     async def close(self):
@@ -560,6 +581,20 @@ class Application(Base):
         except KeyError:
             return
         
+        for listener in listeners:
+            if isinstance(listener, asyncio.Future):
+                print('here Future')
+
+                if len(args) == 0:
+                    listener.set_result(None)
+                elif len(args) == 1:
+                    listener.set_result(args[0])
+                else:
+                    listener.set_result(args)
+
+                print(listener.result())
+                listeners.remove(listener)
+    
         return await asyncio.gather(*[listener(*args, **kwargs) for listener in listeners], loop=self.loop)
 
     # Shards
@@ -624,3 +659,17 @@ class Application(Base):
         session = self.__session
 
         return _RequestContextManager(session, url, method, **kwargs)
+
+    # waiting for stuff
+
+    async def wait_for(self, event: str, *, timeout: int=120.0):
+        future = self.loop.create_future()
+        listeners = self._listeners.get(event.lower())
+
+        print(future)
+        if not listeners:
+            listeners = []
+            self._listeners[event.lower()] = listeners
+
+        listeners.append(future)
+        return await asyncio.wait_for(future, timeout=timeout)

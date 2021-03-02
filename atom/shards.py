@@ -12,7 +12,7 @@ if typing.TYPE_CHECKING:
     from .restful import RESTApplication
 
 __all__ = (
-    'Shard'
+    'Shard',
 )
 
 class Shard(Base):

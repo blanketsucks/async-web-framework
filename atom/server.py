@@ -2,6 +2,7 @@
 from .request import Request
 from .response import Response
 
+import datetime
 import socket as sockets
 from websockets import handshake, WebSocketCommonProtocol
 import asyncio
@@ -109,6 +110,7 @@ class HTTPProtocol(asyncio.Protocol):
             body=self.body,
             protocol=self,
             status_code=self.status,
+            date=datetime.datetime.utcnow(),
             connection_info=self.conn_info,
         )
 

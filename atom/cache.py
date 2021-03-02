@@ -4,6 +4,7 @@ from .request import Request
 from .response import Response
 from .objects import Route, WebsocketRoute
 
+import asyncio
 import typing
 
 __all__ = (
@@ -67,10 +68,14 @@ class Routes(dict):
 class Cache(dict):
     def __init__(self, routes_maxsize: int=64, *args, **kwargs):
         self._routes = Routes(routes_maxsize)
-
+    
     @property
     def routes(self):
         return self._routes
+
+    @property
+    def last_route(self):
+        return self._routes.items()[0]
 
     def add_route(self, route: typing.Union[Route, WebsocketRoute], request: Request):
         self._routes[route] = request

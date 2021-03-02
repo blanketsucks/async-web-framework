@@ -1,27 +1,15 @@
+
 import atom
-from atom import restful
 
-app = restful.RESTApplication()
-print(app)
-@atom.task(seconds=10)
-async def task():
+app = atom.Application()
 
-    async with app.request('/test', 'GET') as req:
-        print(req)
+@app.route('/hello/{name}', 'GET')
+async def get_name(ctx: atom.Context, name: str):
+    if len(name) > 64:
+        return atom.abort(400, message={'error': 'name argument too long'}, content_type='application/json')
 
-@app.route('/test', 'GET')
-async def index(ctx: atom.Context):
-    ctx.build_response('hehehehe')
+    ctx.build_json_response({'Hello there': name})
     return ctx
 
-@app.route('/yes', 'GET')
-async def yes(ctx: atom.Context):
-    ctx.build_response('yes')
-
-    return ctx
-
-@app.listen('on_startup')
-async def test():
-    task.start()
-
-# app.run()
+if __name__ == '__main__':
+    app.run()

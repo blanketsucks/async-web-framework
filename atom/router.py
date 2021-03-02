@@ -5,7 +5,7 @@ import re
 import typing
 
 __all__ = (
-    'Router'
+    'Router',
 )
 
 class Router:

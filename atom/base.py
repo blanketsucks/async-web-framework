@@ -10,7 +10,7 @@ import yarl
 import inspect
 
 __all__ = (
-    'Base'
+    'Base',
 )
 
 class Base:
@@ -61,7 +61,7 @@ class Base:
             for middleware in middlewares:
                 coro = middleware.coro
                 self.add_middleware(coro)
-
+        
     def add_route(self, route: Route):
         raise NotImplementedError
 

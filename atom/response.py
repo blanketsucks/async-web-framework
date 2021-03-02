@@ -1,6 +1,4 @@
 import http.server
-import typing
-import urllib.parse
 
 responses = http.server.BaseHTTPRequestHandler.responses
 
@@ -8,7 +6,6 @@ __all__ = (
     'Response',
     'HTMLResponse',
     'JSONResponse',
-    'redirect'
 )
 
 class Response:
@@ -78,15 +75,3 @@ class HTMLResponse(Response):
 class JSONResponse(Response):
     def __init__(self, body='', status=200, headers=None, version='1.1'):
         super().__init__(body=body, status=status, content_type='application/json', headers=headers, version=version)
-
-def redirect(to: str, headers: typing.Dict=None, status: int=302, content_type: str='text/html'):
-    headers = headers or {}
-
-    url = urllib.parse.quote_plus(to, ":/%#?&=@[]!$&'()*+,;")
-    headers['Location'] = url
-
-    return Response(
-        status=status,
-        headers=headers,
-        content_type=content_type
-    )

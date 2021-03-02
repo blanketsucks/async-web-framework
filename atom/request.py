@@ -1,5 +1,7 @@
+import datetime
 import json
 import typing
+import humanize
 import yarl
 from http.cookies import SimpleCookie
 from multidict import CIMultiDict
@@ -10,28 +12,83 @@ if typing.TYPE_CHECKING:
 
 __all__ = (
     'Headers',
-    'Request'
+    'Request',
+    'RequestDate'
 )
 
-class _RequestContextManager:
-    def __init__(self, session: aiohttp.ClientSession, url: str, method: str, **kwargs) -> None:
-        self.__session = session
+class RequestDate:
+    def __init__(self, date: datetime.datetime) -> None:
+        self.datatime = date
+        self.humanized = humanize.naturaltime(self.datatime)
 
-        self.url = url
-        self.method = method
-        self.kwargs = kwargs
+    def __repr__(self) -> str:
+        return self.datatime.__repr__()
 
-    async def __aenter__(self):
-        method = self.method
-        url = self.url
-        kwargs = self.kwargs
+    def __add__(self, other: 'RequestDate') -> 'RequestDate':
+        if not isinstance(other, RequestDate):
+            return RequestDate(self.datatime)
 
-        async with self.__session.request(method, url, **kwargs) as resp:
-            return resp
+        return RequestDate(self.datatime + other.datatime)
 
-    async def __aexit__(self, _type, value, tb):
-        await self.__session.close()
-        return self
+    def __eq__(self, other: 'RequestDate') -> bool:
+        if not isinstance(other, RequestDate):
+            return False
+
+        return self.datatime == other.datatime
+    
+    def __sub__(self, other: 'RequestDate') -> 'RequestDate':
+        if not isinstance(other, RequestDate):
+            return RequestDate(self.datatime)
+        
+        return RequestDate(self.datatime - other.datatime)
+
+    def __lt__(self, other: 'RequestDate') -> bool:
+        if not isinstance(other, RequestDate):
+            return False
+        
+        return self.datatime < other.datatime
+
+    def __le__(self, other: 'RequestDate') -> bool:
+        if not isinstance(other, RequestDate):
+            return False
+        
+        return self.datatime <= other.datatime
+
+    def __gt__(self, other: 'RequestDate') -> bool:
+        if not isinstance(other, RequestDate):
+            return False
+        
+        return self.datatime > other.datatime
+
+    def __ge__(self, other: 'RequestDate') -> bool:
+        if not isinstance(other, RequestDate):
+            return False
+        
+        return self.datatime >= other.datatime
+
+    @property
+    def year(self):
+        return self.datatime.year
+
+    @property
+    def month(self):
+        return self.datatime.month
+
+    @property
+    def day(self):
+        return self.datatime.day
+
+    @property
+    def hour(self):
+        return self.datatime.hour
+
+    @property
+    def minute(self):
+        return self.datatime.minute
+
+    @property
+    def second(self):
+        return self.datatime.second
 
 class Headers(CIMultiDict):
     def get_all(self, key):
@@ -41,7 +98,7 @@ class Request:
     __slots__ = (
         '_encoding', 'version', 'status_code', 'method',
         'url', 'headers', 'body', 'protocol', 'connection_info',
-        '_cookies',
+        '_cookies', 'datetime'
     )
 
     def __init__(self,
@@ -51,6 +108,7 @@ class Request:
                 headers: typing.Dict,
                 protocol: typing.Union['HTTPProtocol', 'WebsocketProtocol'],
                 connection_info: 'ConnectionInfo',
+                date: datetime.datetime,
                 version: str=None, 
                 body=None):
 
@@ -61,6 +119,7 @@ class Request:
         self.method = method
         self.url = yarl.URL(url)
         self.headers = Headers(headers)
+        self.datetime = RequestDate(date)
         self.body = body
         self.protocol = protocol
         self.connection_info = connection_info
