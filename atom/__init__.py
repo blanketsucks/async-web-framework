@@ -17,3 +17,4 @@ from .base import *
 from .shards import *
 from .tasks import *
 from .context import *
+from .views import *
