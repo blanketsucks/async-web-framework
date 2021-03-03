@@ -17,12 +17,23 @@ __all__ = (
     'markdown',
     'render_html',
     'deprecated',
+    'Deprecated',
     'DEFAULT_SETTINGS',
     'VALID_SETTINGS',
     'SETTING_ENV_PREFIX',
     'VALID_LISTENERS',
     'VALID_METHODS'
 )
+
+class Deprecated:
+    def __init__(self, func) -> None:
+        self.__repr = '<Deprecated name={0.__name__!r}>'.format(func)
+
+    def __bool__(self):
+        return False
+
+    def __repr__(self) -> str:
+        return self.__repr
 
 
 DEFAULT_SETTINGS = {
@@ -62,19 +73,22 @@ VALID_LISTENERS: typing.Tuple = (
 )
 
 def deprecated(other=None):
-    def wrapper(func):
-        warnings.simplefilter('always', DeprecationWarning)
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> Deprecated:
+            warnings.simplefilter('always', DeprecationWarning)
 
-        if other:
-            warning = f'{func.__name__} is deprecated, use {other} instead.'
-        else:
-            warning = f'{func.__name__} is deprecated.'
+            if other:
+                warning = f'{func.__name__} is deprecated, use {other} instead.'
+            else:
+                warning = f'{func.__name__} is deprecated.'
 
-        warnings.warn(warning, DeprecationWarning, stacklevel=3)
-        warnings.simplefilter('default', DeprecationWarning)
+            warnings.warn(warning, DeprecationWarning, stacklevel=3)
+            warnings.simplefilter('default', DeprecationWarning)
 
-        return func
-    return wrapper
+            return Deprecated(func)
+        return wrapper
+    return decorator
 
 def format_exception(exc):
 

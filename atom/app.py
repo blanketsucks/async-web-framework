@@ -3,7 +3,7 @@ from .request import Request
 from .errors import *
 from .server import *
 from .router import Router
-from .utils import format_exception, jsonify, VALID_METHODS, VALID_LISTENERS
+from . import utils
 from .settings import Settings
 from .objects import Route, Listener, Middleware, WebsocketRoute
 from .context import Context, _ContextManager
@@ -304,10 +304,10 @@ class Application:
 
             self.cache.set(context=ctx, response=resp, request=request)  
         except HTTPException as exc:
-            resp = format_exception(exc)
+            resp = utils.format_exception(exc)
 
         except Exception as exc:
-            resp = format_exception(exc)
+            resp = utils.format_exception(exc)
   
         self._request.set()
         response_writer(resp.as_string())
@@ -510,6 +510,7 @@ class Application:
         self.router.add_route(route.path, route.method, route.coro)
         return route
 
+    @utils.deprecated()
     def add_protected_route(self, 
                             path: typing.Union[str, yarl.URL],
                             method: str,
@@ -519,7 +520,7 @@ class Application:
             valid = self.validate_token(token)
 
             if not valid:
-                return jsonify(message='Invalid Token.', status=403)
+                return utils.jsonify(message='Invalid Token.', status=403)
 
             return await coro(request)
 
@@ -529,6 +530,7 @@ class Application:
         route = Route(path, method, func)
         return self.add_route(route)
 
+    @utils.deprecated()
     def protected(self, path: typing.Union[str, yarl.URL], method: str):
         def decorator(func: typing.Coroutine):
             return self.add_protected_route(path, method, func)
@@ -566,6 +568,7 @@ class Application:
 
         return True
 
+    @utils.deprecated()
     def add_oauth2_login_route(self, 
                                path: typing.Union[str, yarl.URL],
                                method: str,
@@ -593,7 +596,7 @@ class Application:
                     if coro:
                         return await coro(req, websocket, token)
                     
-                    return jsonify(access_token=token)
+                    return utils.jsonify(access_token=token)
 
                 if not client_secret or not client_id:
                     return abort(message='Missing client_id or client_secret.', status_code=403)
@@ -612,7 +615,7 @@ class Application:
                 if coro:
                     return await coro(request,token)
                 
-                return jsonify(access_token=token)
+                return utils.jsonify(access_token=token)
 
             if not client_secret or not client_id:
                 return abort(message='Missing client_id or client_secret.', status_code=403)
@@ -731,7 +734,7 @@ class Application:
 
         actual = name if name else coro.__name__
 
-        if not actual in VALID_LISTENERS:
+        if not actual in utils.VALID_LISTENERS:
             raise ListenerRegistrationError(f'{actual!r} is not a valid listener')
 
         if actual in self._listeners.keys():
@@ -783,7 +786,7 @@ class Application:
         if not issubclass(view, HTTPView):
             raise ViewRegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__))
 
-        for method in VALID_METHODS:
+        for method in utils.VALID_METHODS:
             if method.lower() in view.__dict__:
                 coro = view.__dict__[method.lower()]
 
@@ -797,7 +800,7 @@ class Application:
         if not issubclass(view, WebsocketHTTPView):
             raise ViewRegistrationError('Expected WebsocketHTTPView but got {0!r} instead.'.format(view.__class__.__name__))
 
-        for method in VALID_METHODS:
+        for method in utils.VALID_METHODS:
             if method.lower() in view.__dict__:
                 coro = view.__dict__[method.lower()]
 
