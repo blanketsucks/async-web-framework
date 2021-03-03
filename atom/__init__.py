@@ -13,8 +13,9 @@ from .request import *
 from .router import *
 from .server import *
 from .settings import *
-from .base import *
-from .shards import *
+from .meta import *
 from .tasks import *
 from .context import *
 from .views import *
+
+from . import cli

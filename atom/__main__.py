@@ -2,9 +2,10 @@
 import argparse
 import importlib
 
+from . import cli
 from .app import Application
-from .restful import App
 
+group = cli.Group()
 
 def import_from_string(string: str):
     if len(string.split(':')) > 2:
@@ -19,7 +20,7 @@ def import_from_string(string: str):
     except AttributeError:
         raise TypeError('Invalid application variable.')
 
-    if not isinstance(app, (Application, App)):
+    if not isinstance(app, (Application)):
         raise TypeError('Expected Application or App but got {0} instead.'.format(app.__class__.__name__))
 
     return app
@@ -35,23 +36,13 @@ def prepare_parser(prog):
 
     return parser
 
-def prepare_arguments(host, port, debug):
-    kwargs = {
-        'host': host,
-        'port': port,
-        'debug': debug
-    }
-    return kwargs
+option = cli.Option('--filename', type=str)
 
-def main():
-    parser = prepare_parser('ASGI')
-    args = parser.parse_args()
-
-    app = import_from_string(args.app)
-    kwargs = prepare_arguments(args.host, args.port, args.debug)
-
-    app.run(**kwargs)
+@group.command(name='run', options=(option,))
+async def run(ctx: cli.Context, filename: str):
+    """Runs the application"""
+    print(filename)
 
 
 if __name__ == '__main__':
-    main()
+    group.parse()

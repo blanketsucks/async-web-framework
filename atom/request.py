@@ -1,3 +1,5 @@
+from atom.objects import Route, WebsocketRoute
+
 import datetime
 import json
 import typing
@@ -17,9 +19,14 @@ __all__ = (
 )
 
 class RequestDate:
-    def __init__(self, date: datetime.datetime) -> None:
+    def __init__(self, date: typing.Union[datetime.datetime, datetime.timedelta]) -> None:
         self.datatime = date
-        self.humanized = humanize.naturaltime(self.datatime)
+
+        if isinstance(date, datetime.datetime):
+            self.humanized = humanize.naturaltime(self.datatime)
+        
+        if isinstance(date, datetime.timedelta):
+            self.humanized = humanize.naturaldelta(self.datatime)
 
     def __repr__(self) -> str:
         return self.datatime.__repr__()
@@ -98,7 +105,7 @@ class Request:
     __slots__ = (
         '_encoding', 'version', 'status_code', 'method',
         'url', 'headers', 'body', 'protocol', 'connection_info',
-        '_cookies', 'datetime'
+        '_cookies', 'datetime', 'route'
     )
 
     def __init__(self,
@@ -123,6 +130,7 @@ class Request:
         self.body = body
         self.protocol = protocol
         self.connection_info = connection_info
+        self.route: typing.Union[Route, WebsocketRoute] = None
 
     @property
     def cookies(self):

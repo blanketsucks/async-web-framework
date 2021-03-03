@@ -1,16 +1,11 @@
 import typing
 from .request import Request
+from .meta import ViewMeta
 
 __all__ = (
-    'ViewMeta',
     'HTTPView',
     'WebsocketHTTPView'
 )
-
-class ViewMeta(type):
-    def __new__(cls, name, base, attrs, **kwargs):
-        self = super().__new__(name, base, attrs)
-        return self
 
 class HTTPView(metaclass=ViewMeta):
     async def dispatch(self, request: Request, *args, **kwargs):

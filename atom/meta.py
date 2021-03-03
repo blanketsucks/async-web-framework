@@ -1,7 +1,16 @@
-from atom.errors import (RouteRegistrationError,
+from .errors import (RouteRegistrationError,
                     ListenerRegistrationError,
                     MiddlewareRegistrationError
                     )
+
+__all__ = (
+    'ViewMeta',
+    'EndpointMeta',
+    'ExtensionMeta'
+)
+
+class ViewMeta(type):
+    pass
 
 class EndpointMeta(type):
     def __new__(cls, *args, **kwargs):

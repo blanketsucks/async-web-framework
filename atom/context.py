@@ -7,7 +7,6 @@ from . import utils
 
 if typing.TYPE_CHECKING:
     from .app import Application
-    from .restful import RESTApplication
 
 __all__ = (
     'Context',
@@ -24,57 +23,26 @@ class _ContextManager:
         del self.__context
         return self
 
-class _RedirectContextManager:
-    def __init__(self, 
-                to: str, 
-                headers: typing.Dict=None, 
-                status: int=302, 
-                content_type: str='text/html', 
-                *, 
-                context: 'Context') -> None:
-        self._url = to
-
-        self.headers = headers
-        self.status = status
-        self.context_type = content_type
-
-        self.__ctx = context
-        self.__response = None
-
-    def __enter__(self):
-        self.headers['Location'] = self._url
-        
-        self.__response = response = Response(
-            status=self.status,
-            content_type=self.context_type,
-            headers=self.headers
-        )
-
-        self.__ctx.response = response
-        return response
-
-    def __exit__(self, _type, value, tb):
-        del self.__response
-        return self
-
 class Context:
     def __init__(self, 
                 *, 
-                app: typing.Union['Application', 'RESTApplication'], 
-                request: Request) -> None:
+                app: 'Application', 
+                request: Request,
+                args: typing.Tuple) -> None:
 
-        self._app = app
-        self._request = request
+        self.app = app
+        self.request = request
+        self.args = args
 
         self.__response = None
 
     @property
-    def app(self):
-        return self._app
-    
+    def status(self):
+        return self.request.status_code
+
     @property
-    def request(self):
-        return self._request
+    def route(self):
+        return self.request.route
 
     @property
     def response(self):
@@ -134,7 +102,7 @@ class Context:
         self.__response = response = Response(body, **kwargs)
         return response
          
-    def redirect(self, to: str, headers: typing.Dict=None, status: int=302, content_type: str='text/html'):
+    async def redirect(self, to: str, headers: typing.Dict=None, status: int=302, content_type: str='text/html'):
         headers = headers or {}
 
         url = urllib.parse.quote_plus(to, ":/%#?&=@[]!$&'()*+,;")

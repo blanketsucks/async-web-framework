@@ -1,15 +1,25 @@
-
 import atom
 
 app = atom.Application()
+app.last_request = None
+app.second_last_request = None
 
-@app.route('/hello/{name}', 'GET')
-async def get_name(ctx: atom.Context, name: str):
-    if len(name) > 64:
-        return atom.abort(400, message={'error': 'name argument too long'}, content_type='application/json')
+@app.route('/yes', 'GET')
+async def yes(ctx: atom.Context):
+    print(ctx.status)
+    app.last_request = ctx.request.datetime
+    return ctx.build_response('yes')
 
-    ctx.build_json_response({'Hello there': name})
-    return ctx
+@app.route('/no', 'GET')
+async def no(ctx: atom.Context):
+    app.second_last_request = ctx.request.datetime
+    return ctx.build_response('no')
 
-if __name__ == '__main__':
-    app.run()
+@app.get('/maybe')
+async def maybe(ctx: atom.Context):
+    m = app.last_request - app.second_last_request
+    print(m)
+
+    return await ctx.redirect('/yes')
+
+app.run()
