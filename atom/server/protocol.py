@@ -22,7 +22,7 @@ class HTTPProtocol(Protocol):
         self.http: str = None
 
     async def on_connection_made(self, connection: HTTPConnection):
-        self.connection = connection
+        ...
 
     async def on_request(self):
         ...
