@@ -1,6 +1,8 @@
 # async-web-stuff
 
-## Example Usage
+## Example Usages
+
+### Basic Example
 
 ```py
 import atom
@@ -17,6 +19,27 @@ async def get_name(ctx: atom.Context, name: str):
 
     ctx.build_json_response({'Hello there': name})
     return ctx
+
+if __name__ == '__main__':
+    app.run()
+
+```
+
+### Views Examle
+
+```py
+import atom
+
+app = atom.Application()
+users = {}
+
+class UsersView(atom.HTTPView, path='/users'):
+    async def get(self, ctx: atom.Context):
+        return ctx.build_json_response(
+            body=users
+        )
+
+app.register_view(UsersView())
 
 if __name__ == '__main__':
     app.run()

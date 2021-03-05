@@ -1,7 +1,11 @@
+import inspect
+
 from .errors import (RouteRegistrationError,
                     ListenerRegistrationError,
                     MiddlewareRegistrationError
                     )
+
+from .utils import VALID_METHODS
 
 __all__ = (
     'ViewMeta',
@@ -10,7 +14,20 @@ __all__ = (
 )
 
 class ViewMeta(type):
-    pass
+    def __new__(cls, name, bases, attrs, **kwargs):
+        attrs['__path__'] = kwargs.get('path', '')
+
+        self = super().__new__(cls, name, bases, attrs)
+        view_routes = []
+
+        for base in self.mro():
+            for elem, value in base.__dict__.items():
+                if inspect.iscoroutinefunction(value):
+                    if value.__name__.upper() in VALID_METHODS:
+                        view_routes.append(value)
+
+        self.__routes__ = view_routes
+        return self
 
 class EndpointMeta(type):
     def __new__(cls, *args, **kwargs):

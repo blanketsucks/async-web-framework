@@ -50,23 +50,6 @@ class Response:
     def __repr__(self) -> str:
         return '<Response body={0.body!r} content_type={0.content_type!r} status={0.status} version={0.version}>'.format(self)
     
-    def as_string(self):
-        status_msg, _ = responses.get(int(self._status))
-        
-        messages = [
-            f"HTTP/{self.version} {self._status} {status_msg}",
-            f"Content-Type: {self._content_type}",
-            f"Content-Length: {len(self._body)}",
-        ]
-
-        if self.headers:
-            for header, value in self.headers.items():
-                messages.append(f"{header}: {value}")
-
-        if self._body is not None:
-            messages.append("\r\n" + self._body)
-
-        return "\r\n".join(messages)
 
 class HTMLResponse(Response):
     def __init__(self, body='', status=200, headers=None, version='1.1'):

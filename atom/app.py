@@ -1,7 +1,7 @@
 
 from .request import Request
 from .errors import *
-from .server import *
+from .http import run_server, ApplicationProtocol
 from .router import Router
 from . import utils
 from .settings import Settings
@@ -11,6 +11,7 @@ from .cache import Cache
 from .views import HTTPView, WebsocketHTTPView
 from .tasks import Task
 from .meta import EndpointMeta, ExtensionMeta
+from .server import HTTPServer, HTTPConnection
 
 import inspect
 import typing
@@ -200,7 +201,7 @@ class Application:
 
         self._is_websocket: bool = False
         self.__session: aiohttp.ClientSession = None
-        self._server: asyncio.AbstractServer = None
+        self._server: HTTPServer = None
         self._database_connection = None
 
         self._load_from_arguments(routes, listeners, middlewares, extensions, endpoints)
@@ -273,13 +274,12 @@ class Application:
 
         return return_args
 
-    async def _handler(self, request: Request, response_writer):
+    async def _request_handler(self, request: Request, response_writer):
         resp = None
         try:
             args, route = self.router.resolve(request)
             request.route = route
 
-            self.cache.add_route(route, request)
             if len(self._middlewares) != 0:
                 await asyncio.gather(*[middleware(request, route.coro) for middleware in self._middlewares])
 
@@ -289,20 +289,15 @@ class Application:
             if isinstance(route, Route):
                 resp = await route(ctx, *args)
 
-            if isinstance(route, WebsocketRoute):
-                protocol = request.protocol
-                ws = await protocol._websocket(request, route.subprotocols)
-
-                task = self.loop.create_task(route(ctx, ws, *args))
-                self._websocket_tasks.append(task)
-
             if isinstance(resp, Context):
                 resp = resp.response
 
                 if resp is None:
                     raise RuntimeError('A route should not return None')
-
+            
+            self.cache.add_route(route, request)
             self.cache.set(context=ctx, response=resp, request=request)  
+            
         except HTTPException as exc:
             resp = utils.format_exception(exc)
 
@@ -310,7 +305,7 @@ class Application:
             resp = utils.format_exception(exc)
   
         self._request.set()
-        response_writer(resp.as_string())
+        await response_writer(resp)
 
     # context managers
 
@@ -374,80 +369,37 @@ class Application:
     # Running, closing and restarting the app
 
     async def start(self,
-                    host: str=None,
-                    port: int=None, 
-                    path: str=None,
+                    host: str=...,
+                    port: int=...,
                     *,
-                    debug: bool=False,
-                    websocket: bool=False,
-                    unix: bool=False,
-                    websocket_timeout: float=20,
-                    websocket_ping_interval: float=20,
-                    websocket_ping_timeout: float=20,
-                    websocket_max_size: int=None,
-                    websocket_max_queue: int=None,
-                    websocket_read_limit: int=2 ** 16,
-                    websocket_write_limit: int=2 ** 16,
-                    **kwargs):
+                    debug: bool=...):
+        debug = False if debug is Ellipsis else debug
         
-        async def runner():
-            return await run_server(self, self.loop, host, port, **kwargs)
-
-        if websocket:
-            async def runner():
-                return await run_websocket_server(
-                    self, self.loop, host, port,
-                    timeout=websocket_timeout,
-                    ping_interval=websocket_ping_interval,
-                    ping_timeout=websocket_ping_timeout,
-                    max_size=websocket_max_size,
-                    max_queue=websocket_max_queue,
-                    read_limit=websocket_read_limit,
-                    write_limit=websocket_write_limit, **kwargs
-                )
-
-            if unix:
-                async def runner():
-                    return await run_unix_server(
-                        self, self.loop, path, websocket=True,
-                        websocket_timeout=websocket_timeout,
-                        websocket_ping_interval=websocket_ping_interval,
-                        websocket_ping_timeout=websocket_ping_timeout,
-                        websocket_max_size=websocket_max_size,
-                        websocket_max_queue=websocket_max_queue,
-                        websocket_read_limit=websocket_read_limit,
-                        websocket_write_limit=websocket_write_limit, **kwargs
-                    )
-
-        if unix and not websocket:
-            async def runner():
-                return await run_unix_server(
-                    self, self.loop, path, **kwargs
-                )
-
-        async def actual():
-            return await runner()
+        protocol = ApplicationProtocol(
+            app=self,
+            loop=self.loop
+        )
 
         if debug:
-            async def actual():
-                await self._watch_for_changes()
-                return await runner()
+            await self._watch_for_changes()
 
-        print(f'[{datetime.datetime.utcnow().strftime("%Y-%m-%d | %H:%M:%S")}] App running.')
-        self._ready.set()
+        await run_server(
+            protocol=protocol,
+            app=self,
+            host=host,
+            port=port,
+            loop=self.loop
+        )
 
-        self._start_tasks()
-        return await actual()
 
     async def close(self):
         server = self._server
+
         if not server:
             raise AppError('The Application is not running')
 
         server.close()
-
         await self.dispatch('on_shutdown')
-        await server.wait_closed()
 
     def run(self, *args, **kwargs):
         try:
@@ -782,32 +734,24 @@ class Application:
 
     # Views
 
-    def register_view(self, view: HTTPView, path: str):
-        if not issubclass(view, HTTPView):
+    def register_view(self, view: HTTPView):
+        if not isinstance(view, HTTPView):
             raise ViewRegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__))
 
-        for method in utils.VALID_METHODS:
-            if method.lower() in view.__dict__:
-                coro = view.__dict__[method.lower()]
+        for route in view.as_routes():
+            self.add_route(route)
 
-                route = Route(path, coro.__name__.upper(), coro)
-                self.add_route(route)  
-
-        self.views[path] = view
+        self.views[view.__path__] = view
         return view
 
-    def register_websocket_view(self, view: WebsocketHTTPView, path: str):
-        if not issubclass(view, WebsocketHTTPView):
+    def register_websocket_view(self, view: WebsocketHTTPView):
+        if not isinstance(view, WebsocketHTTPView):
             raise ViewRegistrationError('Expected WebsocketHTTPView but got {0!r} instead.'.format(view.__class__.__name__))
+        
+        for route in view.as_routes():
+            self.add_route(route, websocket=True)
 
-        for method in utils.VALID_METHODS:
-            if method.lower() in view.__dict__:
-                coro = view.__dict__[method.lower()]
-
-                route = WebsocketRoute(path, coro.__name__.upper(), coro)
-                self.add_route(route, websocket=True)  
-
-        self.views[path] = view
+        self.views[view.__path__] = view
         return view
 
     # middlewares
@@ -840,7 +784,7 @@ class Application:
 
         for key, value in module.__dict__.items():
             if inspect.isclass(value):
-                if issubclass(value, Extension):
+                if isinstance(value, Extension):
                     ext = value(self)
                     ext._unpack()
 
@@ -864,7 +808,7 @@ class Application:
     # endpoints
 
     def register_endpoint(self, cls, path: str):
-        if not issubclass(cls, Endpoint):
+        if not isinstance(cls, Endpoint):
             raise EndpointLoadError('Expected Endpoint but got {0!r} instead.'.format(cls.__name__))
         
         res = cls(self, path)

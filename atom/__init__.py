@@ -18,4 +18,3 @@ from .tasks import *
 from .context import *
 from .views import *
 
-from . import cli

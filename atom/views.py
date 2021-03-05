@@ -1,6 +1,9 @@
 import typing
+import functools
+
 from .request import Request
 from .meta import ViewMeta
+from .objects import Route, WebsocketRoute
 
 __all__ = (
     'HTTPView',
@@ -18,5 +21,25 @@ class HTTPView(metaclass=ViewMeta):
         setattr(self, method, coro)
         return coro
 
+    def as_routes(self):
+        routes = []
+
+        for coro in self.__routes__:
+            actual = functools.partial(coro, self)
+
+            route = Route(self.__path__, coro.__name__.upper(), actual)
+            routes.append(route)
+
+        yield from routes
+
 class WebsocketHTTPView(HTTPView):
-    pass
+    def as_routes(self):
+        routes = []
+
+        for coro in self.__routes__:
+            actual = functools.partial(coro, self)
+
+            route = WebsocketRoute(self.__path__, coro.__name__.upper(), actual)
+            routes.append(route)
+
+        yield from routes

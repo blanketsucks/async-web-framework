@@ -7,10 +7,9 @@ import humanize
 import yarl
 from http.cookies import SimpleCookie
 from multidict import CIMultiDict
-import aiohttp
 
 if typing.TYPE_CHECKING:
-    from .server import ConnectionInfo, HTTPProtocol, WebsocketProtocol
+    from .http import ApplicationProtocol
 
 __all__ = (
     'Headers',
@@ -110,11 +109,10 @@ class Request:
 
     def __init__(self,
                 method: str,
-                url: bytes,
+                url: str,
                 status_code: int,
                 headers: typing.Dict,
-                protocol: typing.Union['HTTPProtocol', 'WebsocketProtocol'],
-                connection_info: 'ConnectionInfo',
+                protocol: 'ApplicationProtocol',
                 date: datetime.datetime,
                 version: str=None, 
                 body=None):
@@ -129,7 +127,6 @@ class Request:
         self.datetime = RequestDate(date)
         self.body = body
         self.protocol = protocol
-        self.connection_info = connection_info
         self.route: typing.Union[Route, WebsocketRoute] = None
 
     @property
@@ -163,26 +160,6 @@ class Request:
         return None
 
     @property
-    def ssl(self):
-        return self.connection_info.ssl
-
-    @property
-    def peername(self):
-        return self.connection_info.peername
-
-    @property
-    def socket(self):
-        return self.connection_info.socket
-
-    @property
-    def port(self):
-        return self.connection_info.client_port
-
-    @property
-    def ip(self):
-        return self.connection_info.client
-
-    @property
     def user_agent(self):
         return self.headers.get('User-Agent')
 
@@ -213,4 +190,4 @@ class Request:
 
     def __repr__(self) -> str:
         return '<Request url={0.url.raw_path!r} method={0.method!r} status={0.status_code} version={0.version!r} '\
-                'headers={0.headers} socket={0.socket} ssl={0.ssl} protocol={0.protocol} cookies={0.cookies}>'.format(self)
+                'headers={0.headers}>'.format(self)
