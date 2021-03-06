@@ -4,6 +4,11 @@ from .connection import HTTPConnection
 import typing
 import asyncio
 
+__all__ = (
+    'parse_request_info',
+    'HTTPProtocol'
+)
+
 def parse_request_info(cls: 'HTTPProtocol', data: typing.List):
     request_info: str = data[0]
 
@@ -27,7 +32,7 @@ class HTTPProtocol(Protocol):
     async def on_request(self):
         ...
 
-    def parse_data(self, data: bytes):
+    async def parse_data(self, data: bytes):
         decoded = data.decode('utf-8')
         infos = decoded.split('\r\n')
 

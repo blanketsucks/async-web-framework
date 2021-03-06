@@ -55,13 +55,69 @@ class HTTPConnection(Connection):
         loop: asyncio.AbstractEventLoop = self.get_info('loop')
 
         message = '\r\n'.join(messages)
+        print(message)
+        
         encoded = message.encode('utf-8')
 
         await transport.call_protocol('socket_sent', encoded)
         await loop.sock_sendall(socket, encoded)
+        
+    async def writeraw(self, data: bytes):
+        socket: sockets.socket = self.get_info('socket')
+        transport: 'HTTPTransport' = self.get_info('transport')
+        loop: asyncio.AbstractEventLoop = self.get_info('loop')
+
+        await transport.call_protocol('socket_sent', data)
+        await loop.sock_sendall(socket, data)
+
+    async def writefile(self, filename: str, *, offset: int=0, fallback: bool=...):
+        socket: sockets.socket = self.get_info('socket')
+        loop: asyncio.AbstractEventLoop = self.get_info('loop')
+
+        with open(filename, 'rb') as file:
+            result = await loop.sock_sendfile(
+                socket=socket,
+                file=file,
+                offset=offset,
+                fallback=fallback
+            )
+
+        return result
+
+    async def getaddrinfo(self, 
+                        host: str=..., 
+                        port: typing.Union[int, str]=..., 
+                        *, 
+                        family: int=...,
+                        type: int=...,
+                        proto: int=...,
+                        flags: int=...):
+
+        loop: asyncio.AbstractEventLoop = self.get_info('loop')
+        res = await loop.getaddrinfo(
+            host=host,
+            port=port,
+            family=family,
+            type=type,
+            proto=proto,
+            flags=flags
+        )
+
+        return res
+
+    async def getnameinfo(self, host: str=..., port: int=..., *, flags: int=...):
+        host = '127.0.0.1' if host is Ellipsis else host
+        port = 8080 if port is Ellipsis else port
+
+        addr = (host, port)
+        loop: asyncio.AbstractEventLoop = self.get_info('loop')
+
+        res = await loop.getnameinfo(
+            sockaddr=addr,
+            flags=flags
+        )
+        return res
 
     def close(self):
         socket = self.get_info('socket')
         socket.close()
-
-        

@@ -48,6 +48,22 @@ class Connection:
     async def write(self, body: bytes):
         ...
 
+    async def writefile(self, filename: str, *, offset: int=..., fallback: bool=...):
+        ...
+
+    async def getaddrinfo(self, 
+                        host: str=..., 
+                        port: typing.Union[int, str]=..., 
+                        *, 
+                        family: int=...,
+                        type: int=...,
+                        proto: int=...,
+                        flags: int=...):
+        ...
+
+    async def getnameinfo(self, host: str=..., port: int=..., *, flags: int=...):  
+        ...
+
     def close(self):
         ...
 

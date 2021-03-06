@@ -6,6 +6,10 @@ import asyncio
 import socket
 import sys
 
+__all__ = (
+    'HTTPServer'
+)
+
 class HTTPServer(Server):
     def __init__(self, 
                 protocol: HTTPProtocol, 
@@ -24,7 +28,8 @@ class HTTPServer(Server):
 
         try:
             self.socket.bind((self.host, self.port))
-        except Exception as e:
+        except Exception as exc:
+            
             await self.close()
             sys.exit(1)
 
