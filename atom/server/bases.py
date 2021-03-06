@@ -6,7 +6,8 @@ import socket as _socket
 __all__ = (
     'Protocol',
     'Connection',
-    'Server'
+    'Server',
+    'Transport'
 )
 
 class Protocol:
