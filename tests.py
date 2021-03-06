@@ -1,13 +1,13 @@
 from atom import websocket
-from atom import server
-
 import asyncio
 
 async def handler(ws: websocket.Websocket):
     while True:
-        print(await ws.receive())
-        await ws.send('HELLO WORLD'.encode('utf-8'))
+        recv = await ws.receive()
+        print(recv)
 
+        msg = 'Hello, World!'
+        await ws.send(msg.encode('utf-8'))
 
 class Protocol(websocket.WebsocketProtocol):
     async def on_request(self):
