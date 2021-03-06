@@ -8,6 +8,10 @@ import socket as sockets
 
 if typing.TYPE_CHECKING:
     from .transport import HTTPTransport
+    
+__all__ = (
+    'HTTPConnection',
+)
 
 class HTTPConnection(Connection):
     version = '1.1'
