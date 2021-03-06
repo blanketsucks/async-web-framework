@@ -12,7 +12,7 @@ async def handler(ws: websocket.Websocket):
 class Protocol(websocket.WebsocketProtocol):
     async def on_request(self):
         if self.path == '/feed':
-            ws = await self.websocket()
+            ws = await self.conn.handshake()
             await handler(ws)
 
 async def main():
