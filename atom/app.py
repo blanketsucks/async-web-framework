@@ -10,8 +10,8 @@ from .context import Context, _ContextManager
 from .cache import Cache
 from .views import HTTPView, WebsocketHTTPView
 from .tasks import Task
-from .meta import EndpointMeta, ExtensionMeta
-from .server import HTTPServer, HTTPConnection
+from .extensions import Extension
+from .server import HTTPServer
 
 import inspect
 import typing
@@ -54,106 +54,6 @@ class _RequestContextManager:
         await self.__session.close()
         return self
 
-class Extension(metaclass=ExtensionMeta):
-    def __init__(self, app: 'Application') -> None:
-        self.app = app
-
-    @staticmethod
-    def route(path: str, method: str):
-        def wrapper(func):
-            func.__extension_route__ = (method, path)
-            return func
-        return wrapper
-
-    @staticmethod
-    def listener(name: str=None):
-        def wrapper(func):
-            actual = func.__name__ if name is None else name
-            func.__extension_listener__ = actual
-
-            return func
-        return wrapper
-
-    @staticmethod
-    def middleware():
-        def decorator(func):
-            func.__extension_middleware__ = func
-            return func
-        return decorator
-
-    def _unpack(self):
-        for event, listener in self.__extension_listeners__.items():
-            actual = functools.partial(listener, self)
-            self.app.add_listener(actual, event)
-
-        for (method, path), handler in self.__extension_routes__.items():
-            actual = functools.partial(handler, self)
-            actual_path = self.__extension_route_prefix__ + path
-
-            route = Route(actual_path, method, actual)
-            self.app.add_route(route)
-
-        for middleware in self.__extension_middlewares__:
-            actual = functools.partial(middleware, self)
-            self.app.add_middleware(actual)
-
-        return self
-
-    def _pack(self):
-        for event, listener in self.__extension_listeners__.items():
-            self.app.remove_listener(event)
-
-        for (method, path), handler in self.__extension_routes__.items():
-            self.app.remove_route(path, method)
-
-        for middleware in self.__extension_middlewares__:
-            self.app.remove_middleware(middleware)
-
-        return self
-
-class Endpoint(metaclass=EndpointMeta):
-    def __init__(self, app: 'Application', path: str) -> None:
-        self.app = app
-        self.path = path
-
-    @staticmethod
-    def route(method: str=None):
-        def wrapper(func):
-            actual = func.__name__.upper() if method is None else method
-            func.__endpoint_route__ = actual
-
-            return func
-        return wrapper
-
-    @staticmethod
-    def middleware():
-        def decorator(func):
-            func.__endpoint_middleware__ = func
-            return func
-        return decorator
-
-    def _unpack(self):
-        for method, handler in self.__endpoint_routes__.items():
-            actual = functools.partial(handler, self)
-            actual_path = self.__endpoint_route_prefix__ + self.path
-
-            route = Route(actual_path, method, actual)
-            self.app.add_route(route)
-
-        for middleware in self.__endpoint_middlewares__:
-            actual = functools.partial(middleware, self)
-            self.app.add_middleware(actual)
-
-        return self
-
-    def _pack(self):
-        for method, handler in self.__endpoint_routes__.items():
-            self.app.remove_route(self.path, method)
-
-        for middleware in self.__endpoint_middlewares__:
-            self.app.remove_middleware(middleware)
-
-        return self
 
 class Application:
     """
@@ -167,7 +67,6 @@ class Application:
                 listeners: typing.List[Listener]=None,
                 middlewares: typing.List[Middleware]=None, 
                 extensions: typing.List[typing.Union[pathlib.Path, str]]=None, 
-                endpoints: typing.Dict[str, Endpoint]=None,
                 *,
                 loop: asyncio.AbstractEventLoop=None,
                 url_prefix: str=None,
@@ -196,7 +95,6 @@ class Application:
         self._listeners: typing.Dict[str, typing.List[typing.Coroutine]] = {}
         self._middlewares: typing.List[typing.Coroutine] = []
         self._tasks: typing.List[Task] = []
-        self._endpoints: typing.Dict[str, Endpoint] = {}
         self._extensions: typing.Dict[str, Extension] = {}
 
         self._is_websocket: bool = False
@@ -204,11 +102,10 @@ class Application:
         self._server: HTTPServer = None
         self._database_connection = None
 
-        self._load_from_arguments(routes, listeners, middlewares, extensions, endpoints)
+        self._load_from_arguments(routes, listeners, middlewares, extensions)
 
     def __repr__(self) -> str:
-        # {0.__class__.__name__} because of the subclass: RESTApplication
-        return '<{0.__class__.__name__} settings={0.settings} cache={0.cache}>'.format(self)
+        return '<Application>'.format(self)
 
     # Private methods
 
@@ -234,11 +131,6 @@ class Application:
         if extensions:
             for ext in extensions:
                 self.register_extension(ext)
-
-        if endpoints:
-            for endpoint in endpoints:
-                for path, cls in endpoint:
-                    self.register_endpoint(cls, path)
 
         return self
 
@@ -337,10 +229,6 @@ class Application:
         return len([task for task in self._tasks if task.is_running])
 
     @property
-    def sockets(self) -> typing.Tuple:
-        return self._server.sockets if self._server else ()
-
-    @property
     def listeners(self):
         return self._listeners
 
@@ -351,10 +239,6 @@ class Application:
     @property
     def middlewares(self):
         return self._middlewares
-
-    @property
-    def endpoints(self):
-        return self._endpoints
 
     @property
     def extensions(self):
@@ -391,12 +275,11 @@ class Application:
             loop=self.loop
         )
 
-
     async def close(self):
         server = self._server
 
         if not server:
-            raise AppError('The Application is not running')
+            raise ApplicationError('The Application is not running')
 
         server.close()
         await self.dispatch('on_shutdown')
@@ -751,8 +634,16 @@ class Application:
         for route in view.as_routes():
             self.add_route(route, websocket=True)
 
-        self.views[view.__path__] = view
+        self.views[view.__url_route__] = view
         return view
+
+    def view(self, path: str):
+        def decorator(cls):
+            if cls.__url_route__ == '':
+                cls.__url_route__ = path
+
+            return self.register_view(cls)
+        return decorator
 
     # middlewares
 
@@ -804,32 +695,6 @@ class Application:
         extension._pack()
 
         return extension
-
-    # endpoints
-
-    def register_endpoint(self, cls, path: str):
-        if not isinstance(cls, Endpoint):
-            raise EndpointLoadError('Expected Endpoint but got {0!r} instead.'.format(cls.__name__))
-        
-        res = cls(self, path)
-        res._unpack()
-
-        self._endpoints[res.__endpoint_name__] = res
-        return res
-
-    def remove_endpoint(self, name: str):
-        if not name in self._endpoints:
-            raise EndpointNotFound('{0!r} was not found.'.format(name))
-
-        endpoint = self._endpoints.pop(name)
-        endpoint._pack()
-
-        return endpoint
-
-    def endpoint(self, path: str):
-        def decorator(cls):
-            return self.register_endpoint(cls, path)
-        return decorator
 
     # tasks
 

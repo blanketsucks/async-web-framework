@@ -1,12 +1,22 @@
+from atom.errors import AtomException
 
-class CLIExcpetion(Exception):
-    pass
+__all__ = (
+    'CLIException',
+    'CommandError',
+    'CommandInvokationError',
+    'FailedConversion',
+    'MissingArgument',
+    'MissingContextArgument'
+)
 
-class CommandError(CLIExcpetion):
-    pass
+class CLIException(AtomException):
+    ...
+
+class CommandError(CLIException):
+    ...
 
 class CommandInvokationError(CommandError):
-    pass
+    ...
 
 class FailedConversion(CommandInvokationError):
     def __init__(self, cls, key) -> None:

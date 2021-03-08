@@ -1,6 +1,8 @@
 import urllib.parse
 import typing
 
+from .headers import CaseInsensitiveMultiDict
+
 class URL:
     def __init__(self, path: str) -> None:
         
@@ -20,8 +22,15 @@ class URL:
         return self.__components.path
 
     @property
-    def query(self) -> str:
-        return self.__components.query
+    def query(self) -> CaseInsensitiveMultiDict:
+        queries = self.__components.query.split('?')
+        multidict = CaseInsensitiveMultiDict()
+
+        for query in queries:
+            name, value = query.split('=')
+            multidict[name] = value
+
+        return multidict
 
     @property
     def fragment(self) -> str:

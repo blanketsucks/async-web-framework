@@ -1,4 +1,5 @@
 from atom.objects import Route, WebsocketRoute
+from .datastructures import HTTPHeaders
 
 import datetime
 import json
@@ -6,7 +7,7 @@ import typing
 import humanize
 import yarl
 from http.cookies import SimpleCookie
-from multidict import CIMultiDict
+
 
 if typing.TYPE_CHECKING:
     from .http import ApplicationProtocol
@@ -96,9 +97,6 @@ class RequestDate:
     def second(self):
         return self.datatime.second
 
-class Headers(CIMultiDict):
-    def get_all(self, key):
-        return self.getall(key, default=[])
 
 class Request:
     __slots__ = (
@@ -123,7 +121,7 @@ class Request:
         self.status_code = status_code
         self.method = method
         self.url = yarl.URL(url)
-        self.headers = Headers(headers)
+        self.headers = HTTPHeaders(headers)
         self.datetime = RequestDate(date)
         self.body = body
         self.protocol = protocol

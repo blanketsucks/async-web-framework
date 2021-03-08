@@ -1,13 +1,14 @@
+from atom.errors import AtomException
 
-class WebsocketError(Exception):
-    pass
+__all__ = (
+    'WebsocketError',
+    'InvalidHandshake'
+)
 
-class InvalidHandshake(Exception):
+class WebsocketError(AtomException):
+    ...
+
+class InvalidHandshake(WebsocketError):
     def __init__(self, **kwargs) -> None:
-        is_key_error = kwargs.get('key')
         self.message = kwargs.get('message', '')
-
-        if is_key_error:
-            self.message = 'Invalid key.'
-
         super().__init__(self.message)

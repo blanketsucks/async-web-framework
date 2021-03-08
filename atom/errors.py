@@ -1,10 +1,51 @@
+"""
+
+exception hierarchy (this is the general one for all the framework not only this module):
+
+AtomException:
+    ApplicationError:
+        BadConversion
+        HTTPException:
+            NotFound
+            BadRequest
+            Unauthorized
+            Forbidden
+        EndpointError:
+            EndpointLoadError
+            EndpointNotFound
+        RegistrationError:
+            RouteRegistrationError
+            ListenerRegistrationError
+            MiddlewareRegistrationError
+            ShardRegistrationError
+            ViewRegistrationError
+            WebsocketRouteRegistrationError
+        InvalidSetting
+    ServerError:
+        ConnectionError
+    WebsocketError:
+        InvalidHandshake
+    MultipleValuesFound
+    MissingHeader
+    DatabaseError:
+        NoConnections
+    CLIException:
+        CommandError:
+            CommandInvokationError:
+                FailedConversion
+                MissingArgument
+                MissingContextArgument
+
+"""
+
+
 from .response import Response, responses
-import json
 
 excs = {}
 
 __all__ = (
-    'AppError',
+    'AtomException',
+    'ApplicationError',
     'BadConversion',
     'HTTPException',
     'NotFound',
@@ -42,15 +83,18 @@ def status(code: int):
         return cls
     return decorator
 
-class AppError(Exception):
+class AtomException(Exception):
     """Base inheritance class for errors that occur during the Application's runtime."""
-    pass
+    ...
 
-class BadConversion(AppError):
-    pass
+class ApplicationError(Exception):
+    ...
+
+class BadConversion(ApplicationError):
+    ...
 
 
-class HTTPException(Response, AppError):
+class HTTPException(Response, ApplicationError):
     status_code = None
 
     def __init__(self, reason=None, content_type=None):
@@ -62,24 +106,23 @@ class HTTPException(Response, AppError):
                         status=self.status_code,
                         content_type=self._content_type or "text/plain")
 
-        AppError.__init__(self, self._reason)
+        ApplicationError.__init__(self, self._reason)
 
 @status(404)
 class NotFound(HTTPException):
-    pass
+    ...
 
 @status(400)
 class BadRequest(HTTPException):
-    pass
+    ...
 
 @status(403)
 class Forbidden(HTTPException):
-    pass
+    ...
 
 @status(401)
 class Unauthorized(HTTPException):
-    pass
-
+    ...
 
 @status(302)
 class Found(HTTPException):
@@ -87,48 +130,48 @@ class Found(HTTPException):
         super().__init__(reason=reason, content_type=content_type)
         self.add_header("Location", location)
 
-class EndpointError(AppError):
-    pass
+class EndpointError(ApplicationError):
+    ...
 
 class EndpointLoadError(EndpointError):
-    pass
+    ...
 
 class EndpointNotFound(EndpointError):
-    pass
+    ...
 
-class ExtensionError(AppError):
-    pass
+class ExtensionError(ApplicationError):
+    ...
 
 class ExtensionLoadError(ExtensionError):
-    pass
+    ...
 
 class ExtensionNotFound(ExtensionError):
-    pass
+    ...
 
-class InvalidSetting(AppError):
-    pass
+class InvalidSetting(ApplicationError):
+    ...
 
-class RegistrationError(AppError):
-    pass        
+class RegistrationError(ApplicationError):
+    ...        
 
 class RouteRegistrationError(RegistrationError):
-    pass
+    ...
 
 class WebsocketRouteRegistrationError(RegistrationError):
-    pass
+    ...
 
 
 class ListenerRegistrationError(RegistrationError):
-    pass
+    ...
 
 class MiddlewareRegistrationError(RegistrationError):
-    pass
+    ...
 
 class ShardRegistrationError(RegistrationError):
-    pass
+    ...
 
 class ViewRegistrationError(RegistrationError):
-    pass
+    ...
 
 
 def abort(status_code: int, *, message: str=None, content_type: str='text/plain'):

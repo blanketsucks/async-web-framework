@@ -15,7 +15,7 @@ __all__ = (
 
 class ViewMeta(type):
     def __new__(cls, name, bases, attrs, **kwargs):
-        attrs['__path__'] = kwargs.get('path', '')
+        attrs['__url_route__'] = kwargs.get('path', '')
 
         self = super().__new__(cls, name, bases, attrs)
         view_routes = []
@@ -27,45 +27,6 @@ class ViewMeta(type):
                         view_routes.append(value)
 
         self.__routes__ = view_routes
-        return self
-
-class EndpointMeta(type):
-    def __new__(cls, *args, **kwargs):
-        name, bases, attrs = args
-        
-        attrs['__endpoint_route_prefix__'] = kwargs.get('url_prefix', '')
-        attrs['__endpoint_name__'] = kwargs.get('name', name) 
-
-        routes = {}
-        middlewares = []
-
-        self = super().__new__(cls, name, bases, attrs)
-
-        for base in self.mro():
-            for element, value in base.__dict__.items():
-                is_static = isinstance(value, staticmethod)
-
-                try:
-                    route = getattr(value, '__endpoint_route__')
-                    if is_static:
-                        raise RouteRegistrationError('Routes must not be static.')
-
-                    routes[route] = value
-                except AttributeError:
-                    pass
-
-                try:
-                    middleware = getattr(value, '__endpoint_middleware__')
-                    if is_static:
-                        raise MiddlewareRegistrationError('Middlewares must not be static.')
-
-                    middlewares.append(middleware)
-                except AttributeError:
-                    pass
-
-        self.__endpoint_routes__ = routes
-        self.__endpoint_middlewares__ = middlewares
-
         return self
 
 class ExtensionMeta(type):
