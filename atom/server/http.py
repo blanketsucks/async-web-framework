@@ -7,7 +7,7 @@ import socket
 import sys
 
 __all__ = (
-    'HTTPServer'
+    'HTTPServer',
 )
 
 class HTTPServer(Server):

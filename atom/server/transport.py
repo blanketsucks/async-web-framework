@@ -7,7 +7,7 @@ from .connection import HTTPConnection
 from .protocol import HTTPProtocol
 
 __all__ = (
-    'HTTPTransport'
+    'HTTPTransport',
 )
 
 class HTTPTransport(Transport):

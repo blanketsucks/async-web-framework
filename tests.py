@@ -15,6 +15,15 @@ class Protocol(websocket.WebsocketProtocol):
             ws = await self.conn.handshake()
             await handler(ws)
 
+    async def on_connection_made(self, connection: websocket.WebsocketConnection):
+        self.conn = connection
+
+    async def on_socket_receive(self, data: bytes):
+        await self.parse_data(data)
+
+        print(self.http_info)
+
+
 async def main():
     loop = asyncio.get_event_loop()
     protocol = Protocol(loop)

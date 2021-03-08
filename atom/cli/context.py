@@ -8,8 +8,8 @@ class Context:
         self.command = command
         self.args = args
 
-    async def invoke(self, args: typing.Tuple):
-        result = await self.command.func(self, *args)
+    def invoke(self, *args: typing.Tuple, **kwargs):
+        result = self.command.func(self, *args, **kwargs)
         return result
 
     def __repr__(self) -> str:

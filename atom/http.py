@@ -47,7 +47,7 @@ class ApplicationProtocol(HTTPProtocol):
         self.conn = connection
 
     async def on_socket_receive(self, data: bytes):
-        self.parse_data(data)
+        await self.parse_data(data)
 
     async def on_error(self, exc: Exception):
         raise exc
@@ -64,7 +64,7 @@ async def run_server(protocol: ApplicationProtocol,
         raise ValueError(fmt)
 
     host = '127.0.0.1' if host is Ellipsis else host
-    port = 8080 if port is Ellipsis else host
+    port = 8080 if port is Ellipsis else port
     loop = asyncio.get_event_loop() if loop is Ellipsis else loop
 
     server = http.HTTPServer(

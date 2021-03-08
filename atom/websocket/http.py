@@ -4,6 +4,7 @@ from .websocket import MAGIC, Websocket
 
 import hashlib
 import base64
+import typing
 import asyncio
 import sys
 import socket as sockets
@@ -30,8 +31,20 @@ class WebsocketConnection(HTTPConnection):
 
         if not key:
             raise InvalidHandshake(key=True)
-
+        
         return key
+
+    async def writehandshake(self, headers: typing.Dict):
+        messages = [
+            f"HTTP/{self.version} 101 Switching Protocols",
+        ]
+
+        for header, value in headers.items():
+            messages.append(f"{header}: {value}")
+
+        message = '\r\n'.join(messages)
+        return await self.writeraw(message.encode())
+
 
     async def handshake(self):
         key = self.check_request()
@@ -43,7 +56,7 @@ class WebsocketConnection(HTTPConnection):
         headers['Connection'] = 'Upgrade'
         headers['Sec-WebSocket-Accept'] = key
 
-        await self.write(status=101, body=None, headers=headers)
+        await self.writehandshake(headers)
 
         sock = self.get_info('socket')
         loop = self.get_info('loop')
@@ -53,9 +66,6 @@ class WebsocketConnection(HTTPConnection):
         )
 
 class WebsocketProtocol(HTTPProtocol):
-    async def on_connection_made(self, connection: WebsocketConnection):
-        self.conn = connection
-
     async def on_socket_receive(self, data: bytes):
         await self.parse_data(data)
 

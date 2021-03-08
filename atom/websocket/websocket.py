@@ -3,6 +3,8 @@ import socket
 import asyncio
 import concurrent.futures
 
+from .frame import WebsocketFrame
+
 MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 __all__ = (
@@ -10,12 +12,14 @@ __all__ = (
     'Websocket'
 )
 
+
 class Websocket:
     def __init__(self, __socket: socket.socket, __loop: asyncio.AbstractEventLoop) -> None:
 
         self.__pool = concurrent.futures.ThreadPoolExecutor(max_workers=10)
         self.__socket = __socket
         self.__loop = __loop
+        self._frame = WebsocketFrame(self.__loop, self.__socket)
 
     def _decode_frame(self, frame):
         payload_len = frame[1] - 128
@@ -43,6 +47,8 @@ class Websocket:
 
     async def receive(self):
         data = await self.__loop.sock_recv(self.__socket, 1024)
+        print(data)
+
         payload = bytearray(data.strip())
         
         with self.__pool as pool:
