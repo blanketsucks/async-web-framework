@@ -8,5 +8,6 @@ __all__ = (
 class MultipleValuesFound(AtomException, LookupError):
     ...
 
-class MissingHeader(AtomException, KeyError):
+class HeaderNotFound(AtomException, KeyError):
     ...
+

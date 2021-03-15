@@ -1,6 +1,8 @@
+import ssl
 from .bases import Server
 from .transport import HTTPTransport
 from .protocol import HTTPProtocol
+from .errors import ConnectionError
 
 import asyncio
 import socket
@@ -25,13 +27,13 @@ class HTTPServer(Server):
 
     async def serve(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         try:
             self.socket.bind((self.host, self.port))
         except Exception as exc:
-            
-            await self.close()
-            sys.exit(1)
+            self.close()
+            raise ConnectionError() from exc
 
         self.transport = transport = HTTPTransport(
             self.socket, self.loop, self.protocol
@@ -41,4 +43,5 @@ class HTTPServer(Server):
 
     def close(self):
         self.socket.shutdown(socket.SHUT_RDWR)
-
+        self.close()
+        

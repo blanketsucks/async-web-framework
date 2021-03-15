@@ -10,7 +10,6 @@ import typing
 import humanize
 import aiohttp
 
-
 __all__ = (
     'format_exception',
     'jsonify',
@@ -25,6 +24,7 @@ __all__ = (
     'VALID_METHODS'
 )
 
+
 class Deprecated:
     def __init__(self, func) -> None:
         self.__repr = '<Deprecated name={0.__name__!r}>'.format(func)
@@ -37,7 +37,7 @@ class Deprecated:
 
 
 DEFAULT_SETTINGS = {
-    'HOST': '127.0.0.1',
+    'HOST': 'http://127.0.0.1/',
     'PORT': 8080,
     'DEBUG': False,
     'SECRET_KEY': None
@@ -52,12 +52,12 @@ VALID_SETTINGS: typing.Tuple = (
 SETTING_ENV_PREFIX = 'ATOM_'
 
 VALID_METHODS = (
-    "GET", 
-    "POST", 
-    "PUT", 
-    "HEAD", 
-    "OPTIONS", 
-    "PATCH", 
+    "GET",
+    "POST",
+    "PUT",
+    "HEAD",
+    "OPTIONS",
+    "PATCH",
     "DELETE"
 )
 
@@ -68,9 +68,11 @@ VALID_LISTENERS: typing.Tuple = (
     'on_connection_made',
     'on_connection_lost',
     'on_socket_receive',
+    'on_socket_sent',
     'on_database_connect',
     'on_database_close',
 )
+
 
 def deprecated(other=None):
     def decorator(func):
@@ -87,12 +89,13 @@ def deprecated(other=None):
             warnings.simplefilter('default', DeprecationWarning)
 
             return Deprecated(func)
+
         return wrapper
+
     return decorator
 
+
 def format_exception(exc):
-
-
     server_exception_templ = """
     <div>
         <h1>500 Internal server error</h1>
@@ -106,8 +109,9 @@ def format_exception(exc):
 
     msg = server_exception_templ.format(exc=str(exc), traceback=trace)
     resp.add_body(msg)
-    
+
     return resp
+
 
 def jsonify(*, response=True, **kwargs):
     """Inspired by Flask's jsonify"""
@@ -119,6 +123,7 @@ def jsonify(*, response=True, **kwargs):
 
     return data
 
+
 def markdown(fp: str):
     actual = fp + '.md'
 
@@ -127,11 +132,11 @@ def markdown(fp: str):
         resp = mark.markdown(content)
 
         return HTMLResponse(resp)
-        
+
+
 def render_html(fp: str):
     actual = fp + '.html'
 
     with codecs.open(actual, 'r') as file:
         resp = file.read()
         return HTMLResponse(resp)
-

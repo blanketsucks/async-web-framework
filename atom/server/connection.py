@@ -1,4 +1,3 @@
-
 import asyncio
 from .bases import Connection
 
@@ -8,10 +7,11 @@ import socket as sockets
 
 if typing.TYPE_CHECKING:
     from .transport import HTTPTransport
-    
+
 __all__ = (
     'HTTPConnection',
 )
+
 
 class HTTPConnection(Connection):
     version = '1.1'
@@ -24,25 +24,23 @@ class HTTPConnection(Connection):
         item = self._info.get(name)
         return item
 
-    async def write(self, 
-                    status: int=..., 
-                    *, 
-                    body: typing.Union[str, typing.Dict, typing.List, typing.Any]=..., 
-                    content_type: str=...,
-                    headers: typing.Dict=...):
+    async def write(self,
+                    status: int = ...,
+                    *,
+                    body: typing.Union[str, typing.Dict, typing.List, typing.Any] = ...,
+                    content_type: str = ...,
+                    headers: typing.Dict = ...):
 
-        print('here')
-
-        status = 200 if status is Ellipsis else status
-        content_type = 'text/plain' if content_type is Ellipsis else content_type
-        body = 'No content.' if body is Ellipsis else body
-        headers = {} if headers is Ellipsis else headers
+        status = 200 if status is ... else status
+        content_type = 'text/plain' if content_type is ... else content_type
+        body = 'No content.' if body is ... else body
+        headers = {} if headers is ... else headers
 
         if isinstance(body, (dict, list)):
             content_type = 'application/json'
 
         status_msg, _ = self.responses.get(status)
-        
+
         messages = [
             f"HTTP/{self.version} {status} {status_msg}",
             f"Content-Type: {content_type}",
@@ -56,18 +54,11 @@ class HTTPConnection(Connection):
         if body is not None:
             messages.append("\r\n" + body)
 
-        print(messages)
-
-        socket: sockets.socket = self.get_info('socket')
-        transport: 'HTTPTransport' = self.get_info('transport')
-        loop: asyncio.AbstractEventLoop = self.get_info('loop')
-
         message = '\r\n'.join(messages)
         encoded = message.encode('utf-8')
-
-        await transport.call_protocol('socket_sent', encoded)
-        await loop.sock_sendall(socket, encoded)
         
+        await self.writeraw(encoded)
+
     async def writeraw(self, data: bytes):
         socket: sockets.socket = self.get_info('socket')
         transport: 'HTTPTransport' = self.get_info('transport')
@@ -76,7 +67,7 @@ class HTTPConnection(Connection):
         await transport.call_protocol('socket_sent', data)
         await loop.sock_sendall(socket, data)
 
-    async def writefile(self, filename: str, *, offset: int=0, fallback: bool=...):
+    async def writefile(self, filename: str, *, offset: int = 0, fallback: bool = ...):
         socket: sockets.socket = self.get_info('socket')
         loop: asyncio.AbstractEventLoop = self.get_info('loop')
 
@@ -90,14 +81,14 @@ class HTTPConnection(Connection):
 
         return result
 
-    async def getaddrinfo(self, 
-                        host: str=..., 
-                        port: typing.Union[int, str]=..., 
-                        *, 
-                        family: int=...,
-                        type: int=...,
-                        proto: int=...,
-                        flags: int=...):
+    async def getaddrinfo(self,
+                          host: str = ...,
+                          port: typing.Union[int, str] = ...,
+                          *,
+                          family: int = ...,
+                          type: int = ...,
+                          proto: int = ...,
+                          flags: int = ...):
 
         loop: asyncio.AbstractEventLoop = self.get_info('loop')
         res = await loop.getaddrinfo(
@@ -111,9 +102,9 @@ class HTTPConnection(Connection):
 
         return res
 
-    async def getnameinfo(self, host: str=..., port: int=..., *, flags: int=...):
-        host = '127.0.0.1' if host is Ellipsis else host
-        port = 8080 if port is Ellipsis else port
+    async def getnameinfo(self, host: str = ..., port: int = ..., *, flags: int = ...):
+        host = '127.0.0.1' if host is ... else host
+        port = 8080 if port is ... else port
 
         addr = (host, port)
         loop: asyncio.AbstractEventLoop = self.get_info('loop')

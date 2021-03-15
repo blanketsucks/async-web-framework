@@ -30,9 +30,8 @@ class HTTPTransport(Transport):
 
         while True:
             client, address = await self.loop.sock_accept(self.socket)
-
             self.clients.append(client)
-            client.settimeout(60)
+            client.settimeout(5)
 
             info = {
                 'loop': self.loop,

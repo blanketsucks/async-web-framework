@@ -10,6 +10,7 @@ __all__ = (
     'WebsocketHTTPView'
 )
 
+
 class HTTPView(metaclass=ViewMeta):
     async def dispatch(self, request: Request, *args, **kwargs):
         coro = getattr(self, request.method.lower(), None)
@@ -17,7 +18,7 @@ class HTTPView(metaclass=ViewMeta):
         if coro:
             await coro(*args, **kwargs)
 
-    def add(self, method: str, coro: typing.Coroutine):
+    def add(self, method: str, coro: typing.Callable):
         setattr(self, method, coro)
         return coro
 
@@ -31,6 +32,7 @@ class HTTPView(metaclass=ViewMeta):
             routes.append(route)
 
         yield from routes
+
 
 class WebsocketHTTPView(HTTPView):
     def as_routes(self):

@@ -1,5 +1,5 @@
 from atom.objects import Route, WebsocketRoute
-from .datastructures import HTTPHeaders
+from .datastructures import HTTPHeaders, URL
 
 import datetime
 import json
@@ -8,15 +8,14 @@ import humanize
 import yarl
 from http.cookies import SimpleCookie
 
-
 if typing.TYPE_CHECKING:
     from .http import ApplicationProtocol
 
 __all__ = (
-    'Headers',
     'Request',
     'RequestDate'
 )
+
 
 class RequestDate:
     def __init__(self, date: typing.Union[datetime.datetime, datetime.timedelta]) -> None:
@@ -24,7 +23,7 @@ class RequestDate:
 
         if isinstance(date, datetime.datetime):
             self.humanized = humanize.naturaltime(self.datatime)
-        
+
         if isinstance(date, datetime.timedelta):
             self.humanized = humanize.naturaldelta(self.datatime)
 
@@ -42,35 +41,35 @@ class RequestDate:
             return False
 
         return self.datatime == other.datatime
-    
+
     def __sub__(self, other: 'RequestDate') -> 'RequestDate':
         if not isinstance(other, RequestDate):
             return RequestDate(self.datatime)
-        
+
         return RequestDate(self.datatime - other.datatime)
 
     def __lt__(self, other: 'RequestDate') -> bool:
         if not isinstance(other, RequestDate):
             return False
-        
+
         return self.datatime < other.datatime
 
     def __le__(self, other: 'RequestDate') -> bool:
         if not isinstance(other, RequestDate):
             return False
-        
+
         return self.datatime <= other.datatime
 
     def __gt__(self, other: 'RequestDate') -> bool:
         if not isinstance(other, RequestDate):
             return False
-        
+
         return self.datatime > other.datatime
 
     def __ge__(self, other: 'RequestDate') -> bool:
         if not isinstance(other, RequestDate):
             return False
-        
+
         return self.datatime >= other.datatime
 
     @property
@@ -106,21 +105,21 @@ class Request:
     )
 
     def __init__(self,
-                method: str,
-                url: str,
-                status_code: int,
-                headers: typing.Dict,
-                protocol: 'ApplicationProtocol',
-                date: datetime.datetime,
-                version: str=None, 
-                body=None):
+                 method: str,
+                 url: URL,
+                 status_code: int,
+                 headers: typing.Dict,
+                 protocol: 'ApplicationProtocol',
+                 date: datetime.datetime,
+                 version: str = None,
+                 body=None):
 
         self._encoding = "utf-8"
 
         self.version = version[:-1]
         self.status_code = status_code
         self.method = method
-        self.url = yarl.URL(url)
+        self.url = url
         self.headers = HTTPHeaders(headers)
         self.datetime = RequestDate(date)
         self.body = body
@@ -136,8 +135,8 @@ class Request:
             cookies.load(cookie)
 
             self._cookies = {
-                    name: cookie.value for name, cookie in cookies.items()
-                }
+                name: cookie.value for name, cookie in cookies.items()
+            }
         else:
             self._cookies = {}
 
@@ -173,19 +172,6 @@ class Request:
     def params(self):
         return self.url.query
 
-    def text(self):
-        if self.body:
-            return self.body.decode(self._encoding)
-
-        return None
-
-    def json(self, **kwargs):
-        text = self.text()
-
-        if text:
-            return json.loads(text, **kwargs)
-        return None
-
     def __repr__(self) -> str:
-        return '<Request url={0.url.raw_path!r} method={0.method!r} status={0.status_code} version={0.version!r} '\
-                'headers={0.headers}>'.format(self)
+        return '<Request url={0.url.raw_path!r} method={0.method!r} status={0.status_code} version={0.version!r} ' \
+               'headers={0.headers}>'.format(self)

@@ -8,6 +8,7 @@ __all__ = (
     'Router',
 )
 
+
 class Router:
     _param_regex = r"{(?P<param>\w+)}"
 
@@ -16,19 +17,18 @@ class Router:
 
     def resolve(self, request) -> typing.Tuple[typing.Dict, typing.Union[Route, WebsocketRoute]]:
         for route in self.routes:
-            match = re.match(route.path, request.url.raw_path)
+            match = re.fullmatch(route.path, request.url.path)
 
             if match is None:
                 continue
 
             if match:
                 if route.method != request.method:
-                    raise BadRequest(reason=f"{request.method!r} is not allowed for {request.url.raw_path!r}")
-                
+                    raise BadRequest(reason=f"{request.method!r} is not allowed for {request.url.path!r}")
 
                 return match.groupdict(), route
-        
-        raise NotFound(reason=f'Could not find {request.url.raw_path!r}')
+
+        raise NotFound(reason=f'Could not find {request.url.path!r}')
 
     def _format_pattern(self, path: str):
         if not re.search(self._param_regex, path):
@@ -45,7 +45,7 @@ class Router:
 
         return regex
 
-    def add_route(self, path: str, method: str, coroutine: typing.Coroutine, *, websocket: bool=False):
+    def add_route(self, path: str, method: str, coroutine: typing.Callable, *, websocket: bool = False):
         pattern = self._format_pattern(path)
         route = Route(pattern, method, coroutine)
 
@@ -54,6 +54,3 @@ class Router:
 
         self.routes.append(route)
         return route
-
-    
-

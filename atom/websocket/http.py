@@ -16,6 +16,7 @@ __all__ = (
     'WebsocketServer'
 )
 
+
 class WebsocketConnection(HTTPConnection):
     def build_key(self, key: str) -> str:
         sha1 = hashlib.sha1((key + MAGIC).encode()).digest()
@@ -25,29 +26,18 @@ class WebsocketConnection(HTTPConnection):
         key = None
         protocol = self.get_info('protocol')
 
-        for header, item in protocol.http_info.items():
+        for header, item in protocol.request.headers.items():
+            print(header, item)
             if header == "Sec-WebSocket-Key":
                 key = item
 
         if not key:
             raise InvalidHandshake(key=True)
-        
+
         return key
 
-    async def writehandshake(self, headers: typing.Dict):
-        messages = [
-            f"HTTP/{self.version} 101 Switching Protocols",
-        ]
-
-        for header, value in headers.items():
-            messages.append(f"{header}: {value}")
-
-        message = '\r\n'.join(messages)
-        return await self.writeraw(message.encode())
-
-
     async def handshake(self):
-        key = self.check_request()
+        key = self.check_request()        
         key = self.build_key(key)
 
         headers = {}
@@ -56,7 +46,15 @@ class WebsocketConnection(HTTPConnection):
         headers['Connection'] = 'Upgrade'
         headers['Sec-WebSocket-Accept'] = key
 
-        await self.writehandshake(headers)
+        messages = [
+            f"HTTP/{self.version} 101 Switching Protocols",
+        ]
+
+        for header, value in headers.items():
+            messages.append(f"{header}: {value}")
+
+        message = '\r\n'.join(messages)
+        await self.writeraw(message.encode())
 
         sock = self.get_info('socket')
         loop = self.get_info('loop')
@@ -67,7 +65,7 @@ class WebsocketConnection(HTTPConnection):
 
 class WebsocketProtocol(HTTPProtocol):
     async def on_socket_receive(self, data: bytes):
-        await self.parse_data(data)
+        await self.parse_request(data)
 
 
 class WebsocketTransport(HTTPTransport):

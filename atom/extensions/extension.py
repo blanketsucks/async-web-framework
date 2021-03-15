@@ -1,5 +1,5 @@
 from atom.meta import ExtensionMeta
-from atom.objects import Route
+from atom.objects import Listener, Middleware, Route
 
 import typing
 import functools
@@ -7,60 +7,60 @@ import functools
 if typing.TYPE_CHECKING:
     from atom.app import Application
 
+def route(path: str, method: str=...):
+    def decorator(func: typing.Callable):
+        actual = 'GET' if method is ... else method
+        route = Route(path, actual, func)
+
+        func.__route__ = route
+        return func
+    return decorator
+
+def listener(name: str=...):
+    def decorator(func: typing.Callable):
+        name = func.__name__ if name is ... else name
+        listener = Listener(func, name)
+
+        func.__listener__ = listener
+        return func
+    return decorator
+
+def middleware(func: typing.Callable):
+    middleware = Middleware(func)
+
+    func.__middleware__ = middleware
+    return func
 
 class Extension(metaclass=ExtensionMeta):
     def __init__(self, app: 'Application') -> None:
         self.app = app
 
-    @staticmethod
-    def route(path: str, method: str):
-        def wrapper(func):
-            func.__extension_route__ = (method, path)
-            return func
-        return wrapper
-
-    @staticmethod
-    def listener(name: str=None):
-        def wrapper(func):
-            actual = func.__name__ if name is None else name
-            func.__extension_listener__ = actual
-
-            return func
-        return wrapper
-
-    @staticmethod
-    def middleware():
-        def decorator(func):
-            func.__extension_middleware__ = func
-            return func
-        return decorator
-
     def _unpack(self):
-        for event, listener in self.__extension_listeners__.items():
-            actual = functools.partial(listener, self)
-            self.app.add_listener(actual, event)
+        for listener in self.__extension_listeners__:
+            actual = functools.partial(listener.coro, self)
+            self.app.add_listener(actual, listener.event)
 
-        for (method, path), handler in self.__extension_routes__.items():
-            actual = functools.partial(handler, self)
-            actual_path = self.__extension_route_prefix__ + path
+        for route in self.__extension_routes__:
+            actual = functools.partial(route.coro, self)
+            actual_path = self.__extension_route_prefix__ + route.path
 
-            route = Route(actual_path, method, actual)
-            self.app.add_route(route)
+            actual_route = Route(actual_path, route.method, actual)
+            self.app.add_route(actual_route)
 
         for middleware in self.__extension_middlewares__:
-            actual = functools.partial(middleware, self)
+            actual = functools.partial(middleware.coro, self)
             self.app.add_middleware(actual)
 
         return self
 
     def _pack(self):
-        for event, listener in self.__extension_listeners__.items():
-            self.app.remove_listener(event)
+        for listener in self.__extension_listeners__:
+            self.app.remove_listener(listener.event)
 
-        for (method, path), handler in self.__extension_routes__.items():
-            self.app.remove_route(path, method)
+        for route in self.__extension_routes__:
+            self.app.remove_route(route)
 
         for middleware in self.__extension_middlewares__:
-            self.app.remove_middleware(middleware)
+            self.app.remove_middleware(middleware.coro)
 
         return self

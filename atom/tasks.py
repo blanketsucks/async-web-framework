@@ -5,7 +5,12 @@ __all__ = (
     'Task'
 )
 
-def task(*, seconds=0, minutes=0, hours=0, count=None, loop=None):
+
+def task(*, seconds: int=0,
+         minutes: int=0,
+         hours: int=0,
+         count: int=None,
+         loop: asyncio.AbstractEventLoop=None):
     def wrapper(func):
         cls = Task(
             func,
@@ -16,10 +21,12 @@ def task(*, seconds=0, minutes=0, hours=0, count=None, loop=None):
             loop
         )
         return cls
+
     return wrapper
 
+
 class Task:
-    def __init__(self, coro, seconds, minutes, hours, count: int=None, loop=None) -> None:
+    def __init__(self, coro, seconds, minutes, hours, count: int = None, loop=None) -> None:
         self.coro = coro
         self.loop = loop
         self.count = count
@@ -31,7 +38,6 @@ class Task:
 
         self._task = None
         self.is_running = False
-
 
     async def _prepare(self):
         counter = 0
@@ -69,18 +75,17 @@ class Task:
             coro = getattr(self, name)
         except AttributeError:
             return
-            
+
         await coro()
 
     def before_task(self):
         def decorator(func):
             self._before_task = func
-        return decorator
 
+        return decorator
 
     def after_task(self):
         def decorator(func):
             self._after_task = func
+
         return decorator
-
-

@@ -1,4 +1,3 @@
-
 from .context import Context
 from .request import Request
 from .response import Response
@@ -12,8 +11,9 @@ __all__ = (
     'Cache'
 )
 
+
 class RouteCache(dict):
-    def __init__(self, maxsize: int=64, *args, **kwargs):
+    def __init__(self, maxsize: int = 64, *args, **kwargs):
         self.maxsize = maxsize
         self.currentsize = 0
 
@@ -24,10 +24,10 @@ class RouteCache(dict):
         self.currentsize += len(kwargs.keys())
 
         return super().update(**kwargs)
-    
+
     def __setitem__(self, k: typing.Union[Route, WebsocketRoute], v: Request) -> None:
         self._check_if_full()
-    
+
         if not isinstance(k, (Route, WebsocketRoute)):
             fmt = 'Expected Route or WebsocketRoute but got {0.__class__.__name__} instead'
             raise ValueError(fmt.format(k))
@@ -35,16 +35,16 @@ class RouteCache(dict):
         if not isinstance(v, Request):
             fmt = 'Expected Request but got {0.__class__.__name__} instead'
             raise ValueError(fmt.format(v))
-        
-        self.currentsize += 1 
+
+        self.currentsize += 1
         return super().__setitem__(k, v)
 
     def _check_if_full(self):
         current = self.maxsize
-        lenght = len(self.keys())
+        length = len(self.keys())
 
-        if lenght > current:
-            to_remove = lenght - current
+        if length > current:
+            to_remove = length - current
             keys = []
 
             for i, k in enumerate(self):
@@ -56,7 +56,7 @@ class RouteCache(dict):
             for key in keys:
                 self.currentsize -= 1
                 self.pop(key)
-            
+
         return self
 
     def as_dict(self) -> typing.Dict[typing.Union[Route, WebsocketRoute], Request]:
@@ -65,10 +65,13 @@ class RouteCache(dict):
     def __repr__(self) -> str:
         return '<Routes maxsize={0.maxsize} currentsize={0.currentsize}>'.format(self)
 
+
 class Cache(dict):
-    def __init__(self, routes_maxsize: int=64, *args, **kwargs):
+    def __init__(self, routes_maxsize: int = 64, *args, **kwargs):
         self._routes = RouteCache(routes_maxsize)
-    
+
+        super().__init__(*args, **kwargs)
+
     @property
     def routes(self):
         return self._routes

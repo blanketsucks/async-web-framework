@@ -1,17 +1,17 @@
 import inspect
 
 from .errors import (RouteRegistrationError,
-                    ListenerRegistrationError,
-                    MiddlewareRegistrationError
-                    )
+                     ListenerRegistrationError,
+                     MiddlewareRegistrationError
+                     )
 
 from .utils import VALID_METHODS
 
 __all__ = (
     'ViewMeta',
-    'EndpointMeta',
     'ExtensionMeta'
 )
+
 
 class ViewMeta(type):
     def __new__(cls, name, bases, attrs, **kwargs):
@@ -29,15 +29,16 @@ class ViewMeta(type):
         self.__routes__ = view_routes
         return self
 
+
 class ExtensionMeta(type):
     def __new__(cls, *args, **kwargs):
         name, bases, attrs = args
 
         attrs['__extension_route_prefix__'] = kwargs.get('url_prefix', '')
-        attrs['__extension_name__'] = kwargs.get('name', name) 
-        
-        routes = {}
-        listeners = {}
+        attrs['__extension_name__'] = kwargs.get('name', name)
+
+        routes = []
+        listeners = []
         middlewares = []
 
         self = super().__new__(cls, name, bases, attrs)
@@ -47,16 +48,16 @@ class ExtensionMeta(type):
                 is_static = isinstance(value, staticmethod)
 
                 try:
-                    route = getattr(value, '__extension_route__')
+                    route = getattr(value, '__route__')
                     if is_static:
                         raise RouteRegistrationError('Routes must not be static.')
 
-                    routes[route] = value
+                    routes.append(route)
                 except AttributeError:
                     pass
 
                 try:
-                    middleware = getattr(value, '__extension_middleware__')
+                    middleware = getattr(value, '__middleware__')
                     if is_static:
                         raise MiddlewareRegistrationError('Middlewares must not be static.')
 
@@ -65,11 +66,11 @@ class ExtensionMeta(type):
                     pass
 
                 try:
-                    listener = getattr(value, '__extension_listener__')
+                    listener = getattr(value, '__listener__')
                     if is_static:
                         raise ListenerRegistrationError('Listeners must not be static')
 
-                    listeners[listener] = value
+                    listeners.append(listener)
                 except AttributeError:
                     pass
 

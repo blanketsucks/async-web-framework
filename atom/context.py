@@ -12,6 +12,7 @@ __all__ = (
     'Context',
 )
 
+
 class _ContextManager:
     def __init__(self, context) -> None:
         self.__context = context
@@ -23,12 +24,13 @@ class _ContextManager:
         del self.__context
         return self
 
+
 class Context:
-    def __init__(self, 
-                *, 
-                app: 'Application', 
-                request: Request,
-                args: typing.Tuple) -> None:
+    def __init__(self,
+                 *,
+                 app: 'Application',
+                 request: Request,
+                 args: typing.Tuple) -> None:
 
         self.app = app
         self.request = request
@@ -59,21 +61,21 @@ class Context:
     def __repr__(self) -> str:
         return '<Context response={0.response} request={0.request} app={0.app}>'.format(self)
 
-    def build_html_response(self, 
-                            body: str, *, 
-                            status: int=None, 
-                            headers: typing.Dict=None):
+    def build_html_response(self,
+                            body: str, *,
+                            status: int = None,
+                            headers: typing.Dict = None):
         if not isinstance(body, str):
             raise ValueError('Expected str but got {0.__class__.__name__} instead'.format(body))
 
         self.__response = response = HTMLResponse(body, status, headers)
         return response
 
-    def build_json_response(self, 
+    def build_json_response(self,
                             body: typing.Union[typing.Dict, typing.List],
                             *,
-                            status: int=200,
-                            headers: typing.Dict=None):
+                            status: int = 200,
+                            headers: typing.Dict = None):
         if not isinstance(body, dict):
             raise ValueError('Expected dict but got {0.__class__.__name__} instead'.format(body))
 
@@ -83,7 +85,7 @@ class Context:
 
         response._status = status
         self.__response = response
-        
+
         return response
 
     def build_response(self, body: typing.Union[str, typing.List, typing.Dict, typing.Any], **kwargs):
@@ -98,11 +100,11 @@ class Context:
 
         if isinstance(body, (dict, list)):
             return self.build_json_response(body, **kwargs)
-        
+
         self.__response = response = Response(body, **kwargs)
         return response
-         
-    async def redirect(self, to: str, headers: typing.Dict=None, status: int=302, content_type: str='text/html'):
+
+    async def redirect(self, to: str, headers: typing.Dict = None, status: int = 302, content_type: str = 'text/html'):
         headers = headers or {}
 
         url = urllib.parse.quote_plus(to, ":/%#?&=@[]!$&'()*+,;")

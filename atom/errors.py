@@ -38,7 +38,6 @@ AtomException:
 
 """
 
-
 from .response import Response, responses
 
 excs = {}
@@ -71,6 +70,7 @@ __all__ = (
     'status'
 )
 
+
 def status(code: int):
     def decorator(cls):
         status_code = getattr(cls, 'status_code', None)
@@ -81,14 +81,18 @@ def status(code: int):
 
         excs[status_code] = cls
         return cls
+
     return decorator
+
 
 class AtomException(Exception):
     """Base inheritance class for errors that occur during the Application's runtime."""
     ...
 
+
 class ApplicationError(Exception):
     ...
+
 
 class BadConversion(ApplicationError):
     ...
@@ -100,29 +104,34 @@ class HTTPException(Response, ApplicationError):
     def __init__(self, reason=None, content_type=None):
         self._reason = reason
         self._content_type = content_type
-        
+
         Response.__init__(self,
-                        body=self._reason,
-                        status=self.status_code,
-                        content_type=self._content_type or "text/plain")
+                          body=self._reason,
+                          status=self.status_code,
+                          content_type=self._content_type or "text/plain")
 
         ApplicationError.__init__(self, self._reason)
+
 
 @status(404)
 class NotFound(HTTPException):
     ...
 
+
 @status(400)
 class BadRequest(HTTPException):
     ...
+
 
 @status(403)
 class Forbidden(HTTPException):
     ...
 
+
 @status(401)
 class Unauthorized(HTTPException):
     ...
+
 
 @status(302)
 class Found(HTTPException):
@@ -130,32 +139,42 @@ class Found(HTTPException):
         super().__init__(reason=reason, content_type=content_type)
         self.add_header("Location", location)
 
+
 class EndpointError(ApplicationError):
     ...
+
 
 class EndpointLoadError(EndpointError):
     ...
 
+
 class EndpointNotFound(EndpointError):
     ...
+
 
 class ExtensionError(ApplicationError):
     ...
 
+
 class ExtensionLoadError(ExtensionError):
     ...
+
 
 class ExtensionNotFound(ExtensionError):
     ...
 
+
 class InvalidSetting(ApplicationError):
     ...
 
+
 class RegistrationError(ApplicationError):
-    ...        
+    ...
+
 
 class RouteRegistrationError(RegistrationError):
     ...
+
 
 class WebsocketRouteRegistrationError(RegistrationError):
     ...
@@ -164,17 +183,20 @@ class WebsocketRouteRegistrationError(RegistrationError):
 class ListenerRegistrationError(RegistrationError):
     ...
 
+
 class MiddlewareRegistrationError(RegistrationError):
     ...
 
+
 class ShardRegistrationError(RegistrationError):
     ...
+
 
 class ViewRegistrationError(RegistrationError):
     ...
 
 
-def abort(status_code: int, *, message: str=None, content_type: str='text/plain'):
+def abort(status_code: int, *, message: str = None, content_type: str = 'text/plain'):
     if not message:
         message, _ = responses.get(status_code)
 

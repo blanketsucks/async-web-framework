@@ -7,8 +7,9 @@ __all__ = (
     'Listener'
 )
 
+
 class Route:
-    def __init__(self, path: str, method: str, coro: typing.Coroutine) -> None:
+    def __init__(self, path: str, method: str, coro: typing.Callable) -> None:
         self.path = path
         self.method = method
         self.coro = coro
@@ -19,8 +20,9 @@ class Route:
     async def __call__(self, *args, **kwargs):
         return await self.coro(*args, **kwargs)
 
+
 class WebsocketRoute:
-    def __init__(self, path: str, method: str, coro: typing.Coroutine) -> None:
+    def __init__(self, path: str, method: str, coro: typing.Callable) -> None:
         self.path = path
         self.method = method
         self.coro = coro
@@ -31,16 +33,18 @@ class WebsocketRoute:
 
     async def __call__(self, *args, **kwargs):
         return await self.coro(*args, **kwargs)
-        
+
+
 class Middleware:
-    def __init__(self, coro: typing.Coroutine) -> None:
+    def __init__(self, coro: typing.Callable) -> None:
         self.coro = coro
 
     async def __call__(self, *args, **kwargs):
         return await self.coro(*args, **kwargs)
 
+
 class Listener:
-    def __init__(self, coro: typing.Coroutine, name: str=None) -> None:
+    def __init__(self, coro: typing.Callable, name: str = None) -> None:
         self.event = name
         self.coro = coro
 

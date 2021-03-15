@@ -8,10 +8,13 @@ __all__ = (
     'JSONResponse',
 )
 
+
 class Response:
     def __init__(self, body='',
-                status=200, content_type="text/plain",
-                headers=None, version="1.1"):
+                 status=200,
+                 content_type="text/plain",
+                 headers=None,
+                 version="1.1"):
 
         self.version = version
         self._status = status
@@ -21,9 +24,8 @@ class Response:
 
         if headers is None:
             headers = {}
-        
+
         self._headers = headers
-        
 
     @property
     def body(self):
@@ -40,7 +42,7 @@ class Response:
     @property
     def headers(self):
         return self._headers
-    
+
     def add_body(self, data):
         self._body = data
 
@@ -48,12 +50,14 @@ class Response:
         self._headers[key] = value
 
     def __repr__(self) -> str:
-        return '<Response body={0.body!r} content_type={0.content_type!r} status={0.status} version={0.version}>'.format(self)
-    
+        fmt = '<Response body={0.body!r} content_type={0.content_type!r} status={0.status} version={0.version}>'
+        return fmt.format(self)
+
 
 class HTMLResponse(Response):
     def __init__(self, body='', status=200, headers=None, version='1.1'):
         super().__init__(body=body, status=status, content_type='text/html', headers=headers, version=version)
+
 
 class JSONResponse(Response):
     def __init__(self, body='', status=200, headers=None, version='1.1'):
