@@ -59,7 +59,7 @@ class Session:
             port = 443
             sock = ctx.wrap_socket(sock, server_hostname=hostname)
 
-        sock.bind((ip, port))
+        sock.connect((ip, port))
         sock.sendall(body)
 
         frame = self._recv(sock)

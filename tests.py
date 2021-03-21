@@ -1,9 +1,13 @@
-from inspect import formatannotation
-import test
+from atom.server import sockets
 
-@test.respect()
-async def foo(bar: int) -> str: return 1233
+async def main():
+    async with sockets.create_server('127.0.0.1', 8080) as socket:
+        while True:
+            client = await socket.accept()
+            await client.send(b'Hello there!')
+
+            client.close()
 
 import asyncio
-
-asyncio.run(foo(123))
+loop = asyncio.get_event_loop()
+loop.run_until_complete(main())

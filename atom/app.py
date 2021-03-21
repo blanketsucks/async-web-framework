@@ -14,8 +14,6 @@ from .server import HTTPServer
 from .extensions import Shard
 from .requests import Session
 
-import test
-
 import inspect
 import typing
 import yarl
