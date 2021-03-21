@@ -19,6 +19,9 @@ class URL:
         self._url = url
 
         return self
+
+    def __repr__(self) -> str:
+        return '<URL scheme={0.scheme!r} hostname={0.hostname!r} path={0.path!r}>'.format(self)
     
     @property
     def scheme(self) -> str:
@@ -30,7 +33,7 @@ class URL:
 
     @property
     def path(self) -> str:
-        return self._components.path
+        return self._components.path or '/'
 
     @property
     def query(self) -> MultiDict:

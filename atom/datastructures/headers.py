@@ -92,12 +92,16 @@ class MultiDict(typing.MutableMapping[str, str]):
         keys = self.__dict.get(key, [])
         return keys
 
-    def items(self) -> typing.Iterator[typing.Tuple[str, str]]:
-        yield from self.__list
+    def items(self, list: bool=...) -> typing.Iterator[typing.Tuple[str, str]]:
+        if list:
+            yield from self.__list
+            return
+
+        yield from self.__dict.items()
 
     def copy(self):
-        new = self.__class__()
-        return new
+        cls = self.__class__
+        return cls(self.items(list=False))
 
     def clear(self) -> 'MultiDict':
         self.__list.clear()
@@ -114,6 +118,20 @@ class HTTPHeaders(MultiDict):
 
     def encode(self):
         return str(self).encode()
+
+    def build_subprotocols(self, subprotocols: typing.Tuple[str]) -> str:
+        subs = ', '.join(subprotocols)
+        
+        self['Sec-Websocket-Subprotocols'] = subs
+        return subs
+
+    def parse_subprotocols(self) -> typing.Tuple[str]:
+        subprotocols = self.get('Sec-Websocket-Subprotocols', '')
+        if not subprotocols:
+            return ()
+
+        return tuple(subprotocols.split(', '))
+
 
     def build_basic_auth(self, username: str, password: str) -> str:
         user_pass = f"{username}:{password}"

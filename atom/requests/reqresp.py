@@ -2,7 +2,6 @@ from atom.datastructures import HTTPHeaders, URL
 
 import typing
 import json as _json
-from collections import namedtuple
 
 __all__ = (
     'Request',
@@ -50,6 +49,8 @@ class Request:
     def encode(self):
         return str(self).encode()
 
+    def __repr__(self) -> str:
+        return '<Request url={0.url!r} method={0.method!r}>'.format(self)
 
 class Response:
     def __init__(self, data: bytes) -> None:
@@ -125,3 +126,6 @@ class Response:
     async def json(self, *, encoding: str=...) -> typing.Dict:
         text = await self.text(encoding=encoding)
         return _json.loads(text)
+
+    def __repr__(self) -> str:
+        return '<Request status={0.status}>'.format(self)

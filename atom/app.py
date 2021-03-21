@@ -14,6 +14,8 @@ from .server import HTTPServer
 from .extensions import Shard
 from .requests import Session
 
+import test
+
 import inspect
 import typing
 import yarl
@@ -83,7 +85,7 @@ class Application:
         self._load_from_arguments(routes, listeners, middlewares, extensions)
 
     def __repr__(self) -> str:
-        return '<Application>'.format(self)
+        return '<Application>'
 
     # Private methods
 
@@ -257,7 +259,7 @@ class Application:
         server.close()
         await self.dispatch('on_shutdown')
 
-    def run(self, *args, **kwargs):
+    def run(self, *args: typing.Tuple, **kwargs: typing.Mapping):
         try:
             return self.loop.run_until_complete(self.start(*args, **kwargs))
         except KeyboardInterrupt:
