@@ -1,11 +1,12 @@
-import asyncio
 from .bases import Connection
+from . import sockets
 
 import typing
 from http.server import BaseHTTPRequestHandler
-import socket as sockets
+import asyncio
 
 if typing.TYPE_CHECKING:
+    from .protocol import HTTPProtocol
     from .transport import HTTPTransport
 
 __all__ = (
@@ -14,15 +15,25 @@ __all__ = (
 
 
 class HTTPConnection(Connection):
-    version = '1.1'
+    version = 1.1
     responses = BaseHTTPRequestHandler.responses
 
-    def __init__(self, info: typing.Dict) -> None:
-        self._info = info
+    def __init__(self, 
+                loop: asyncio.AbstractEventLoop, 
+                protocol: 'HTTPProtocol', 
+                transport: 'HTTPTransport', 
+                socket: sockets.socket, 
+                address: sockets.Address, 
+                peername: sockets.Address, 
+                sockname: sockets.Address) -> None:
+        
+        self.loop = loop
+        self.protocol = protocol
 
-    def get_info(self, name: str):
-        item = self._info.get(name)
-        return item
+        self.__extra = {
+
+        }
+
 
     async def write(self,
                     status: int = ...,
@@ -31,41 +42,19 @@ class HTTPConnection(Connection):
                     content_type: str = ...,
                     headers: typing.Dict = ...):
 
-        status = 200 if status is ... else status
-        content_type = 'text/plain' if content_type is ... else content_type
-        body = 'No content.' if body is ... else body
-        headers = {} if headers is ... else headers
+        body = sockets.check_ellipsis(body, '')
 
         if isinstance(body, (dict, list)):
             content_type = 'application/json'
 
-        status_msg, _ = self.responses.get(status)
-
-        messages = [
-            f"HTTP/{self.version} {status} {status_msg}",
-            f"Content-Type: {content_type}",
-            f"Content-Length: {len(body) if body is not None else 0}",
-        ]
-
-        if headers:
-            for header, value in headers.items():
-                messages.append(f"{header}: {value}")
-
-        if body is not None:
-            messages.append("\r\n" + body)
-
-        message = '\r\n'.join(messages)
-        encoded = message.encode('utf-8')
-        
-        await self.writeraw(encoded)
-
-    async def writeraw(self, data: bytes):
-        socket: sockets.socket = self.get_info('socket')
-        transport: 'HTTPTransport' = self.get_info('transport')
-        loop: asyncio.AbstractEventLoop = self.get_info('loop')
-
-        await transport.call_protocol('socket_sent', data)
-        await loop.sock_sendall(socket, data)
+        socket: sockets.HTTPSocket = self.get_info('socket')
+        await socket.send(
+            data=body,
+            status=status,
+            content_type=content_type,
+            headers=headers,
+            protocol=self.version
+        )
 
     async def writefile(self, filename: str, *, offset: int = 0, fallback: bool = ...):
         socket: sockets.socket = self.get_info('socket')

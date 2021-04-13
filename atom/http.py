@@ -32,12 +32,14 @@ class ApplicationProtocol(HTTPProtocol):
         )
         self.conn.close()
 
-    async def on_request(self):
+    async def on_request(self, body: str, headers: typing.Mapping[str, str]):
+        print(body, headers)
+
         self._request = Request(
-            method=self.request.method,
-            url=self.request.url,
+            method=headers['method'],
+            url=headers['path'],
             status_code=200,
-            headers=self.request.headers,
+            headers=headers,
             protocol=self,
             date=datetime.datetime.utcnow(),
             version='1.1'
@@ -49,8 +51,7 @@ class ApplicationProtocol(HTTPProtocol):
         self.conn = connection
 
     async def on_socket_receive(self, data: bytes):
-        await self.parse_request(data)
-        await self.app.dispatch('on_socket_receive', self.request)
+        await self.app.dispatch('on_socket_receive', data)
 
     async def on_socket_sent(self, data: bytes):
         await self.app.dispatch('on_socket_sent', data)
@@ -72,7 +73,7 @@ async def run_server(protocol: ApplicationProtocol,
     host = '127.0.0.1' if host is ... else host
     port = 8080 if port is ... else port
     loop = asyncio.get_event_loop() if loop is ... else loop
-
+    
     server = http.HTTPServer(
         protocol=protocol,
         host=host,

@@ -1,7 +1,7 @@
 import typing
 import asyncio
 
-import socket as _socket
+from . import sockets
 
 __all__ = (
     'Protocol',
@@ -17,17 +17,16 @@ class Protocol:
     async def on_connection_made(self, connection: 'Connection'):
         ...
 
-    async def on_socket_receive(self, data: bytes):
+    async def on_connection_lost(self, exc: typing.Optional[Exception]):
         ...
 
-    async def on_socket_sent(self, data: bytes):
+    async def on_data_receive(self, data: bytes):
         ...
 
-    async def on_error(self, exc: Exception):
-        ...
+
 
 class Transport:
-    def __init__(self, socket: _socket.socket, loop: asyncio.AbstractEventLoop, protocol: Protocol) -> None:
+    def __init__(self, socket: sockets.socket, loop: asyncio.AbstractEventLoop, protocol: Protocol) -> None:
         ...
     
     async def call_protocol(self, name: str, *args):
@@ -40,10 +39,14 @@ class Transport:
         ...
 
 class Connection:
-    def __init__(self, info: typing.Dict) -> None:
-        ...
-
-    def get_info(self, name: str):
+    def __init__(self, 
+                loop: asyncio.AbstractEventLoop, 
+                protocol: Protocol, 
+                transport: Transport, 
+                socket: sockets.socket, 
+                address: sockets.Address, 
+                peername: sockets.Address, 
+                sockname: sockets.Address) -> None:
         ...
 
     async def write(self, body: bytes):

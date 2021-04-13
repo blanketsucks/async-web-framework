@@ -1,5 +1,4 @@
 import typing
-from bs4 import BeautifulSoup
 import urllib.parse
 from .request import Request
 from .response import HTMLResponse, JSONResponse, Response
@@ -90,13 +89,7 @@ class Context:
 
     def build_response(self, body: typing.Union[str, typing.List, typing.Dict, typing.Any], **kwargs):
         if isinstance(body, str):
-            parser = BeautifulSoup(body, features='html.parser')
-
-            if bool(parser.find()):
-                return self.build_html_response(body, **kwargs)
-
-            self.__response = response = Response(body, **kwargs)
-            return response
+            return self.build_html_response(body, **kwargs)
 
         if isinstance(body, (dict, list)):
             return self.build_json_response(body, **kwargs)
