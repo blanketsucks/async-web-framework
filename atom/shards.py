@@ -78,14 +78,3 @@ class Shard:
             return listener
 
         return decorator
-
-    async def wait_for(self, event: str, *, timeout: int = 120.0):
-        future = self.loop.create_future()
-        listeners = self.listeners.get(event.lower())
-
-        if not listeners:
-            listeners = []
-            self.listeners[event.lower()] = listeners
-
-        listeners.append(future)
-        return await asyncio.wait_for(future, timeout=timeout)

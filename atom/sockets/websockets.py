@@ -1,5 +1,4 @@
 from .frame import WebSocketFrame, Data
-
 from .enums import (
     WebSocketCloseCode,
     WebSocketOpcode,
@@ -7,11 +6,14 @@ from .enums import (
     WebSocketState
 )
 from .sockets import socket, Address
-
 from .utils import (
     WSConnectionContextManager,
     WSServerContextManager
 )
+from .request import Request
+from .response import Response
+from .protocols import WebsocketProtocol, Protocol
+from .transports import WebsocketTransport
 
 import json
 import os
@@ -22,6 +24,7 @@ import asyncio
 
 __all__ = (
     'Websocket',
+    'GUID'
 )
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -36,7 +39,7 @@ class Websocket(socket):
         self.__host = '127.0.0.1'
         self.__path = '/'
 
-        self._handshake_waiter = self._loop.create_future()
+        self._handshake_waiter = self.loop.create_future()
 
     def _set_state(self, state: WebSocketState=...):
         self.state = WebSocketState.CONNECTED if state is ... else state
@@ -53,9 +56,59 @@ class Websocket(socket):
             await self.handshake()
 
         self._set_state()
-        self.settimeout(1)
-
         return addr
+    
+    async def open_connection(self, 
+                            protocol: typing.Type[Protocol], 
+                            host: str, 
+                            port: int, 
+                            *, 
+                            ssl: bool):
+
+        proto = protocol()
+        await super().connect(host, port, ssl=ssl)
+
+        await self._start_protocol(proto)
+
+    def _create_transport(self, protocol, fut):
+        transport = WebsocketTransport(
+            socket=self,
+            protocol=protocol,
+            loop=self.loop,
+            future=fut
+        )
+
+        return transport
+
+    async def open_websocket_connection(self,
+                                    protocol: typing.Type[WebsocketProtocol],
+                                    host: str,
+                                    port: int=...,
+                                    path: str=...,
+                                    *,
+                                    do_handshake_on_connect: bool=...):
+
+        proto = protocol()
+        await self.connect(
+            host=host,
+            port=port,
+            path=path,
+            do_handshake_on_connect=do_handshake_on_connect
+        )
+
+        await self._start_protocol(proto)
+
+    async def _transport_read(self, transport: WebsocketTransport):
+        while True:
+
+            data, opcode = await self.receive()
+            transport._data_received(data)
+
+            if opcode is WebSocketOpcode.PONG:
+                if transport._pong_waiter:
+                    transport._pong_waiter.set_result(None)
+
+            transport._clear()
 
     async def wait_for_handshake_completion(self, timeout: int=...):
         if self._handshake_waiter.done():
@@ -69,8 +122,6 @@ class Websocket(socket):
         )
 
     async def handshake(self):
-        self.settimeout(10)
-
         if self._handshake_waiter.done():
             raise RuntimeError(
                 'Socket already handshook'
@@ -88,21 +139,29 @@ class Websocket(socket):
                 port=port
             )
 
-            handshake = await self.recv()
-            await self._validate_server_handshake(handshake)
+            handshake = await self.recv(4096)
+            resp = Response.parse(handshake)
 
+            await self._validate_server_handshake(resp)
             self._handshake_waiter.set_result(None)
-            return
+
+            return handshake
         
         if self.is_bound:
             handshake = await self.recv(4096)
-            await self._validate_client_handshake(handshake)
+            request = Request.parse(handshake)
+
+            if 'Sec-Websocket-Version' not in request.headers:
+                return handshake
+
+            await self._validate_client_handshake(request)
 
             self._set_state(WebSocketState.HANDSHAKING)
-            await self._server_handshake(handshake)
+            await self._server_handshake(request)
 
             self._handshake_waiter.set_result(None)
-            return
+
+            return handshake
 
         raise RuntimeError(
             'The socket is not connected nor bound'
@@ -113,6 +172,7 @@ class Websocket(socket):
         self._check_connected()
 
         key = base64.b64encode(os.urandom(16))
+
         headers = {
             'Host': f'{host}:{port}',
             'Connection': 'Upgrade',
@@ -121,66 +181,28 @@ class Websocket(socket):
             'Sec-WebSocket-Version': 13
         }
 
-        await self._write(opening_header=f'GET {path} HTTP/1.1', headers=headers)
+        request = Request(
+            method='GET',
+            path=path,
+            version='1.1',
+            headers=headers
+        )
+        
+        await self._write(request)
 
-    async def _write(self, 
-                    status: HTTPStatus=...,
-                    data: str=... ,
-                    *,
-                    content_type: str=...,
-                    opening_header: str=..., 
-                    headers: typing.Mapping[str, typing.Any]=...):
-        if status is ...:
-            status = HTTPStatus.OK
+    async def _write(self, message: typing.Union[Request, Response]):
+        print(message.status)
+        await self.send(message.encode())
 
-        if opening_header is ...:
-            opening_header = f'HTTP/1.1 {status.value} {status.description}'
-
-        if headers is ...:
-            headers = {}
-
-        if data is ...:
-            data = ''
-
-        if content_type is ...:
-            content_type = 'text/plain'
-
-        messages = [opening_header]
-
-        if data:
-            messages.append(f'Content-Type: {content_type}')
-            messages.append(f'Content-Length: {len(data)}')
-
-        messages.extend([f'{k}: {v}' for k, v in headers.items()])
-
-        message = '\r\n'.join(messages)
-        message += '\r\n\r\n'
-
-        if data:
-            message += data
-
-        await super().send(message.encode())
-
-    def _parse_ws_key(self, data: bytes) -> str:
-        key = ''
-
-        for header in data.decode().split('\r\n'):
-            data: typing.List[str] = header.split(': ', maxsplit=1)
-
-            if not len(data) == 2:
-                continue
-            
-            item, value = data
-            if item == 'Sec-WebSocket-Key':
-                key = value
-                break
+    @staticmethod
+    def _parse_ws_key(request: Request) -> str:
+        key = request.headers['Sec-WebSocket-Key']
 
         sha1 = hashlib.sha1((key + GUID).encode()).digest()
         return base64.b64encode(sha1).decode()
 
-    async def _server_handshake(self, data: bytes):
-        self.settimeout(0.5)
-        key = self._parse_ws_key(data)
+    async def _server_handshake(self, request: Request):
+        key = self._parse_ws_key(request)
 
         headers = {
             'Upgrade': 'websocket',
@@ -188,81 +210,79 @@ class Websocket(socket):
             'Sec-WebSocket-Accept': f'{key}'
         }
 
-        messages = [
-            'HTTP/1.1 101 Switching Protocols'
-        ]
-        messages.extend([f'{k}: {v}' for k, v in headers.items()])
+        resp = Response(
+            status=HTTPStatus.SWITCHING_PROTOCOLS,
+            headers=headers
+        )
 
-        handshake = '\r\n'.join(messages)
-        handshake += '\r\n\r\n'
+        await self._write(resp)
 
-        await super().send(handshake.encode())
-
-    async def _validate_server_handshake(self, data: bytes):
+    async def _validate_server_handshake(self, resp: Response):
         ...
 
-    async def _validate_client_handshake(self, data: bytes):
-        encoded = data.decode()
-        headers = encoded.split('\r\n')
+    async def _validate_client_handshake(self, request: Request):
+        resp = Response(
+            status=HTTPStatus.BAD_REQUEST
+        )
 
-        method, path, version = headers.pop(0).split(' ')
+        if request.method != 'GET':
+            resp.status = HTTPStatus.METHOD_NOT_ALLOWED
+            await self._write(resp)
 
-        if method != 'GET':
-            return await self._write(HTTPStatus.METHOD_NOT_ALLOWED)
+            return
 
-        if version != 'HTTP/1.1':
-            return await self._write(
-                status=HTTPStatus.BAD_REQUEST,
-                data='Invalid HTTP version. Must be atleast 1.1.'
-            )
+        if request.version != 'HTTP/1.1':
+            resp.body = 'Invalid HTTP version. Must be atleast 1.1.'
+            await self._write(resp)
 
-        all_headers = []
-        for header in headers:
-            if not header:
-                continue
+            return
 
-            item, value = header.split(': ')
-            all_headers.append(item)
+        required = (
+            'Host',
+            'Upgrade',
+            'Connection',
+            'Sec-WebSocket-Version',
+            'Sec-WebSocket-Key',
+        )
 
-            if item == 'Upgrade':
+        for header in required:
+            if not header in request.headers:
+                resp.body = f'Missing {header} header.'
+                await self._write(resp)
+
+                return
+
+        for header in required:
+            value: str = request.headers[header]
+
+            if header == 'Upgrade':
                 if value.lower() != 'websocket':
-                    return await self._write(
-                        status=HTTPStatus.UPGRADE_REQUIRED
-                    )
+                    resp.status = HTTPStatus.UPGRADE_REQUIRED
+                    await self._write(resp)
+
+                    return
 
                 continue
 
-            if item == 'Sec-WebSocket-Version':
+            if header == 'Sec-WebSocket-Version':
                 if value != '13':
-                    return await self._write(
-                        status=HTTPStatus.BAD_REQUEST,
-                        data='Websocket version must be 13.'
-                    )
+                    resp.body = 'Websocket version must be 13.'
+                    await self._write(resp)
+
+                    return
 
                 continue
 
-            if item == 'Sec-WebSocket-Key':
+            if header == 'Sec-WebSocket-Key':
                 key = base64.b64decode(value)
 
                 if not len(key) == 16:
-                    return await self._write(
-                        status=HTTPStatus.BAD_REQUEST,
-                        data='Websocket key must be of length 16 in bytes.'
-                    )
+                    resp.body = 'Websocket key must be of length 16 in bytes.'
+                    await self._write(resp)
+
+                    return
 
                 continue
-
-        if 'Host' not in all_headers:
-            return await self._write(
-                status=HTTPStatus.BAD_REQUEST,
-                data='Missing Host header.'
-            )
-
-        if 'Connection' not in all_headers:
-            return await self._write(
-                status=HTTPStatus.BAD_REQUEST,
-                data='Missing Connection header.'
-            )
 
     async def accept(self, timeout: int=..., *, do_handshake_on_connect: bool=...) -> typing.Tuple['Websocket', Address]:
         sock, addr = await super().accept(timeout=timeout)
@@ -275,7 +295,7 @@ class Websocket(socket):
 
         return sock, addr
 
-    async def send(self, frame: WebSocketFrame):
+    async def send_frame(self, frame: WebSocketFrame):
         self._set_state(WebSocketState.SENDING)
 
         if self._connected:
@@ -293,17 +313,17 @@ class Websocket(socket):
 
         return Data(raw, frame), opcode
         
-    async def receive_bytes(self):
-        data, = await self.receive()
-        return data.data
+    async def receive_bytes(self)-> typing.Tuple[bytes, WebSocketOpcode]:
+        data, opcode = await self.receive()
+        return data.data, opcode
 
-    async def receive_str(self):
-        data, = await self.receive()
-        return data.as_string()
+    async def receive_str(self)-> typing.Tuple[str, WebSocketOpcode]:
+        data, opcode = await self.receive()
+        return data.as_string(), opcode
 
-    async def receive_json(self):
-        data, = await self.receive()
-        return data.as_json()
+    async def receive_json(self)-> typing.Tuple[typing.Dict, WebSocketOpcode]:
+        data, opcode = await self.receive()
+        return data.as_json(), opcode
 
     async def send_bytes(self, data: bytes=..., opcode: WebSocketOpcode=...):
         if opcode is ...:
@@ -313,7 +333,7 @@ class Websocket(socket):
             data = b''
 
         frame = WebSocketFrame(opcode=opcode, data=data)
-        await self.send(frame)
+        await self.send_frame(frame)
 
     async def send_binary(self, data: bytes=...):
         await self.send_bytes(
@@ -384,7 +404,7 @@ class Websocket(socket):
 
         frame = WebSocketFrame(opcode=WebSocketOpcode.CLOSE, data=data)
 
-        await self.send(frame)
+        await self.send_frame(frame)
         self._set_state(WebSocketState.CLOSED)
 
         return self._close()

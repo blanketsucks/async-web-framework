@@ -124,7 +124,7 @@ class WebSocketFrame:
 
         data = await socket.recv(2)
         raw += data
-
+        print(data)
         head1, head2 = struct.unpack("!BB", data)
 
         fin = True if head1 & 0b10000000 else False

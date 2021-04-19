@@ -26,16 +26,15 @@ class SSLSocket(socket):
                 server_side: bool=..., 
                 server_hostname: str=..., 
                 do_handshake_on_connect: bool=...,
-                session: _ssl.SSLSession=...) -> 'SSLSocket':
+                session: _ssl.SSLSession=...,
+                context: _ssl.SSLContext,
+                original: _socket.socket) -> 'SSLSocket':
 
         server_side = check_ellipsis(server_side, False)
         server_hostname = check_ellipsis(server_hostname, None)
         do_handshake_on_connect = check_ellipsis(do_handshake_on_connect, True)
         session = check_ellipsis(session, None)
-
-        context: _ssl.SSLContext = sock._get('_socket__ssl')
-        original: _socket.socket = sock._get('_socket__socket')
-
+        
         if server_side:
             if server_hostname:
                 raise ValueError("server_hostname can only be specified in client mode")
@@ -63,7 +62,7 @@ class SSLSocket(socket):
         self._handshake_on_connect = do_handshake_on_connect
         self._session = session
 
-        self.__socket = ssl
+        self._socket = ssl
         self.__original = sock
 
         return self
@@ -94,10 +93,10 @@ class SSLSocket(socket):
         await self._run_in_executor('do_handshake', False)
 
     def compression(self) -> typing.Optional[str]:
-        return self.__socket.compression()
+        return self._socket.compression()
 
     def cipher(self) -> typing.Optional[typing.Tuple[str, str, int]]:
-        return self.__socket.cipher()
+        return self._socket.cipher()
 
     def unwrap(self) -> socket:
         sock = self.__original

@@ -1,12 +1,11 @@
-from atom.objects import Route, WebsocketRoute
-from .datastructures import HTTPHeaders, URL
+from .objects import Route, WebsocketRoute
+from .datastructures import HTTPHeaders, URL, Cookies
+from .response import Response
 
 import datetime
-import json
 import typing
 import humanize
-import yarl
-from http.cookies import SimpleCookie
+import urllib.parse
 
 if typing.TYPE_CHECKING:
     from .http import ApplicationProtocol
@@ -99,27 +98,25 @@ class RequestDate:
 
 class Request:
     __slots__ = (
-        '_encoding', 'version', 'status_code', 'method',
-        'url', 'headers', 'body', 'protocol', 'connection_info',
+        '_encoding', 'version', 'method',
+        '_url', 'headers', 'body', 'protocol', 'connection_info',
         '_cookies', 'datetime', 'route'
     )
 
     def __init__(self,
-                 method: str,
-                 url: URL,
-                 status_code: int,
-                 headers: typing.Dict,
-                 protocol: 'ApplicationProtocol',
-                 date: datetime.datetime,
-                 version: str = None,
-                 body=None):
+                method: str,
+                url: str,
+                headers: typing.Dict,
+                protocol: 'ApplicationProtocol',
+                date: datetime.datetime,
+                version: str,
+                body: str):
 
         self._encoding = "utf-8"
 
-        self.version = version[:-1]
-        self.status_code = status_code
+        self.version = version
         self.method = method
-        self.url = url
+        self._url = url
         self.headers = HTTPHeaders(headers)
         self.datetime = RequestDate(date)
         self.body = body
@@ -127,12 +124,15 @@ class Request:
         self.route: typing.Union[Route, WebsocketRoute] = None
 
     @property
-    def cookies(self):
+    def url(self) -> URL:
+        return URL(self._url)
+
+    @property
+    def cookies(self) -> typing.Dict[str, str]:
         cookie = self.headers.get('Cookie', None)
 
         if cookie:
-            cookies = SimpleCookie()
-            cookies.load(cookie)
+            cookies = Cookies(cookie)
 
             self._cookies = {
                 name: cookie.value for name, cookie in cookies.items()
@@ -143,7 +143,7 @@ class Request:
         return self._cookies
 
     @property
-    def token(self):
+    def token(self) -> typing.Optional[str]:
         prefixes = ('Bearer',)
         auth: str = self.headers.get('Authorization', None)
 
@@ -172,6 +172,27 @@ class Request:
     def params(self):
         return self.url.query
 
+    def redirect(self, to: str, headers: typing.Dict=..., status: int=..., content_type: str=...):
+        if headers is ...:
+            headers = {}
+
+        if status is ...:
+            status = 302
+
+        if content_type is ...:
+            content_type = 'text/plain'
+
+        url = urllib.parse.quote_plus(to, ":/%#?&=@[]!$&'()*+,;")
+        headers['Location'] = url
+
+        response = Response(
+            status=status,
+            content_type=content_type,
+            headers=headers
+        )
+
+        return response
+
     def __repr__(self) -> str:
-        return '<Request url={0.url.raw_path!r} method={0.method!r} status={0.status_code} version={0.version!r} ' \
-               'headers={0.headers}>'.format(self)
+        return '<Request url={0.url.path!r} method={0.method!r} version={0.version!r} ' \
+               'headers={0.headers!r}>'.format(self)

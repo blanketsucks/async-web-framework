@@ -11,7 +11,7 @@ __all__ = (
 )
 
 class Settings(dict):
-    def __init__(self, settings_file: typing.Union[str, pathlib.Path]=None, load_env: bool=False):
+    def __init__(self, settings_file: typing.Union[str, pathlib.Path], load_env: bool):
 
         if load_env:
             self.from_env_vars()

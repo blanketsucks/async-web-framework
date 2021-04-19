@@ -4,6 +4,9 @@ from .objects import Route, WebsocketRoute
 import re
 import typing
 
+if typing.TYPE_CHECKING:
+    from .request import Request
+
 __all__ = (
     'Router',
 )
@@ -15,7 +18,7 @@ class Router:
     def __init__(self) -> None:
         self.routes: typing.List[typing.Union[Route, WebsocketRoute]] = []
 
-    def resolve(self, request) -> typing.Tuple[typing.Dict, typing.Union[Route, WebsocketRoute]]:
+    def resolve(self, request: 'Request') -> typing.Tuple[typing.Dict, typing.Union[Route, WebsocketRoute]]:
         for route in self.routes:
             match = re.fullmatch(route.path, request.url.path)
 

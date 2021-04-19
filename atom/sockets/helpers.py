@@ -1,13 +1,15 @@
 import typing
 
-from .sockets import socket, HTTPSocket
+from .sockets import socket
 from .websockets import Websocket
 
+import socket as _socket
+
 __all__ = (
+    'has_ipv6',
+    'has_dualstick_ipv6',
     'create_connection',
     'create_server',
-    'create_http_connection',
-    'create_http_server',
     'create_websocket_connection',
     'create_websocket_server',
     'gethostbyaddr',
@@ -21,20 +23,17 @@ __all__ = (
     'if_indextoname'
 )
 
+has_ipv6 = _socket.has_ipv6
+
+def has_dualstick_ipv6():
+    return _socket.has_dualstack_ipv6()
+
 def create_connection(host: str, port: int, *, ssl: bool=False, **kwargs):
     sock = socket(**kwargs)
     return sock.create_connection(host, port)
 
 def create_server(host: str, port: int, backlog: int=..., **kwargs):
     sock = socket(**kwargs)
-    return sock.create_server(host, port, backlog)
-
-def create_http_connection(host: str, port: int, *, ssl: bool=False, **kwargs):
-    sock = HTTPSocket(**kwargs)
-    return sock.create_connection(host, port)
-
-def create_http_server(host: str, port: int, backlog: int=..., **kwargs):
-    sock = HTTPSocket(**kwargs)
     return sock.create_server(host, port, backlog)
 
 def create_websocket_connection(host: str, port: int, **kwargs):

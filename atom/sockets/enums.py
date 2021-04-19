@@ -9,7 +9,7 @@ __all__ = (
 
 class HTTPStatus(enum.IntEnum):
     def __new__(cls, value: int, description: str):
-        self = int.__new__(cls)
+        self = int.__new__(cls, value)
 
         self._value_ = value
         self._description_ = description

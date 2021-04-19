@@ -64,3 +64,30 @@ class Extension(metaclass=ExtensionMeta):
             self.app.remove_middleware(middleware.coro)
 
         return self
+
+    @staticmethod
+    def route(path: str, method: str=...):
+        def decorator(func: typing.Callable):
+            actual = 'GET' if method is ... else method
+            route = Route(path, actual, func)
+
+            func.__route__ = route
+            return func
+        return decorator
+
+    @staticmethod
+    def listener(name: str=...):
+        def decorator(func: typing.Callable):
+            name = func.__name__ if name is ... else name
+            listener = Listener(func, name)
+
+            func.__listener__ = listener
+            return func
+        return decorator
+
+    @staticmethod
+    def middleware(func: typing.Callable):
+        middleware = Middleware(func)
+
+        func.__middleware__ = middleware
+        return func

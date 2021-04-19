@@ -4,7 +4,7 @@ import typing
 from .headers import MultiDict
 
 class URL:
-    def __new__(cls, value: typing.Union[str, bytes, 'URL']) -> typing.Any:
+    def __new__(cls, value: typing.Union[str, bytes, 'URL']) -> 'URL':
         if type(value) is bytes:
             url = value.decode()
 
