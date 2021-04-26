@@ -1,12 +1,7 @@
-import re
 import typing
 
 from .enums import HTTPStatus
 from . import utils
-
-RESPONSE = re.compile(
-    pattern=r'HTTP/(?P<version>\d((?=\.)(\.\d))?) (?P<status>\d+) (?P<description>.+)'
-)
 
 class Response:
     def __init__(self,

@@ -70,8 +70,7 @@ class WebsocketServer(Server):
         )
 
     async def _handler(self, client: websockets.Websocket, transport: WebsocketTransport):
-        data = await client.handshake()
-        transport._data_received(data)
+        await transport._data_received()
 
     async def serve(self):
         await self.start()

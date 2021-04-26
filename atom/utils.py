@@ -67,10 +67,8 @@ VALID_LISTENERS: typing.Tuple = (
     'on_error',
     'on_connection_made',
     'on_connection_lost',
-    'on_socket_receive',
-    'on_socket_sent',
-    'on_database_connect',
-    'on_database_close',
+    'on_data_receive',
+    'on_data_sent',
 )
 
 
@@ -137,6 +135,6 @@ def markdown(fp: str):
 def render_html(fp: str):
     actual = fp + '.html'
 
-    with codecs.open(actual, 'r') as file:
+    with open(actual, 'r') as file:
         resp = file.read()
         return HTMLResponse(resp)

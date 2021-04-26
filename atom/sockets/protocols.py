@@ -1,4 +1,3 @@
-import typing
 
 from .transports import Transport, WebsocketTransport
 from .frame import Data

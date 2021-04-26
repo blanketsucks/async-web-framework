@@ -7,30 +7,6 @@ import functools
 if typing.TYPE_CHECKING:
     from atom.app import Application
 
-def route(path: str, method: str=...):
-    def decorator(func: typing.Callable):
-        actual = 'GET' if method is ... else method
-        route = Route(path, actual, func)
-
-        func.__route__ = route
-        return func
-    return decorator
-
-def listener(name: str=...):
-    def decorator(func: typing.Callable):
-        name = func.__name__ if name is ... else name
-        listener = Listener(func, name)
-
-        func.__listener__ = listener
-        return func
-    return decorator
-
-def middleware(func: typing.Callable):
-    middleware = Middleware(func)
-
-    func.__middleware__ = middleware
-    return func
-
 class Extension(metaclass=ExtensionMeta):
     def __init__(self, app: 'Application') -> None:
         self.app = app

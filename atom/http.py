@@ -8,6 +8,7 @@ from .sockets import (
     Request as ClientRequest,
     WebsocketProtocol
 )
+from .objects import Route
 
 import datetime
 import typing
@@ -30,9 +31,19 @@ class ApplicationProtocol(WebsocketProtocol):
         self.handler = app._request_handler
         self._request: Request = None
 
-    async def response_writer(self, response: Response):
+    async def response_writer(self, response: Response, route: Route):
         await self.transport.send(response.encode())
+        await self.app.dispatch('on_data_sent', response.encode())
+
+        print(route)
+        print(route)
+
+        if after := getattr(route, '_after_request', None):
+            print('yo!')
+            await after(response)
+
         self.transport.close()
+
 
     async def on_request(self, method: str, path: str, body: str, headers: typing.Mapping[str, str]):
         self._request = Request(
@@ -45,14 +56,17 @@ class ApplicationProtocol(WebsocketProtocol):
             version='1.1'
         )
         
+        await self.app.dispatch('on_request')
         await self.handler(self._request, self.response_writer, ws=self._ws)
 
     async def on_connection_made(self, transport: WebsocketTransport):
         self.transport = transport
-        self._ws = WebsocketConnection(transport)
+
+        self._ws = WebsocketConnection(transport.get_extra('socket'))
+        await self.app.dispatch('on_connection_made', transport.get_extra('socket'))
 
     async def on_connection_lost(self):
-        return
+        await self.app.dispatch('on_connection_lost')
 
     async def on_data_receive(self, data: bytes):
         await self.app.dispatch('on_data_receive', data)
@@ -64,7 +78,6 @@ class ApplicationProtocol(WebsocketProtocol):
             body=request.body,
             headers=request.headers
         )
-
 
 
 async def run_server(protocol: ApplicationProtocol,
@@ -87,6 +100,6 @@ async def run_server(protocol: ApplicationProtocol,
         port=port,
         backlog=app._backlog
     )
-
+    print(server)
     app._server = server
     await server.serve()

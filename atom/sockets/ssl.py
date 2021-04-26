@@ -27,8 +27,7 @@ class SSLSocket(socket):
                 server_hostname: str=..., 
                 do_handshake_on_connect: bool=...,
                 session: _ssl.SSLSession=...,
-                context: _ssl.SSLContext,
-                original: _socket.socket) -> 'SSLSocket':
+                context: _ssl.SSLContext) -> 'SSLSocket':
 
         server_side = check_ellipsis(server_side, False)
         server_hostname = check_ellipsis(server_hostname, None)
@@ -46,7 +45,7 @@ class SSLSocket(socket):
             raise ValueError("check_hostname requires server_hostname")
         
         ssl = _ssl.SSLSocket._create(
-            sock=original,
+            sock=sock._socket,
             server_hostname=server_hostname,
             server_side=server_side,
             do_handshake_on_connect=do_handshake_on_connect,

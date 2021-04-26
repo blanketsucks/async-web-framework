@@ -10,3 +10,6 @@ class InvalidHandshake(WebsocketError):
 
 class InvalidAddress(SocketError):
     ...
+
+class InvalidURL(Exception):
+    ...

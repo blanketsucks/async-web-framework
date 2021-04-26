@@ -5,11 +5,18 @@ from .datastructures import URL
 from .router import Router
 from . import utils
 from .settings import Settings
-from .objects import Route, Listener, Middleware, WebsocketRoute
+from .objects import Route, Listener, WebsocketRoute
 from .views import HTTPView, WebsocketHTTPView
 from .extensions import Extension
 from .shards import Shard
 from . import sockets
+from .typings import (
+    Routes,
+    Listeners,
+    Extensions,
+    Shards,
+    Awaitable
+)
 from .response import Response, JSONResponse
 
 import inspect
@@ -25,12 +32,6 @@ __all__ = (
     'Extension'
 )
 
-Routes = typing.List[Route]
-Listeners = typing.List[Listener]
-Middlewares = typing.List[Middleware]
-Extensions = typing.List[typing.Union[pathlib.Path, str]]
-Shards = typing.List[Shard]
-
 class Application:
     """
     
@@ -43,7 +44,6 @@ class Application:
     def __init__(self, 
                 routes: Routes=...,
                 listeners: Listeners=...,
-                middlewares: Middlewares=...,
                 extensions: Extensions=...,
                 shards: Shards=...,
                 *,
@@ -54,10 +54,7 @@ class Application:
 
         routes = sockets.check_ellipsis(routes, [])
         listeners = sockets.check_ellipsis(listeners, [])
-
-        middlewares = sockets.check_ellipsis(middlewares, [])
         extensions = sockets.check_ellipsis(extensions, [])
-
         shards = sockets.check_ellipsis(shards, [])
 
         self._ready = asyncio.Event()
@@ -76,9 +73,7 @@ class Application:
 
         self.views: typing.Dict[str, typing.Union[HTTPView, WebsocketHTTPView]] = {}
         self.shards: typing.Dict[str, Shard] = {}
-        self._websocket_tasks: typing.List[asyncio.Task] = []
         self._listeners: typing.Dict[str, typing.List[typing.Callable]] = {}
-        self._middlewares: typing.List[typing.Callable] = []
         self._extensions: typing.Dict[str, Extension] = {}
 
         self._is_websocket: bool = False
@@ -87,7 +82,7 @@ class Application:
 
         self._backlog = 5
 
-        self._load_from_arguments(routes, listeners, middlewares, extensions, shards)
+        self._load_from_arguments(routes, listeners, extensions, shards)
 
     def __repr__(self) -> str:
         return '<Application>'
@@ -101,7 +96,6 @@ class Application:
     def _load_from_arguments(self, 
                             routes: Routes,
                             listeners: Listeners,
-                            middlewares: Middlewares,
                             extensions: Extensions,
                             shards: Shards):
         
@@ -113,10 +107,6 @@ class Application:
             name = listener.event
 
             self.add_listener(coro, name)
-
-        for middleware in middlewares:
-            coro = middleware.coro
-            self.add_middleware(coro)
 
         for ext in extensions:
             self.register_extension(ext)
@@ -158,12 +148,15 @@ class Application:
         resp = None
         try:
             args, route = self.router.resolve(request)
+            if getattr(route, '_waiter', None):
+                route._waiter.set_result(request)
+
+            route._extras['params'] = args
             request.route = route
 
-            if len(self._middlewares) != 0:
-                await asyncio.gather(*[middleware(request, route.coro) for middleware in self._middlewares])
-
-            args = self._convert(route.coro, args)
+            args = self._convert(route.callback, args)
+            if len(route.middlewares) != 0:
+                await asyncio.gather(*[middleware(route, request, *args) for middleware in route.middlewares])
 
             if isinstance(route, WebsocketRoute):
                 self.loop.create_task(
@@ -190,7 +183,7 @@ class Application:
             resp = utils.format_exception(exc)
             await self.dispatch('on_error', exc)
 
-        await response_writer(resp)
+        await response_writer(resp, route)
 
     async def wait_until_startup(self):
         await self._ready.wait()
@@ -201,11 +194,6 @@ class Application:
     @property
     def listeners(self):
         return self._listeners
-
-    @property
-    def middlewares(self):
-        return self._middlewares
-
     @property
     def extensions(self):
         return self._extensions
@@ -251,7 +239,7 @@ class Application:
             return self.loop.close()
 
     def websocket(self, path: str):
-        def decorator(coro) -> WebsocketRoute:
+        def decorator(coro: Awaitable) -> WebsocketRoute:
             route = WebsocketRoute(path, 'GET', coro)
             route.subprotocols = tuple()
 
@@ -260,7 +248,7 @@ class Application:
         return decorator
 
     def route(self, path: typing.Union[str, URL], method: str):
-        def decorator(func: typing.Callable):
+        def decorator(func: Awaitable) -> Route:
             actual = path
 
             if isinstance(path, URL):
@@ -276,54 +264,53 @@ class Application:
             fmt = 'Expected Route or WebsocketRoute but got {0!r} instead'
             raise RouteRegistrationError(fmt.format(route.__class__.__name__))
 
-        if not inspect.iscoroutinefunction(route.coro):
+        if not inspect.iscoroutinefunction(route.func):
             raise RouteRegistrationError('Routes must be async.')
 
         if route in self.router.routes:
             raise RouteRegistrationError('{0!r} is already a route.'.format(route.path))
 
         if isinstance(route, WebsocketRoute):
-            self.router.add_route(route.path, route.method, route.coro, websocket=True)
+            self.router.add_route(route.path, route.method, route.func, websocket=True)
             return route
 
-        self.router.add_route(route.path, route.method, route.coro)
+        self.router.add_route(route.path, route.method, route.func)
         return route
 
     def get(self, path: typing.Union[str, URL]):
-        def decorator(func) -> Route:
+        def decorator(func: Awaitable) -> Route:
             return self.route(path, 'GET')(func)
         return decorator
 
     def put(self, path: typing.Union[str, URL]):
-        def decorator(func):
+        def decorator(func: Awaitable):
             return self.route(path, 'PUT')(func)
         return decorator
 
     def post(self, path: typing.Union[str, URL]):
-        def decorator(func):
+        def decorator(func: Awaitable):
             return self.route(path, 'POST')(func)
         return decorator
 
     def delete(self, path: typing.Union[str, URL]):
-        def decorator(func):
+        def decorator(func: Awaitable):
             return self.route(path, 'DELETE')(func)
         return decorator
 
     def head(self, path: typing.Union[str, URL]):
-        def decorator(func):
+        def decorator(func: Awaitable):
             return self.route(path, 'HEAD')(func)
         return decorator
 
     def options(self, path: typing.Union[str, URL]):
-        def decorator(func):
+        def decorator(func: Awaitable):
             return self.route(path, 'OPTIONS')(func)
         return decorator
 
     def patch(self, path: typing.Union[str, URL]):
-        def decorator(func):
+        def decorator(func: Awaitable):
             return self.route(path, 'PATCH')(func)
         return decorator
-
 
     def remove_route(self, route: typing.Union[Route, WebsocketRoute]):
         self.router.routes.remove(route)
@@ -331,7 +318,7 @@ class Application:
 
     # dispatching and listeners
 
-    def add_listener(self, coro: typing.Callable, name: str = None):
+    def add_listener(self, coro: Awaitable, name: str = None):
         if not inspect.iscoroutinefunction(coro):
             raise ListenerRegistrationError('Listeners must be coroutines')
 
@@ -347,18 +334,17 @@ class Application:
         self._listeners[actual] = [coro]
         return Listener(coro, actual)
 
-    def remove_listener(self, func: typing.Callable = None, name: str = None):
+    def remove_listener(self, func: Awaitable = None, name: str = None):
         if not func:
             if name:
-                coros = self._listeners.pop(name.lower())
-                return coros
+                self._listeners.pop(name.lower())
 
             raise TypeError('Only the function or the name can be None, not both.')
 
         self._listeners[name].remove(func)
 
     def listen(self, name: str = None):
-        def decorator(func: typing.Callable):
+        def decorator(func: Awaitable):
             return self.add_listener(func, name)
 
         return decorator
@@ -400,7 +386,7 @@ class Application:
         for route in view.as_routes():
             self.add_route(route)
 
-        self.views[view.__path__] = view
+        self.views[view.__url_route__] = view
         return view
 
     def register_websocket_view(self, view: WebsocketHTTPView):
@@ -419,26 +405,14 @@ class Application:
             if cls.__url_route__ == '':
                 cls.__url_route__ = path
 
-            return self.register_view(cls)
-
+            view = cls()
+            return self.register_view(view)
         return decorator
 
-    def middleware(self):
-        def wrapper(func: typing.Callable):
-            return self.add_middleware(func)
-
+    def middleware(self, route: Route):
+        def wrapper(func: Awaitable):
+            return route.add_middleware(func)
         return wrapper
-
-    def add_middleware(self, middleware: typing.Callable):
-        if not inspect.iscoroutinefunction(middleware):
-            raise MiddlewareRegistrationError('All middlewares must be async')
-
-        self._middlewares.append(middleware)
-        return Middleware(middleware)
-
-    def remove_middleware(self, middleware: typing.Callable) -> typing.Callable:
-        self._middlewares.remove(middleware)
-        return middleware
 
     def register_extension(self, filepath: str) -> typing.List[Extension]:
         try:
@@ -471,9 +445,13 @@ class Application:
 
         return extension
 
-    async def wait_for(self, event: str, *, timeout: int = 120.0):
+    async def wait_for(self, event, *, timeout: int = 120.0):
         future = self.loop.create_future()
         listeners = self._listeners.get(event.lower())
+
+        if isinstance(event, Route):
+            event._waiter = future
+            return await asyncio.wait_for(future, timeout=timeout)
 
         if not listeners:
             listeners = []

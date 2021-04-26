@@ -191,7 +191,6 @@ class Websocket(socket):
         await self._write(request)
 
     async def _write(self, message: typing.Union[Request, Response]):
-        print(message.status)
         await self.send(message.encode())
 
     @staticmethod
@@ -284,7 +283,7 @@ class Websocket(socket):
 
                 continue
 
-    async def accept(self, timeout: int=..., *, do_handshake_on_connect: bool=...) -> typing.Tuple['Websocket', Address]:
+    async def accept(self, timeout=360, *, do_handshake_on_connect=True):
         sock, addr = await super().accept(timeout=timeout)
 
         if do_handshake_on_connect:
@@ -307,63 +306,63 @@ class Websocket(socket):
         await super().send(data)
         self._set_state()
 
-    async def receive(self) -> typing.Tuple[Data, WebSocketOpcode]:
+    async def receive(self):
         self._set_state(WebSocketState.READING)
         opcode, raw, frame = await WebSocketFrame.decode(self)
 
         return Data(raw, frame), opcode
         
-    async def receive_bytes(self)-> typing.Tuple[bytes, WebSocketOpcode]:
+    async def receive_bytes(self):
         data, opcode = await self.receive()
         return data.data, opcode
 
-    async def receive_str(self)-> typing.Tuple[str, WebSocketOpcode]:
+    async def receive_str(self):
         data, opcode = await self.receive()
         return data.as_string(), opcode
 
-    async def receive_json(self)-> typing.Tuple[typing.Dict, WebSocketOpcode]:
+    async def receive_json(self):
         data, opcode = await self.receive()
         return data.as_json(), opcode
 
-    async def send_bytes(self, data: bytes=..., opcode: WebSocketOpcode=...):
-        if opcode is ...:
+    async def send_bytes(self, data=None, opcode=None):
+        if opcode is None:
             opcode = WebSocketOpcode.TEXT
 
-        if data is ...:
+        if data is None:
             data = b''
 
         frame = WebSocketFrame(opcode=opcode, data=data)
         await self.send_frame(frame)
 
-    async def send_binary(self, data: bytes=...):
+    async def send_binary(self, data=None):
         await self.send_bytes(
             data=data,
             opcode=WebSocketOpcode.BINARY
         )
 
-    async def send_str(self, data: str=..., opcode: WebSocketOpcode=...):
+    async def send_str(self, data=None, opcode=None):
         await self.send_bytes(data.encode(), opcode=opcode)
 
-    async def send_json(self, data: typing.Mapping[str, typing.Any]=..., opcode: WebSocketOpcode=...):
+    async def send_json(self, data=None, opcode=None):
         data = json.dumps(data)
         await self.send_str(
             data=data, 
             opcode=opcode
         )
 
-    async def ping(self, data: bytes=...):
+    async def ping(self, data=None):
         await self.send_bytes(
             data=data, 
             opcode=WebSocketOpcode.PING
         )
 
-    async def pong(self, data: bytes=...):
+    async def pong(self, data=None):
         await self.send_bytes(
             data=data,
             opcode=WebSocketOpcode.PONG
         )
 
-    async def continuation(self, data: bytes=...):
+    async def continuation(self, data=None):
         await self.send_bytes(
             data=data,
             opcode=WebSocketOpcode.CONTINUATION

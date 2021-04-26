@@ -28,7 +28,7 @@ class HTTPView(metaclass=ViewMeta):
         for coro in self.__routes__:
             actual = functools.partial(coro, self)
 
-            route = Route(self.__path__, coro.__name__.upper(), actual)
+            route = Route(self.__url_route__, coro.__name__.upper(), actual)
             routes.append(route)
 
         yield from routes
@@ -41,7 +41,7 @@ class WebsocketHTTPView(HTTPView):
         for coro in self.__routes__:
             actual = functools.partial(coro, self)
 
-            route = WebsocketRoute(self.__path__, coro.__name__.upper(), actual)
+            route = WebsocketRoute(self.__url_route__, coro.__name__.upper(), actual)
             routes.append(route)
 
         yield from routes

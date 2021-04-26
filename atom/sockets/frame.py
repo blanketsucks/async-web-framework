@@ -124,7 +124,7 @@ class WebSocketFrame:
 
         data = await socket.recv(2)
         raw += data
-        print(data)
+
         head1, head2 = struct.unpack("!BB", data)
 
         fin = True if head1 & 0b10000000 else False
@@ -168,3 +168,13 @@ class WebSocketFrame:
         )
 
         return opcode, raw, frame
+
+    @classmethod
+    def _decode(cls, data):
+        frame = bytearray(data)
+        head2 = frame[1]
+
+        length = head2 & 0b01111111
+
+        mask = frame[-length:]
+        return mask

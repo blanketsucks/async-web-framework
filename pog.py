@@ -1,11 +1,6 @@
-from atom.sockets import sessions
-import aiohttp
+from atom import sockets
+import cgitb
 
-session = sessions.Session()
+cgitb.enable()
 
-async def main():
-    data = await session.request('', 'GET')
-    print(data.body)
-
-session._loop.run_until_complete(main())
-
+raise KeyboardInterrupt

@@ -90,7 +90,7 @@ class Address:
     @classmethod
     def from_host_and_port(cls, 
                         host: str, 
-                        port: int, 
+                        port, 
                         *, 
                         socket: typing.Union['socket', 'Websocket']):
 
@@ -113,44 +113,30 @@ class Address:
         return (self.host, self.port)
 
 class socket:
-    def __init__(self,
-                family: int = Family.AF_INET,
-                type: int = Type.SOCK_STREAM,
-                proto: int = 0, 
-                fileno: int = ...,
-                *,
-                socket: _socket.socket = ..., 
-                ssl: _ssl.SSLContext = ..., 
-                loop: asyncio.AbstractEventLoop = ...,
-                executor: concurrent.futures.Executor = ...):
+    def __init__(self, family=Family.AF_INET, type=Type.SOCK_STREAM, proto=0, 
+                fileno=None, *, sock=None, ssl=None, loop=None, executor=None):
 
-        fileno = None if fileno is ... else fileno
+        if not sock:
+            sock = _socket.socket(family, type, proto, fileno)
+
+        if not ssl:
+            ssl = _ssl.create_default_context()
+
+        if not loop:
+            loop = asyncio.get_event_loop()
+
+        if not executor:
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=50)
         
-        if socket is ...:
-            self._socket = _socket.socket(family, type, proto, fileno)
-        else:
-            self._socket = socket
-
-        if ssl is ...:
-            self.__ssl = _ssl.create_default_context()
-        else:
-            self.__ssl = ssl
-
-        if loop is ...:
-            self.loop = asyncio.get_event_loop()
-        else:
-            self.loop = loop
-
-        if executor is ...:
-            self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=50)
-        else:
-            self._executor = executor
-        
+        self._ssl = ssl
+        self._socket = sock
+        self._executor = executor
+        self.loop = loop
         self._closed = False
         self._connected = False
         self._bound = False
 
-        self.settimeout(1)
+        self.settimeout(None)
 
     def __repr__(self) -> str:
         name = self.__class__.__name__
@@ -180,31 +166,29 @@ class socket:
 
     async def __aexit__(self, *args):
         self.close()
-        return self
+        return None
 
     @staticmethod
     def __platform_check(name: str):
         return sys.platform.startswith(name)
 
-    async def _run_in_executor(self, name: str, *args, **kwargs):
-        method = getattr(self._socket, name, None)
-        if not method:
-            method = getattr(_socket, name)
-
+    def _run_in_executor(self, func, *args, **kwargs):
+        partial = functools.partial(func, *args, **kwargs)
         executor = self._executor
-        partial = functools.partial(method, *args, **kwargs)
 
-        result = await self.loop.run_in_executor(
+        future = self.loop.run_in_executor(
             executor, partial
         )
-        return result
+        return future
 
-    async def _run_socket_operation(self, name: str, *args):
+    def _run_socket_operation(self, func, *args, **kwargs):
         if self.is_ssl:
-            return await self._run_in_executor(name, *args)
+            return self._run_in_executor(func, *args, **kwargs)
+
+        name = func.__name__
 
         method = getattr(self.loop, 'sock_' + name)
-        return await method(self._socket, *args)
+        return asyncio.ensure_future(method(self._socket, *args))
 
     def _check_closed(self):
         if self._closed:
@@ -221,7 +205,7 @@ class socket:
 
         return True
 
-    async def _connect_with_ssl(self, address: Address, connect_ex: bool):
+    async def _connect_with_ssl(self, address: Address):
         self._check_closed()
 
         if self._connected:
@@ -233,7 +217,7 @@ class socket:
         host, port = address.as_tuple()
 
         hostname = await self._fetch_hostname(host)
-        self._socket = self.__ssl.wrap_socket(self._socket, server_hostname=hostname)
+        self._socket = self._ssl.wrap_socket(self._socket, server_hostname=hostname)
 
         if not self._is_ip(host):
             host = await self.gethostbyname(host)
@@ -241,12 +225,8 @@ class socket:
         addr = (host, port)
 
         try:
-            if connect_ex:
-                res = await self._run_in_executor('connect_ex', addr)
-                return res
-
             self._connected = True
-            await self._run_in_executor('connect', addr)
+            await self._run_in_executor(self._socket.connect, addr)
         except:
             raise ConnectionError('Could not connect to {0!r} on port {1!r}'.format(host, port))
 
@@ -257,7 +237,6 @@ class socket:
 
     async def _connect_without_ssl(self, address: Address):
         self._check_closed()
-        self.settimeout(0)
 
         if self._connected:
             raise RuntimeError('socket already connected')
@@ -272,7 +251,7 @@ class socket:
 
         addr = (host, port)
 
-        await self._run_socket_operation('connect', addr)
+        await self._run_socket_operation(self._socket.connect, addr)
         self._connected = True
         
         self._laddr = await self.getsockname()
@@ -280,15 +259,43 @@ class socket:
 
         return self._raddr
 
-    async def _connect(self, address: Address, connect_ex: bool, use_ssl: bool):
+    async def _connect(self, address: Address, use_ssl: bool):
         host, port = address.as_tuple()
 
         if port == 443 or use_ssl:
-            addr = await self._connect_with_ssl(address, connect_ex)
+            addr = await self._connect_with_ssl(address)
             return addr
 
         addr = await self._connect_without_ssl(address)
         return addr
+
+    async def _connect_ex(self, address, ssl):
+        self._check_closed()
+
+        if self._connected:
+            raise RuntimeError('socket already connected')
+
+        if self._bound:
+            raise RuntimeError('Can not connect a bound socket')
+
+        host, port = address.as_tuple()
+
+        hostname = await self._fetch_hostname(host)
+        if port == 443 or ssl:
+            self._socket = self._ssl.wrap_socket(self._socket, server_hostname=hostname)
+
+        addr = (host, port)
+
+        try:
+            self._connected = True
+            await self._run_in_executor(self._socket.connect_ex, addr)
+        except:
+            raise ConnectionError('Could not connect to {0!r} on port {1!r}'.format(host, port))
+
+        self._laddr = await self.getsockname()
+        self._raddr = await self.getpeername()
+
+        return self._raddr
 
     def _create_addr(self, host: str, port: int):
         return Address.from_host_and_port(host, port, socket=self)
@@ -312,7 +319,7 @@ class socket:
 
     @property
     def ssl_context(self):
-        return self.__ssl
+        return self._ssl
 
     @property
     def family(self):
@@ -360,111 +367,103 @@ class socket:
 
         return self._raddr
 
-    async def if_nameindex(self) -> typing.List[typing.Tuple[int, str]]:
-        if self.__platform_check('darwin'):
-            exc = 'the if_nameindex function is only available on windows and linux machines'
-            raise OSError(exc)
+    async def if_nameindex(self):
+        if self.__platform_check('win') or self.__platform_check('linux'):
+            nameindex = await self._run_in_executor(_socket.if_nameindex)
+            return nameindex
 
-        nameindex = await self._run_in_executor('if_nameindex')
-        return nameindex
+        exc = 'if_nameindex() is only available on windows and linux machines'
+        raise OSError(exc)
 
-    async def if_nametoindex(self, name: str) -> int:
-        if self.__platform_check('darwin'):
-            exc = 'the if_nametoindex function is only available on windows and linux machines'
-            raise OSError(exc)
+    async def if_nametoindex(self, name):
+        if self.__platform_check('win') or self.__platform_check('linux'):
+            index = await self._run_in_executor(_socket.if_nametoindex, name)
+            return index
 
-        index = await self._run_in_executor('if_nametoindex', name)
-        return index
+        exc = 'if_nametoindex() is only available on windows and linux machines'
+        raise OSError(exc)
 
-    async def if_indextoname(self, index: int) -> str:
-        if self.__platform_check('darwin'):
-            exc = 'the if_indextoname function is only available on windows and linux machines'
-            raise OSError(exc)
+    async def if_indextoname(self, index):
+        if self.__platform_check('win') or self.__platform_check('linux'):
+            name = await self._run_in_executor(_socket.if_indextoname, index)
+            return name
 
-        name = await self._run_in_executor('if_indextoname', index)
-        return name
+        exc = 'if_indextoname() is only available on windows and linux machines'
+        raise OSError(exc)
 
-    async def ioctl(self, control: int, option: typing.Union[int, typing.Tuple[int, int, int], bool]):
+    async def ioctl(self, control, option):
         if not self.__platform_check('win'):
-            raise OSError('socket.ioctl() is only available on windows')
+            raise OSError('ioctl() is only available on windows')
 
-        await self._run_in_executor('ioctl', control, option)
+        await self._run_in_executor(self._socket.ioctl, control, option)
 
-    def share(self, process: int):
+    def share(self, process):
         if not self.__platform_check('win'):
-            raise OSError('socket.share() is only available on windows')
+            raise OSError('share() is only available on windows')
 
         return self._socket.share(process)
         
-    async def gethostbyaddr(self, address: str) -> HostAddress:
+    async def gethostbyaddr(self, address):
         if not self._is_ip(address):
             raise InvalidAddress(address)
 
-        host = await self._run_in_executor('gethostbyaddr', address)
+        host = await self._run_in_executor(_socket.gethostbyaddr, address)
         return HostAddress(host)
 
-    async def gethostbyname(self, name: str) -> str:
-        host = await self._run_in_executor('gethostbyname', name)
+    async def gethostbyname(self, name):
+        host = await self._run_in_executor(_socket.gethostbyname, name)
         return host
 
-    async def gethostbyname_ex(self, name: str) -> typing.Tuple[str, typing.List[str], typing.List[str]]:
-        host = await self._run_in_executor('gethostbyname_ex', name)
+    async def gethostbyname_ex(self, name):
+        host = await self._run_in_executor(_socket.gethostbyname_ex, name)
         return host
 
-    async def getaddrinfo(self, host: str, port: int, flags: int=...) -> typing.List[typing.Tuple[_socket.AddressFamily, _socket.SocketKind, int, str, typing.Union[typing.Tuple[str, int], typing.Tuple[str, int, int, int]]]]:
-        if flags is ...:
-            flags = 0
-
-        addr = await self._run_in_executor('getaddrinfo', host, port, self.family, self.type, self.proto, flags)
+    async def getaddrinfo(self, host, port, flags=0):
+        addr = await self._run_in_executor(_socket.getaddrinfo, host, port, self.family, self.type, self.proto, flags)
         return addr
 
-    async def getnameinfo(self,
-                        sockaddr: typing.Union[typing.Tuple[str, int], typing.Tuple[str, int, int, int]], 
-                        flags: int=...) -> typing.Tuple[str, str]:
-        if flags is ...:
-            flags = 0
-
-        info = await self._run_in_executor('getnameinfo', sockaddr, flags)
+    async def getnameinfo(self, sockaddr, flags=0):
+        info = await self._run_in_executor(_socket.getnameinfo, sockaddr, flags)
         return info
 
-    async def gethostname(self) -> str:
-        host = await self._run_in_executor('gethostname')
+    async def gethostname(self):
+        host = await self._run_in_executor(_socket.gethostname)
         return host
 
-    async def getprotobyname(self, name: str) -> int:
-        proto = await self._run_in_executor('getprotobyname', name)
+    async def getprotobyname(self, name):
+        proto = await self._run_in_executor(_socket.getprotobyname, name)
         return proto
 
-    async def getservbyname(self, service: str, protocol: str) -> int:
-        serv = await self._run_in_executor('getservbyname', service, protocol)
+    async def getservbyname(self, service, protocol):
+        serv = await self._run_in_executor(_socket.getservbyname, service, protocol)
         return serv
 
-    async def getservbyport(self, port: int, protocol: str) -> str:
-        serv = await self._run_in_executor('getservbyport', port, protocol)
+    async def getservbyport(self, port, protocol):
+        serv = await self._run_in_executor(_socket.getservbyport, port, protocol)
         return serv
 
-    def inet_aton(self, ipaddress: str) -> bytes:
+    def inet_aton(self, ipaddress):
         return _socket.inet_aton(ipaddress)
 
-    def inet_pton(self, family: int, ipaddress: str):
+    def inet_pton(self, family, ipaddress):
         return _socket.inet_pton(family, ipaddress)
 
-    def inet_ntao(self, packed: bytes):
+    def inet_ntao(self, packed):
         return _socket.inet_ntoa(packed)
 
-    def inet_ntop(self, family: int, packed: bytes):
+    def inet_ntop(self, family, packed):
         return _socket.inet_ntop(family, packed)
 
-    def ntohl(self, x: int):
+    def ntohl(self, x):
         return _socket.ntohl(x)
 
-    def ntohs(self, x: int):
+    def ntohs(self, x):
         return _socket.ntohs(x)
 
-    def htonl(self, x: int):
+    def htonl(self, x):
         return _socket.htonl(x)
 
-    def htons(self, x: int):
+    def htons(self, x):
         return _socket.htons(x)
 
     def get_inheritable(self):
@@ -477,119 +476,122 @@ class socket:
         self._check_closed()
         self._check_connected()
 
-        peername = await self._run_in_executor('getpeername')
+        peername = await self._run_in_executor(self._socket.getpeername)
         return Address(peername, self)
 
     async def getsockname(self):
         self._check_closed()
         self._check_connected()
 
-        sockname = await self._run_in_executor('getsockname')
+        sockname = await self._run_in_executor(self._socket.getsockname)
         return Address(sockname, self)
 
-    async def recv(self, nbytes: int=...) -> bytes:
+    async def recv(self, nbytes=None):
         self._check_closed()
         self._check_connected()
 
-        nbytes = 1024 if nbytes is ... else nbytes
-        res = await self._run_socket_operation('recv', nbytes)
+        nbytes = 1024 if not nbytes else nbytes
 
+        res = await self._run_socket_operation(self._socket.recv, nbytes)
         return res
 
-    async def recv_into(self, buffer: bytearray, nbytes: int=...) -> int:
+    async def recv_into(self, buffer, nbytes=None):
         self._check_closed()
         self._check_connected()
 
-        nbytes = 1024 if nbytes is ... else nbytes
-        res = await self._run_socket_operation('recv_into', buffer, nbytes)
+        nbytes = 1024 if not nbytes else nbytes
 
+        res = await self._run_socket_operation(self._socket.recv_into, buffer, nbytes)
         return res
 
-    async def recvfrom(self, bufsize: int=...) -> typing.Tuple[bytes, typing.Tuple[int, bytes]]:
+    async def recvfrom(self, bufsize=None):
         self._check_closed()
         self._check_connected()
 
-        bufsize = 1024 if bufsize is ... else bufsize
-        data, result = await self._run_in_executor('recvfrom', bufsize)
+        bufsize = 1024 if not bufsize else bufsize
 
+        data, result = await self._run_in_executor(self._socket.recvfrom, bufsize)
         return data, result
 
-    async def recvfrom_into(self, buffer: bytearray, nbytes: int=...) -> typing.Tuple[int, typing.Tuple[int, bytes]]:
+    async def recvfrom_into(self, buffer, nbytes=None):
         self._check_closed()
         self._check_connected()
 
-        nbytes = 1024 if nbytes is ... else nbytes
-        res = await self._run_socket_operation('recvfrom_into', buffer, nbytes)
+        nbytes = 1024 if not nbytes else nbytes
 
+        res = await self._run_socket_operation(self._socket.recvfrom_into, buffer, nbytes)
         return res
 
-    async def recvall(self, nbytes: int=...) -> bytearray:
+    async def recvall(self, nbytes=None, buffer=None):
         self._check_closed()
         self._check_connected()
 
+        if buffer:
+            recv = functools.partial(self.recv_into, buffer)
+        else:
+            recv = self.recv
+
         frame = bytearray()
-        last_chunk = False
-
         while True:
-            if last_chunk:
-                break
-
             try:
-                data = await self.recv(nbytes)
+                data = await recv(nbytes)
             except:
                 break
 
             if not data:
                 break
 
-            if data.endswith(b'\r\n\r\n'):
-                last_chunk = True
-
             frame += data
+
+        if buffer:
+            return None
+
         return frame
 
-    async def send(self, data: bytes) -> int:
+
+    async def recvmsg(self, bufsize, ancbufsize=0, flags=0):
+        ...
+
+    async def recvmsg_into(self, buffers, ancbufsize=0, flags=0): ...
+
+    async def sendmsg(self):
+        ...
+
+    async def sendmsg_afalg(self):
+        ...
+
+    async def send(self, data):
         self._check_closed()
         self._check_connected()
 
-        res = await self._run_socket_operation('sendall', data)
+        res = await self._run_socket_operation(self._socket.sendall, data)
         return res
 
-    async def sendto(self, data: bytes, address: Address) -> int:
+    async def sendto(self, data, address):
         self._check_closed()
 
-        res = await self._run_in_executor('sendto', data, address.as_tuple())
+        res = await self._run_in_executor(self._socket.sendto, data, address.as_tuple())
         return res
 
-    async def sendfile(self, file: typing.IO[bytes], *, offset: int=..., count: int=...):
+    async def sendfile(self, file, *, offset=0, count=None):
         self._check_closed()
         self._check_connected()
 
-        if offset is ...:
-            offset = 0
+        return await self._run_socket_operation(self._socket.sendfile, file, offset, count)
 
-        if count is ...:
-            count = None
-
-        return await self._run_socket_operation('sendfile', file, offset, count)
-
-    async def connect(self, host: str, port: int, *, ssl: bool=...):
-        ssl = False if ssl is ... else ssl
-
+    async def connect(self, host, port, *, ssl=False):
         addr = self._create_addr(host, port)
-        await self._connect(addr, False, ssl)
+        await self._connect(addr, ssl)
 
         return addr
 
-    async def connect_ex(self, host: str, port: int, *, ssl: bool=...):
-        ssl = False if ssl is ... else ssl
-
+    async def connect_ex(self, host, port, *, ssl=False):
         addr = self._create_addr(host, port)
-        await self._connect(addr, True, ssl)
+        await self._connect_ex(addr, ssl)
         
         return addr
 
-    async def bind(self, host: str, port: int):
+    async def bind(self, host, port):
         self._check_closed()
 
         if self._bound:
@@ -602,25 +604,23 @@ class socket:
             host = await self.gethostbyname(host)
 
         try:
-            await self._run_in_executor('bind', (host, port))
+            await self._run_in_executor(self._socket.bind, (host, port))
         except _socket.timeout:
             raise ConnectionError('Could not bind to {0!r} on port {1!r}'.format(host, port)) from None
 
         self._bound = True
         return self._create_addr(host, port)
 
-    async def accept(self, timeout: int=...) -> typing.Tuple['socket', Address]:
+    async def accept(self, timeout=None):
         self._check_closed()
-
-        timeout = 360 if timeout is ... else timeout
         self.settimeout(timeout)
 
-        sock, addr = await self._run_in_executor('accept')
+        sock, addr = await self._run_in_executor(self._socket.accept)
         client = self.__class__(
-            socket=sock, 
+            sock=sock, 
             loop=self.loop, 
             executor=self._executor, 
-            ssl=self.__ssl
+            ssl=self._ssl
         )
 
         client._bound = True
@@ -630,19 +630,16 @@ class socket:
 
         return client, Address(addr, self)
 
-    async def listen(self, backlog: int=...):
+    async def listen(self, backlog=None):
         self._check_closed()
 
-        if backlog is ...:
-            backlog = 5
-
-        await self._run_in_executor('listen', backlog)
+        await self._run_in_executor(self._socket.listen, backlog)
         return backlog
         
-    def create_connection(self, host: str, port: int):
+    def create_connection(self, host, port):
         return ConnectionContextManager(self, self._create_addr(host, port))
 
-    def create_server(self, host: str, port: int, backlog: int=...):
+    def create_server(self, host, port, backlog=None):
         return ServerContextManager(self, self._create_addr(host, port), backlog)
 
     def duplicate(self):
@@ -666,16 +663,13 @@ class socket:
 
         raise RuntimeError('Socket already closed')
 
-    def shutdown(self, how: int):
+    def shutdown(self, how):
         return self._socket.shutdown(how)
 
-    def setsockopt(self, level: int, optname: int, value: typing.Union[int, bytes]):
+    def setsockopt(self, level, optname, value):
         return self._socket.setsockopt(level, optname, value)
         
-    def settimeout(self, timeout: int=...):
-        if timeout is ...:
-            timeout = 180.0
-
+    def settimeout(self, timeout=180.0):
         self._socket.settimeout(timeout)
         return timeout
 
@@ -683,16 +677,12 @@ class socket:
         transport = transports.Transport(
             socket=self,
             protocol=protocol,
-            future=fut
+            future=fut,
+            loop=self.loop
         )
         return transport
 
-    async def open_connection(self,
-                            protocol: typing.Type[Protocol],
-                            host: str,
-                            port: int,
-                            *,
-                            ssl: bool=...):
+    async def open_connection(self, protocol, host, port, *, ssl=False):
         proto = protocol()
 
         await self.connect(
@@ -711,19 +701,7 @@ class socket:
             fut=future,
         )
 
-        self.loop.create_task(
-            coro=self._transport_read(transport)
-        )
-
+        transport._loop_reading()
         await future
 
-    async def _transport_read(self, transport: transports.Transport):
-        while not transport.is_closed:
-
-            await transport._wait()
-
-            data = await self.recvall(32768)
-            transport._data_received(bytes(data))
-
-            transport._clear()
         
