@@ -548,17 +548,29 @@ class socket:
 
         return frame
 
+    async def recvmsg(self, bufsize=None, ancbufsize=0, flags=0):
+        self._check_closed()
+        self._check_connected()
 
-    async def recvmsg(self, bufsize, ancbufsize=0, flags=0):
-        ...
+        bufsize = 1024 if not bufsize else bufsize
+        return await self._run_in_executor(self._socket.recvmsg, bufsize, ancbufsize, flags)
 
-    async def recvmsg_into(self, buffers, ancbufsize=0, flags=0): ...
+    async def recvmsg_into(self, buffers, ancbufsize=0, flags=0):
+        self._check_closed()
+        self._check_connected()
 
-    async def sendmsg(self):
-        ...
+        msg = await self._run_in_executor(self._socket.recvmsg_into, buffers, ancbufsize, flags)
+        return msg
+
+    async def sendmsg(self, buffers, ancdata=None, flags=0, address=None):
+        self._check_closed()
+        
+        length = await self._run_in_executor(self._socket.sendmsg, buffers, ancdata, flags, address)
+        return length
 
     async def sendmsg_afalg(self):
         ...
+
 
     async def send(self, data):
         self._check_closed()
