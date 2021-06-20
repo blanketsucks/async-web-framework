@@ -47,32 +47,32 @@ class ExtensionMeta(type):
             for element, value in base.__dict__.items():
                 is_static = isinstance(value, staticmethod)
 
-                try:
-                    route = getattr(value, '__route__')
+                route = getattr(value, '__route__', None)
+                if not route:
+                    pass
+                else:
                     if is_static:
                         raise RouteRegistrationError('Routes must not be static.')
 
                     routes.append(route)
-                except AttributeError:
-                    pass
 
-                try:
-                    middleware = getattr(value, '__middleware__')
+                middleware = getattr(value, '__middleware__', None)
+                if not middleware:
+                    pass
+                else:
                     if is_static:
                         raise MiddlewareRegistrationError('Middlewares must not be static.')
 
                     middlewares.append(middleware)
-                except AttributeError:
-                    pass
 
-                try:
-                    listener = getattr(value, '__listener__')
+                listener = getattr(value, '__listener__', None)
+                if not listener:
+                    pass
+                else:
                     if is_static:
                         raise ListenerRegistrationError('Listeners must not be static')
 
                     listeners.append(listener)
-                except AttributeError:
-                    pass
 
         self.__extension_routes__ = routes
         self.__extension_middlewares__ = middlewares

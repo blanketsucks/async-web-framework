@@ -2,11 +2,33 @@ import struct
 import typing
 import os
 import json
+import enum
 
-from .enums import WebSocketOpcode
+class WebSocketOpcode(enum.IntEnum):
+    CONTINUATION = 0x0
+    TEXT = 0x1
+    BINARY = 0x2
+    CLOSE = 0x8
+    PING = 0x9
+    PONG = 0xA
 
-if typing.TYPE_CHECKING:
-    from .websockets import Websocket
+class WebSocketCloseCode(enum.IntEnum):
+    NORMAL = 1000
+    GOING_AWAY = 1001
+    PROTOCOL_ERROR = 1002
+    UNSUPPORTED = 1003
+    RESERVED = 1004
+    NO_STATUS = 1005
+    ABNORMAL = 1006
+    UNSUPPORTED_PAYLOAD = 1007
+    POLICY_VIOLATION = 1008
+    TOO_LARGE = 1009
+    MANDATORY_EXTENSION = 1010
+    INTERNAL_ERROR = 1011
+    SERVICE_RESTART = 1012
+    TRY_AGAIN_LATER = 1013
+    BAD_GATEWAY = 1014
+    TLS_HANDSHAKE = 1015
 
 __all__ = (
     'mask',
@@ -119,10 +141,10 @@ class WebSocketFrame:
         return buffer
 
     @classmethod
-    async def decode(cls, socket: 'Websocket') -> typing.Tuple[WebSocketOpcode, bytearray, 'WebSocketFrame']:
+    async def decode(cls, read: typing.Callable[[int], typing.Coroutine[None, None, bytes]]) -> typing.Tuple[WebSocketOpcode, bytearray, 'WebSocketFrame']:
         raw = bytearray()
 
-        data = await socket.recv(2)
+        data = await read(2)
         raw += data
 
         head1, head2 = struct.unpack("!BB", data)
@@ -137,26 +159,24 @@ class WebSocketFrame:
         length = head2 & 0b01111111
 
         if length == 126:
-            data = await socket.recv(2)
+            data = await read(2)
             raw += data
 
             length = struct.unpack("!H", data)[0]
 
         elif length == 127:
-            data = await socket.recv(8)
+            data = await read(8)
             raw += data
 
             length = struct.unpack("!Q", data)[0]
 
-        if socket.is_bound:
-            mask_bits = await socket.recv(4)
-            raw += data
-
-        data = await socket.recv(length)
+        mask_bits = await read(4)
         raw += data
 
-        if socket.is_bound:
-            data = cls.mask(data, mask_bits)
+        data = await read(length)
+        raw += data
+
+        data = cls.mask(data, mask_bits)
 
         frame = cls(
             opcode=opcode,

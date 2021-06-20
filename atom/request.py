@@ -1,6 +1,7 @@
 from .objects import Route, WebsocketRoute
 from .datastructures import HTTPHeaders, URL, Cookies
 from .response import Response
+from .utils import find_headers
 
 import datetime
 import typing
@@ -8,7 +9,7 @@ import humanize
 import urllib.parse
 
 if typing.TYPE_CHECKING:
-    from .http import ApplicationProtocol
+    from .protocol import ApplicationProtocol
 
 __all__ = (
     'Request',
@@ -37,7 +38,7 @@ class RequestDate:
 
     def __eq__(self, other: 'RequestDate') -> bool:
         if not isinstance(other, RequestDate):
-            return False
+            return NotImplemented
 
         return self.datatime == other.datatime
 
@@ -192,6 +193,28 @@ class Request:
         )
 
         return response
+
+    @classmethod
+    def parse(cls, data: bytes, protocol: 'ApplicationProtocol', date: datetime.datetime):
+        headers, body = find_headers(data)
+        line, = next(headers)
+
+        parts = line.split(' ')
+        headers = dict(headers)
+
+        method = parts[0]
+        version = parts[2]
+        path = parts[1]
+
+        return cls(
+            method=method,
+            url=path,
+            version=version,
+            protocol=protocol,
+            date=date,
+            headers=headers,
+            body=body
+        )
 
     def __repr__(self) -> str:
         return '<Request url={0.url.path!r} method={0.method!r} version={0.version!r} ' \

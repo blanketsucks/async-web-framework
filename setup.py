@@ -14,7 +14,7 @@ def main():
         version = "0.0.1",
         author = "blanketsucks",
         license = "MIT",
-        packages=['atom', 'atom.restful'],
+        packages=['atom', 'atom.sockets', 'atom.datastructures'],
         long_description=read('README.md'),
         requires=requirements(),
     )

@@ -138,3 +138,26 @@ def render_html(fp: str):
     with open(actual, 'r') as file:
         resp = file.read()
         return HTMLResponse(resp)
+
+def iter_headers(headers: bytes) -> typing.Generator:
+    offset = 0
+
+    while True:
+        index = headers.index(b'\r\n', offset) + 2
+        data = headers[offset:index]
+        offset = index
+
+        if data == b'\r\n':
+            return
+
+        yield [item.strip().decode() for item in data.split(b':', 1)]
+
+def find_headers(data: bytes) -> typing.Tuple[typing.Generator, str]:
+    while True:
+        end = data.find(b'\r\n\r\n') + 4
+
+        if end != -1:
+            headers = data[:end]
+            body = data[end:]
+
+            return iter_headers(headers), body

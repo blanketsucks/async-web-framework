@@ -28,8 +28,8 @@ class Route:
     def cleanup_middlewares(self):
         self._middlewares.clear()
 
-    def add_middleware(self, callback: typing.Callable[..., typing.callbackutine]):
-        if not inspect.iscallbackutinefunction(callback):
+    def add_middleware(self, callback: typing.Callable[..., typing.Coroutine]):
+        if not inspect.iscoroutinefunction(callback):
             raise MiddlewareRegistrationError('All middlewares must be async')
 
         self._middlewares.append(callback)
@@ -50,25 +50,11 @@ class Route:
         return '<Route path={0.path!r} method={0.method!r}>'.format(self)
 
     async def __call__(self, *args, **kwargs):
-        return await self.func(*args, **kwargs)
-
-
-class WebsocketRoute:
-    def __init__(self, path: str, method: str, callback: typing.Callable) -> None:
-        self.path = path
-        self.method = method
-        self.func = callback
-        self.subprotocols = None
-
-    def add_middleware(self, callback):
-        raise NotImplementedError('WebsocketRoute does not support middlewares')
-
-    def __repr__(self) -> str:
-        return '<WebsocketRoute path={0.path!r} method={0.method!r}>'.format(self)
-
-    async def __call__(self, *args, **kwargs):
         return await self.callback(*args, **kwargs)
 
+
+class WebsocketRoute(Route):
+    pass
 
 class Middleware:
     def __init__(self, callback, route) -> None:

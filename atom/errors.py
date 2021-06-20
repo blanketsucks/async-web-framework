@@ -38,8 +38,7 @@ AtomException:
 
 """
 
-from .response import Response
-from .sockets import HTTPStatus
+from .response import Response, HTTPStatus
 
 excs = {}
 

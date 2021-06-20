@@ -3,6 +3,20 @@ import typing
 
 from .errors import MultipleValuesFound, HeaderNotFound
 
+class BasicAuth:
+    def __init__(self, username: str, password: str) -> None:
+        self.username = username
+        self.password = password
+
+    def encode(self):
+        return _build_basic_auth(self.username, self.password)
+
+def _build_basic_auth(username, password):
+    user_pass = f"{username}:{password}"
+    credentials = base64.b64encode(user_pass.encode()).decode()
+    
+    return 'Basic ' + credentials
+
 class CaseInsensitiveDict(typing.Dict[str, typing.Any]):
     def __contains__(self, key: str):
         return super().__contains__(key)
@@ -134,11 +148,10 @@ class HTTPHeaders(MultiDict):
 
 
     def build_basic_auth(self, username: str, password: str) -> str:
-        user_pass = f"{username}:{password}"
-        credentials = base64.b64encode(user_pass.encode()).decode()
-        
-        self['Authorization'] = 'Basic ' + credentials
-        return credentials
+        auth =  _build_basic_auth(self, username, password)
+
+        self['Authorization'] = auth
+        return auth
 
     def parse_basic_auth(self) -> typing.Tuple[str, str]:
         auth = self.auth

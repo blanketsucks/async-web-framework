@@ -22,26 +22,26 @@ class HTTPView(metaclass=ViewMeta):
         setattr(self, method, coro)
         return coro
 
-    def as_routes(self):
+    def as_routes(self, *, app):
         routes = []
 
         for coro in self.__routes__:
             actual = functools.partial(coro, self)
 
-            route = Route(self.__url_route__, coro.__name__.upper(), actual)
+            route = Route(self.__url_route__, coro.__name__.upper(), actual, app=app)
             routes.append(route)
 
         yield from routes
 
 
 class WebsocketHTTPView(HTTPView):
-    def as_routes(self):
+    def as_routes(self, *, app):
         routes = []
 
         for coro in self.__routes__:
             actual = functools.partial(coro, self)
 
-            route = WebsocketRoute(self.__url_route__, coro.__name__.upper(), actual)
+            route = WebsocketRoute(self.__url_route__, coro.__name__.upper(), actual, app=app)
             routes.append(route)
 
         yield from routes

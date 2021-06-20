@@ -14,4 +14,4 @@ from .tasks import *
 from .views import *
 from .extensions import Extension
 from .shards import Shard
-from .http import ApplicationProtocol, WebsocketConnection
+from .websockets import Websocket

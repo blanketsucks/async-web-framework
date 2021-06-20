@@ -31,17 +31,13 @@ if __name__ == '__main__':
 import atom
 
 app = atom.Application()
-users = {}
+app.users = {}
 
-class UsersView(atom.HTTPView, path='/users'):
-    async def get(self, ctx: atom.Context):
-        return ctx.build_json_response(
-            body=users
-        )
-
-app.register_view(UsersView())
+@app.view('/users') # Either this or class UsersView(atom.HTTPView, path='/users'), both work
+class UsersView(atom.HTTPView):
+    async def get(self, request: atom.Request):
+        return app.users
 
 if __name__ == '__main__':
     app.run()
-
 ```

@@ -48,12 +48,9 @@ class Router:
 
         return regex
 
-    def add_route(self, path: str, method: str, coroutine: typing.Callable, *, websocket: bool = False):
-        pattern = self._format_pattern(path)
-        route = Route(pattern, method, coroutine)
-
-        if websocket:
-            route = WebsocketRoute(pattern, method, coroutine)
+    def add_route(self, route: Route, *, websocket: bool = False):
+        pattern = self._format_pattern(route.path)
+        route.path = pattern
 
         self.routes.append(route)
         return route

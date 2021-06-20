@@ -1,6 +1,6 @@
 from .request import Request
 from .errors import *
-from .http import run_server, ApplicationProtocol
+from .protocol import ApplicationProtocol
 from .datastructures import URL
 from .router import Router
 from . import utils
@@ -9,7 +9,6 @@ from .objects import Route, Listener, WebsocketRoute
 from .views import HTTPView, WebsocketHTTPView
 from .extensions import Extension
 from .shards import Shard
-from . import sockets
 from .typings import (
     Routes,
     Listeners,
@@ -23,63 +22,56 @@ import inspect
 import typing
 import datetime
 import asyncio
-import pathlib
 import importlib
 import watchgod
 
+def _get_event_loop(loop=None):
+    if loop:
+        if not isinstance(loop, asyncio.AbstractEventLoop):
+            raise TypeError('Invalid argument type for loop argument')
+
+        return loop
+
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.get_event_loop()
+
 __all__ = (
     'Application',
-    'Extension'
 )
 
 class Application:
-    """
-    
-    ## Listeners order
+    def __init__(self, routes=None, listeners=None, extensions: Extensions=None,
+                shards=None, *, loop=None, url_prefix=None,
+                settings_file=None, load_settings_from_env=None):
 
-    `on_startup` -> `on_connection_made` -> `on_request` -> `on_socket_receive` -> `on_connection_lost` -> `on_shutdown`
-    
-    """
-
-    def __init__(self, 
-                routes: Routes=...,
-                listeners: Listeners=...,
-                extensions: Extensions=...,
-                shards: Shards=...,
-                *,
-                loop: asyncio.AbstractEventLoop=...,
-                url_prefix: str=...,
-                settings_file: typing.Union[str, pathlib.Path]=...,
-                load_settings_from_env: bool=...):
-
-        routes = sockets.check_ellipsis(routes, [])
-        listeners = sockets.check_ellipsis(listeners, [])
-        extensions = sockets.check_ellipsis(extensions, [])
-        shards = sockets.check_ellipsis(shards, [])
+        routes = routes or []
+        listeners = listeners or []
+        extensions = extensions or []
+        shards = shards or []
 
         self._ready = asyncio.Event()
-
-        self.loop = sockets.check_ellipsis(loop, asyncio.get_event_loop())
-        self.url_prefix = sockets.check_ellipsis(url_prefix, '')
-
+        self.loop = _get_event_loop(loop)
+        self.url_prefix = url_prefix or ''
         self.settings = Settings(None, False)
         self.router = Router()
+        self.views = {}
+        self.shards = {}
 
-        if sockets.check_ellipsis(settings_file, None):
+        if settings_file is True:
             self.settings.from_file(settings_file)
 
-        if sockets.check_ellipsis(load_settings_from_env, False):
+        if load_settings_from_env is True:
             self.settings.from_env_vars()
 
-        self.views: typing.Dict[str, typing.Union[HTTPView, WebsocketHTTPView]] = {}
-        self.shards: typing.Dict[str, Shard] = {}
         self._listeners: typing.Dict[str, typing.List[typing.Callable]] = {}
         self._extensions: typing.Dict[str, Extension] = {}
-
-        self._is_websocket: bool = False
+        self._protocol = ApplicationProtocol(
+            app=self,
+        )
         self._server = None
         self._database_connection = None
-
         self._backlog = 5
 
         self._load_from_arguments(routes, listeners, extensions, shards)
@@ -144,14 +136,15 @@ class Application:
 
         return return_args
 
-    async def _request_handler(self, request: Request, response_writer, *, ws):
+    async def _request_handler(self, request: Request, *, websocket):
         resp = None
         try:
             args, route = self.router.resolve(request)
+
             if getattr(route, '_waiter', None):
                 route._waiter.set_result(request)
 
-            route._extras['params'] = args
+            # route._extras['params'] = args
             request.route = route
 
             args = self._convert(route.callback, args)
@@ -160,7 +153,7 @@ class Application:
 
             if isinstance(route, WebsocketRoute):
                 self.loop.create_task(
-                    coro=route(request, ws)
+                    coro=route(request, websocket)
                 )
                 return
 
@@ -181,9 +174,12 @@ class Application:
 
         except Exception as exc:
             resp = utils.format_exception(exc)
-            await self.dispatch('on_error', exc)
+            self.dispatch('on_error', exc)
 
-        await response_writer(resp, route)
+        transport = self.get_transport()
+        transport.write(resp.encode())
+
+        transport.close()
 
     async def wait_until_startup(self):
         await self._ready.wait()
@@ -194,9 +190,24 @@ class Application:
     @property
     def listeners(self):
         return self._listeners
+
     @property
     def extensions(self):
         return self._extensions
+
+    @property
+    def protocol(self):
+        return self._protocol
+
+    @protocol.setter
+    def protocol(self, value):
+        if not isinstance(value, asyncio.Protocol):
+            raise ValueError('Expected sockets.Protocol but got {0.__class__.__name__} instead'.format(value))
+
+        self._protocol = value
+
+    def get_transport(self) -> typing.Optional[asyncio.Transport]:
+        return getattr(self._protocol, 'transport', None)
 
     async def start(self,
                     host: str = ...,
@@ -205,46 +216,33 @@ class Application:
                     debug: bool = ...):
         debug = False if debug is ... else debug
 
-        protocol = ApplicationProtocol(
-            app=self,
-            loop=self.loop
-        )
-
         if debug:
-            await self._watch_for_changes()
+            self.loop.create_task(self._watch_for_changes())
 
-        await run_server(
-            protocol=protocol,
-            app=self,
-            host=host,
-            port=port,
-            loop=self.loop
-        )
+        server: asyncio.AbstractServer = await self.loop.create_server(self._protocol, host, port)
+        self._server = server
+
+        await server.serve_forever()
 
     async def close(self):
         server = self._server
-
         if not server:
             raise ApplicationError('The Application is not running')
 
+        await server.wait_closed()
         server.close()
-        await self.dispatch('on_shutdown')
+
+        self.dispatch('on_shutdown')
 
     def run(self, *args: typing.Tuple, **kwargs: typing.Mapping):
-        try:
-            return self.loop.run_until_complete(self.start(*args, **kwargs))
-        except KeyboardInterrupt:
-            return self.loop.run_until_complete(self.close())
-        finally:
-            return self.loop.close()
+        return self.loop.run_until_complete(self.start(*args, **kwargs))
 
     def websocket(self, path: str):
         def decorator(coro: Awaitable) -> WebsocketRoute:
-            route = WebsocketRoute(path, 'GET', coro)
+            route = WebsocketRoute(path, 'GET', coro, app=self)
             route.subprotocols = tuple()
 
             return self.add_route(route)
-
         return decorator
 
     def route(self, path: typing.Union[str, URL], method: str):
@@ -254,7 +252,7 @@ class Application:
             if isinstance(path, URL):
                 actual = path.path
 
-            route = Route(actual, method, func)
+            route = Route(actual, method, func, app=self)
             return self.add_route(route)
 
         return decorator
@@ -264,17 +262,17 @@ class Application:
             fmt = 'Expected Route or WebsocketRoute but got {0!r} instead'
             raise RouteRegistrationError(fmt.format(route.__class__.__name__))
 
-        if not inspect.iscoroutinefunction(route.func):
+        if not inspect.iscoroutinefunction(route.callback):
             raise RouteRegistrationError('Routes must be async.')
 
         if route in self.router.routes:
             raise RouteRegistrationError('{0!r} is already a route.'.format(route.path))
 
         if isinstance(route, WebsocketRoute):
-            self.router.add_route(route.path, route.method, route.func, websocket=True)
+            self.router.add_route(route, websocket=True)
             return route
 
-        self.router.add_route(route.path, route.method, route.func)
+        self.router.add_route(route)
         return route
 
     def get(self, path: typing.Union[str, URL]):
@@ -349,7 +347,7 @@ class Application:
 
         return decorator
 
-    async def dispatch(self, name: str, *args, **kwargs):
+    def dispatch(self, name: str, *args, **kwargs):
         try:
             listeners = self._listeners[name]
         except KeyError:
@@ -365,8 +363,9 @@ class Application:
                     listener.set_result(args)
 
                 listeners.remove(listener)
-
-        return await asyncio.gather(*[listener(*args, **kwargs) for listener in listeners], loop=self.loop)
+                continue
+            
+            self.loop.create_task(listener(*args, **kwargs))
 
     def register_shard(self, shard: Shard):
         if not isinstance(shard, Shard):
@@ -383,7 +382,7 @@ class Application:
         if not isinstance(view, HTTPView):
             raise ViewRegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__))
 
-        for route in view.as_routes():
+        for route in view.as_routes(app=self):
             self.add_route(route)
 
         self.views[view.__url_route__] = view
@@ -394,7 +393,7 @@ class Application:
             raise ViewRegistrationError(
                 'Expected WebsocketHTTPView but got {0!r} instead.'.format(view.__class__.__name__))
 
-        for route in view.as_routes():
+        for route in view.as_routes(app=self):
             self.add_route(route, websocket=True)
 
         self.views[view.__url_route__] = view
