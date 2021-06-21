@@ -42,7 +42,7 @@ __all__ = (
 )
 
 class Application:
-    def __init__(self, routes=None, listeners=None, extensions: Extensions=None,
+    def __init__(self, routes=None, listeners=None, extensions=None,
                 shards=None, *, loop=None, url_prefix=None,
                 settings_file=None, load_settings_from_env=None):
 
@@ -71,19 +71,10 @@ class Application:
             app=self,
         )
         self._server = None
-        self._database_connection = None
-        self._backlog = 5
-
         self._load_from_arguments(routes, listeners, extensions, shards)
 
     def __repr__(self) -> str:
         return '<Application>'
-
-    def set_backlog(self, backlog: int):
-        if self._server:
-            raise ValueError('Can not set backlog once the app has started')
-
-        self._backlog = backlog
 
     def _load_from_arguments(self, 
                             routes: Routes,
@@ -166,7 +157,7 @@ class Application:
                     content_type='text/plain'
                 )
 
-            if isinstance(resp, (dict, tuple)):
+            if isinstance(resp, (dict, list)):
                 resp = JSONResponse(
                     body=resp,
                     status=200

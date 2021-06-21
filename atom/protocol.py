@@ -87,10 +87,18 @@ class ApplicationProtocol(asyncio.Protocol):
     def connection_made(self, transport: asyncio.Transport) -> None:
         self.transport = transport
 
-    def feed_into_websocket(self, data: bytes):
+    def store_websocket(self, ws: Websocket):
+        peer = self.transport.get_extra_info('peername')
+        self.websockets[peer] = ws
+
+    def get_websocket(self):
         peer = self.transport.get_extra_info('peername')
         websocket = self.websockets[peer]
 
+        return websocket
+
+    def feed_into_websocket(self, data: bytes):
+        websocket = self.get_websocket()
         websocket.feed_data(data)
 
     def data_received(self, data: bytes) -> None:
@@ -99,12 +107,10 @@ class ApplicationProtocol(asyncio.Protocol):
         except ValueError:
             return self.feed_into_websocket(data)
             
-        websocket = Websocket(self.transport, None)
+        websocket = Websocket(self.transport)
 
         if self.is_websocket_request(request):
-            peer = self.transport.get_extra_info('peername')
-            self.websockets[peer] = websocket
-
+            self.store_websocket(websocket)
             self.handshake(request)
 
         self.handle_request(request, websocket)

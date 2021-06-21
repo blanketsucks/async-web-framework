@@ -47,27 +47,22 @@ def mask(data: typing.ByteString, mask: bytes) -> bytearray:
 class Data:
     def __init__(self, raw: bytearray, frame: 'WebSocketFrame') -> None:
         self.raw = raw
-        self._frame = frame
+        self.frame = frame
 
     @property
     def opcode(self):
-        return self._frame.opcode
+        return self.frame.opcode
 
     @property
     def data(self):
-        return self._frame.data
+        return self.frame.data
 
-    @property
-    def frame(self):
-        return self._frame
-
-    def encode(self, opcode: WebSocketOpcode=..., *, masked: bool=...):
+    def encode(self, opcode: WebSocketOpcode=None, *, masked: bool=False):
         frame = WebSocketFrame(
-            opcode=WebSocketOpcode.TEXT if opcode is ... else opcode,
+            opcode=WebSocketOpcode.TEXT if opcode is None else opcode,
             data=self.data
         )   
 
-        masked = False if masked is ... else masked
         return frame.encode(masked)
 
     def as_string(self):
@@ -139,6 +134,14 @@ class WebSocketFrame:
 
         buffer.extend(data)
         return buffer
+
+    @staticmethod
+    def get_opcode(data: bytes):
+        data = data[:2]
+        head1, _ = struct.unpack("!BB", data)
+
+        opcode = WebSocketOpcode(head1 & 0b00001111)
+        return opcode
 
     @classmethod
     async def decode(cls, read: typing.Callable[[int], typing.Coroutine[None, None, bytes]]) -> typing.Tuple[WebSocketOpcode, bytearray, 'WebSocketFrame']:

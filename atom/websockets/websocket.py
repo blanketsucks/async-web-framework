@@ -1,37 +1,34 @@
 import asyncio
 import typing
 import json
-import socket
-import collections
 
 from .frame import WebSocketFrame, WebSocketOpcode, Data
 
-class _socket:
-    def __init__(self, transport: asyncio.Transport) -> None:
-        self.transport = transport
-        
-        self.loop: asyncio.AbstractEventLoop = transport.get_protocol().loop
-        self.__socket: socket.socket = transport.get_extra_info('socket')._sock
-
-    async def send(self, data: bytes):
-        return await self.loop.sock_sendall(self.__socket, data)
-
-    async def recv(self, nbytes: int):
-        return await self.loop.sock_recv(self.__socket, nbytes)
+if typing.TYPE_CHECKING:
+    from atom.protocol import ApplicationProtocol
 
 class Websocket:
-    def __init__(self, transport: asyncio.Transport, reader: asyncio.StreamReader) -> None:
+    def __init__(self, transport: asyncio.Transport) -> None:
         self.transport = transport
-        self.queue = asyncio.Queue(maxsize=364)
+        self.protocol: 'ApplicationProtocol' = transport.get_protocol()
 
-        self.__socket = _socket(transport)
+        self.reader = asyncio.StreamReader()
+        self.queue = asyncio.Queue()
+
+        self._ping_waiter: typing.Optional[asyncio.Future] = None
 
     def feed_data(self, data: bytes):
         self.queue.put_nowait(data)
+        opcode = WebSocketFrame.get_opcode(data)
+
+        if opcode is WebSocketOpcode.PONG and self._ping_waiter is not None:
+            self._ping_waiter.set_result(None)
 
     def send_frame(self, frame: WebSocketFrame):
         data = frame.encode()
-        return self.transport.write(data)
+        self.transport.write(data)
+
+        return len(data)
 
     def send_bytes(self, data: bytes, *, opcode: WebSocketOpcode=None):
         if not opcode:
@@ -52,8 +49,21 @@ class Websocket:
 
         return self.send_str(json.dumps(data), opcode=opcode)
 
+    def ping(self, data: bytes) -> asyncio.Future[None]:
+        self.send_bytes(data, opcode=WebSocketOpcode.PING)
+        self._ping_waiter = self.protocol.loop.create_future()
+        
+        return self._ping_waiter
+
+    def pong(self, data: bytes):
+        return self.send_bytes(data, opcode=WebSocketOpcode.PONG)
+
     async def receive(self):
-        return await self.queue.get()
+        data = await self.queue.get()
+        self.reader.feed_data(data)
+
+        opcode, raw, data = await WebSocketFrame.decode(self.reader.readexactly)
+        return Data(raw, data), opcode
 
     async def receive_bytes(self):
         data, opcode = await self.receive()
