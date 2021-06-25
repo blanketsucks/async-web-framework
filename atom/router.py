@@ -16,10 +16,10 @@ class Router:
     _param_regex = r"{(?P<param>\w+)}"
 
     def __init__(self) -> None:
-        self.routes: typing.List[typing.Union[Route, WebsocketRoute]] = []
+        self.routes: typing.Dict[typing.Tuple[str, str], typing.Union[Route, WebsocketRoute]] = {}
 
     def resolve(self, request: 'Request') -> typing.Tuple[typing.Dict, typing.Union[Route, WebsocketRoute]]:
-        for route in self.routes:
+        for route in self.routes.values():
             match = re.fullmatch(route.path, request.url.path)
 
             if match is None:
@@ -48,9 +48,13 @@ class Router:
 
         return regex
 
-    def add_route(self, route: Route, *, websocket: bool = False):
+    def add_route(self, route: typing.Union[Route, WebsocketRoute]):
+        if isinstance(route, WebsocketRoute):
+            self.routes[(route.path, route.method)] = route
+            return route
+
         pattern = self._format_pattern(route.path)
         route.path = pattern
 
-        self.routes.append(route)
+        self.routes[(route.path, route.method)] = route
         return route

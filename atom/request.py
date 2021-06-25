@@ -173,15 +173,10 @@ class Request:
     def params(self):
         return self.url.query
 
-    def redirect(self, to: str, headers: typing.Dict=..., status: int=..., content_type: str=...):
-        if headers is ...:
-            headers = {}
-
-        if status is ...:
-            status = 302
-
-        if content_type is ...:
-            content_type = 'text/plain'
+    def redirect(self, to: str, headers: typing.Dict=None, status: int=None, content_type: str=None):
+        headers = headers or {}
+        status = status or 302
+        content_type = content_type or 'text/plain'
 
         url = urllib.parse.quote_plus(to, ":/%#?&=@[]!$&'()*+,;")
         headers['Location'] = url

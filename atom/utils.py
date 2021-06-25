@@ -20,7 +20,7 @@ __all__ = (
     'DEFAULT_SETTINGS',
     'VALID_SETTINGS',
     'SETTING_ENV_PREFIX',
-    'VALID_LISTENERS',
+
     'VALID_METHODS'
 )
 
@@ -40,11 +40,9 @@ DEFAULT_SETTINGS = {
     'HOST': 'http://127.0.0.1/',
     'PORT': 8080,
     'DEBUG': False,
-    'SECRET_KEY': None
 }
 
 VALID_SETTINGS: typing.Tuple = (
-    'SECRET_KEY',
     'DEBUG',
     'PORT',
     'HOST'
@@ -59,16 +57,6 @@ VALID_METHODS = (
     "OPTIONS",
     "PATCH",
     "DELETE"
-)
-
-VALID_LISTENERS: typing.Tuple = (
-    'on_startup',
-    'on_shutdown',
-    'on_error',
-    'on_connection_made',
-    'on_connection_lost',
-    'on_data_receive',
-    'on_data_sent',
 )
 
 
@@ -120,7 +108,6 @@ def jsonify(*, response=True, **kwargs):
         return resp
 
     return data
-
 
 def markdown(fp: str):
     actual = fp + '.md'

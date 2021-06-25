@@ -92,22 +92,19 @@ class HTTPStatus(enum.IntEnum):
 
 class Response:
     def __init__(self, 
-                body: str=...,
-                status: int=...,
-                content_type: str=...,
-                headers: typing.Dict[str, str]=...,
-                version: str=...):
+                body: str=None,
+                status: int=None,
+                content_type: str=None,
+                headers: typing.Dict[str, str]=None,
+                version: str=None):
 
-        if body is ...:
-            body = ''
-
-        self.version = '1.1' if version is ... else version
-        self._status = 200 if status is ... else status
-        self._body = body
-        self._content_type = 'text/plain' if content_type is ... else content_type
+        self.version = version or '1.1'
+        self._status = status or 200
+        self._body = body or ''
+        self._content_type = content_type or 'text/plain'
         self._encoding = "utf-8"
 
-        if headers is ...:
+        if headers is None:
             headers = {}
 
         self._headers = headers
@@ -158,10 +155,10 @@ class Response:
 
 class HTMLResponse(Response):
     def __init__(self, 
-                body: str=...,
-                status: int=...,
-                headers: typing.Dict[str, str]=...,
-                version: str=...):
+                body: str=None,
+                status: int=None,
+                headers: typing.Dict[str, str]=None,
+                version: str=None):
 
         super().__init__(
             body=body, 
@@ -174,14 +171,12 @@ class HTMLResponse(Response):
 
 class JSONResponse(Response):
     def __init__(self, 
-                body: typing.Union[typing.Dict, typing.List]=..., 
-                status: int=..., 
-                headers: typing.Dict[str, str]=..., 
-                version: str=...):
+                body: typing.Union[typing.Dict, typing.List]=None, 
+                status: int=None, 
+                headers: typing.Dict[str, str]=None, 
+                version: str=None):
 
-        if body is ...:
-            body = {}
-
+        body = body or {}
         super().__init__(
             body=json.dumps(body), 
             status=status, 

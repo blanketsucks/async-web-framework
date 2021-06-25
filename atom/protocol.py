@@ -17,7 +17,7 @@ class ApplicationProtocol(asyncio.Protocol):
     def __init__(self, app: 'Application') -> None:
         self.app = app
         self.loop = app.loop
-        self.websockets: typing.Mapping[typing.Tuple[str, int], Websocket] = {}
+        self.websockets: typing.Dict[typing.Tuple[str, int], Websocket] = {}
 
     def __call__(self):
         return self
@@ -86,6 +86,11 @@ class ApplicationProtocol(asyncio.Protocol):
 
     def connection_made(self, transport: asyncio.Transport) -> None:
         self.transport = transport
+        self.app.dispatch('connection', transport, transport.get_extra_info('peername'))
+
+    def connection_lost(self, exc: typing.Optional[Exception]) -> None:
+        if exc:
+            raise exc
 
     def store_websocket(self, ws: Websocket):
         peer = self.transport.get_extra_info('peername')
@@ -101,16 +106,31 @@ class ApplicationProtocol(asyncio.Protocol):
         websocket = self.get_websocket()
         websocket.feed_data(data)
 
+    def ensure_websockets(self):
+        self.app._ensure_websockets()
+        for peer, websocket in self.websockets.items():
+            if websocket.closed:
+                self.websockets.pop(peer)
+
     def data_received(self, data: bytes) -> None:
+        self.ensure_websockets()
+        
         try:
             request = Request.parse(data, self, datetime.utcnow())
         except ValueError:
+            self.app.dispatch('websocket_data_receive', data)
             return self.feed_into_websocket(data)
-            
-        websocket = Websocket(self.transport)
+
+        self.app.dispatch('request', data)
+        
+        peer = self.transport.get_extra_info('peername')
+        websocket = Websocket(self.transport, peer=peer)
 
         if self.is_websocket_request(request):
             self.store_websocket(websocket)
             self.handshake(request)
 
-        self.handle_request(request, websocket)
+        self.request = self.handle_request(request, websocket)
+        self.request.add_done_callback(lambda task: setattr(self, 'request', None))
+
+        self.app.log(f'{request.method} request at {request.url.path}')

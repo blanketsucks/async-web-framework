@@ -54,8 +54,8 @@ class Extension(metaclass=ExtensionMeta):
     @staticmethod
     def listener(name: str=...):
         def decorator(func: typing.Callable):
-            name = func.__name__ if name is ... else name
-            listener = Listener(func, name)
+            actual = func.__name__ if name is ... else name
+            listener = Listener(func, actual)
 
             func.__listener__ = listener
             return func

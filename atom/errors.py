@@ -196,10 +196,12 @@ class ViewRegistrationError(RegistrationError):
     ...
 
 
-def abort(status_code: int, *, message: str = None, content_type: str = 'text/plain'):
+def abort(status_code: int, *, message: str=None, content_type: str='text/plain'):
     if not message:
         status_code = HTTPStatus(status_code)
         message = status_code.description
 
-    error = excs.get(status_code.value, HTTPException)
+        status_code = status_code.value
+
+    error = excs.get(status_code, HTTPException)
     return error(reason=message, content_type=content_type)

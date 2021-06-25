@@ -2,19 +2,21 @@ import asyncio
 import typing
 import json
 
-from .frame import WebSocketFrame, WebSocketOpcode, Data
+from .frame import WebSocketFrame, WebSocketOpcode, Data, WebSocketCloseCode
 
 if typing.TYPE_CHECKING:
     from atom.protocol import ApplicationProtocol
 
 class Websocket:
-    def __init__(self, transport: asyncio.Transport) -> None:
+    def __init__(self, transport: asyncio.Transport, peer: typing.Tuple[str, int]) -> None:
         self.transport = transport
+        self.peer = peer
         self.protocol: 'ApplicationProtocol' = transport.get_protocol()
 
         self.reader = asyncio.StreamReader()
         self.queue = asyncio.Queue()
 
+        self.closed = False
         self._ping_waiter: typing.Optional[asyncio.Future] = None
 
     def feed_data(self, data: bytes):
@@ -38,15 +40,9 @@ class Websocket:
         return self.send_frame(frame)
 
     def send_str(self, data: str, *, opcode: WebSocketOpcode=None):
-        if not opcode:
-            opcode = WebSocketOpcode.TEXT
-
         return self.send_bytes(data.encode(), opcode=opcode)
 
     def send_json(self, data: typing.Dict, *, opcode: WebSocketOpcode=None):
-        if not opcode:
-            opcode = WebSocketOpcode.TEXT
-
         return self.send_str(json.dumps(data), opcode=opcode)
 
     def ping(self, data: bytes) -> asyncio.Future[None]:
@@ -57,6 +53,25 @@ class Websocket:
 
     def pong(self, data: bytes):
         return self.send_bytes(data, opcode=WebSocketOpcode.PONG)
+
+    def continuation(self, data: bytes):
+        return self.send_bytes(data, opcode=WebSocketOpcode.CONTINUATION)
+
+    def binary(self, data: bytes):
+        return self.send_bytes(data, opcode=WebSocketOpcode.BINARY)
+
+    def close(self, data: bytes, code: WebSocketCloseCode=None):
+        if not code:
+            code = WebSocketCloseCode.NORMAL
+
+        code = code.to_bytes(2, 'big', signed=False)
+        frame = WebSocketFrame(opcode=WebSocketOpcode.CLOSE, data=code + data)
+
+        self.closed = True
+        len = self.send_frame(frame)
+
+        self.transport.close()
+        return len
 
     async def receive(self):
         data = await self.queue.get()

@@ -18,6 +18,7 @@ from .typings import (
 )
 from .response import Response, JSONResponse
 
+import types
 import inspect
 import typing
 import datetime
@@ -51,22 +52,23 @@ class Application:
         extensions = extensions or []
         shards = shards or []
 
-        self._ready = asyncio.Event()
         self.loop = _get_event_loop(loop)
         self.url_prefix = url_prefix or ''
-        self.settings = Settings(None, False)
         self.router = Router()
-        self.views = {}
-        self.shards = {}
+        self._views: typing.Dict[str, typing.Union[WebsocketHTTPView, HTTPView]] = {}
+        self._shards: typing.Dict[str, Shard] = {}
+        self.websocket_tasks: typing.List[asyncio.Task] = []
+        self.settings = Settings()
 
-        if settings_file is True:
-            self.settings.from_file(settings_file)
+        if settings_file is not None:
+            self.settings = Settings.from_file(settings_file)
 
         if load_settings_from_env is True:
-            self.settings.from_env_vars()
+            self.settings = Settings.from_env_vars()
 
         self._listeners: typing.Dict[str, typing.List[typing.Callable]] = {}
         self._extensions: typing.Dict[str, Extension] = {}
+        self._active_listeners: typing.List[asyncio.Task] = []
         self._protocol = ApplicationProtocol(
             app=self,
         )
@@ -75,6 +77,16 @@ class Application:
 
     def __repr__(self) -> str:
         return '<Application>'
+
+    def _ensure_listeners(self):
+        for task in self._active_listeners:
+            if task.done():
+                self._active_listeners.remove(task)
+
+    def _ensure_websockets(self):
+        for ws in self.websocket_tasks:
+            if ws.done():
+                self.websocket_tasks.remove(ws)
 
     def _load_from_arguments(self, 
                             routes: Routes,
@@ -86,7 +98,7 @@ class Application:
             self.add_route(route)
 
         for listener in listeners:
-            coro = listener.coro
+            coro = listener.callback
             name = listener.event
 
             self.add_listener(coro, name)
@@ -143,9 +155,11 @@ class Application:
                 await asyncio.gather(*[middleware(route, request, *args) for middleware in route.middlewares])
 
             if isinstance(route, WebsocketRoute):
-                self.loop.create_task(
+                task = self.loop.create_task(
                     coro=route(request, websocket)
                 )
+
+                self.websocket_tasks.append(task)
                 return
 
             resp = await route(request, *args)
@@ -172,12 +186,6 @@ class Application:
 
         transport.close()
 
-    async def wait_until_startup(self):
-        await self._ready.wait()
-
-    def is_ready(self):
-        return self._ready.is_set()
-
     @property
     def listeners(self):
         return self._listeners
@@ -185,6 +193,10 @@ class Application:
     @property
     def extensions(self):
         return self._extensions
+
+    @property
+    def websockets(self):
+        return self._protocol.websockets
 
     @property
     def protocol(self):
@@ -200,12 +212,15 @@ class Application:
     def get_transport(self) -> typing.Optional[asyncio.Transport]:
         return getattr(self._protocol, 'transport', None)
 
-    async def start(self,
-                    host: str = ...,
-                    port: int = ...,
-                    *,
-                    debug: bool = ...):
-        debug = False if debug is ... else debug
+    def get_request_task(self) -> typing.Optional[asyncio.Task]:
+        return getattr(self._protocol, 'request', None)
+
+    def log(self, message: str):
+        print(f'[{datetime.datetime.utcnow().strftime("%Y/%m/%d | %H:%M:%S")}] {message}')
+
+    async def start(self, host: str=None, port: int=None, *, debug: bool=False):
+        host = host or '127.0.0.1'
+        port = port or 8080
 
         if debug:
             self.loop.create_task(self._watch_for_changes())
@@ -213,20 +228,59 @@ class Application:
         server: asyncio.AbstractServer = await self.loop.create_server(self._protocol, host, port)
         self._server = server
 
+        self.dispatch('startup')
         await server.serve_forever()
 
-    async def close(self):
-        server = self._server
-        if not server:
+    async def wait_closed(self):
+        self._ensure_listeners()
+        self.protocol.ensure_websockets()
+
+        for websocket in self.websockets.values():
+            ws = self.websockets.pop(websocket.peer)
+            ws.close(b'')
+            
+        for task in self.websocket_tasks:
+            if not task.done():
+                task.cancel()
+
+            self.websocket_tasks.remove(task)
+
+        for listener in self._active_listeners:
+            if not listener.done():
+                listener.cancel()
+
+            self._active_listeners.remove(listener)
+
+        transport = self.get_transport()
+        if transport:
+            transport.close()
+
+        request = self.get_request_task()
+        if request:
+            if not request.done():
+                request.cancel()
+        
+        await self._server.wait_closed()
+
+    def close(self):
+        if not self._server:
             raise ApplicationError('The Application is not running')
 
-        await server.wait_closed()
-        server.close()
+        self._server.close()
+        self.dispatch('shutdown')
 
-        self.dispatch('on_shutdown')
+    def run(self, *args, **kwargs):
+        # async def runner():
+        #     try:
+        #         await self.start(*args, **kwargs)
+        #     except:
+        #         await self.wait_closed()
+        #         self.close()
 
-    def run(self, *args: typing.Tuple, **kwargs: typing.Mapping):
-        return self.loop.run_until_complete(self.start(*args, **kwargs))
+        # self.loop.create_task(coro=runner())
+        # self.loop.run_forever()
+
+        self.loop.run_until_complete(self.start(*args, **kwargs))
 
     def websocket(self, path: str):
         def decorator(coro: Awaitable) -> WebsocketRoute:
@@ -259,11 +313,13 @@ class Application:
         if route in self.router.routes:
             raise RouteRegistrationError('{0!r} is already a route.'.format(route.path))
 
-        if isinstance(route, WebsocketRoute):
-            self.router.add_route(route, websocket=True)
-            return route
-
         self.router.add_route(route)
+        return route
+
+    def get_route(self, method: str, path: str):
+        res = (path, method)
+        route = self.router.routes.get(res)
+
         return route
 
     def get(self, path: typing.Union[str, URL]):
@@ -313,9 +369,6 @@ class Application:
 
         actual = name if name else coro.__name__
 
-        if not actual in utils.VALID_LISTENERS:
-            raise ListenerRegistrationError(f'{actual!r} is not a valid listener')
-
         if actual in self._listeners.keys():
             self._listeners[actual].append(coro)
             return Listener(coro, actual)
@@ -339,55 +392,43 @@ class Application:
         return decorator
 
     def dispatch(self, name: str, *args, **kwargs):
+        self._ensure_listeners()
+        name = 'on_' + name
+
         try:
             listeners = self._listeners[name]
         except KeyError:
             return
 
         for listener in listeners:
-            if isinstance(listener, asyncio.Future):
-                if len(args) == 0:
-                    listener.set_result(None)
-                elif len(args) == 1:
-                    listener.set_result(args[0])
-                else:
-                    listener.set_result(args)
-
-                listeners.remove(listener)
-                continue
-            
-            self.loop.create_task(listener(*args, **kwargs))
+            task = self.loop.create_task(listener(*args, **kwargs))
+            self._active_listeners.append(task)
 
     def register_shard(self, shard: Shard):
         if not isinstance(shard, Shard):
             fmt = 'Expected Shard but got {0.__class__.__name__} instead'
             raise ShardRegistrationError(fmt.format(shard))
 
-        if shard.name in self.shards:
+        if shard.name in self._shards:
             raise ShardRegistrationError(f'{shard.name!r} is an already existing shard')
 
-        self.shards[shard.name] = shard
+        self._shards[shard.name] = shard
         return shard._unpack(self)
 
-    def register_view(self, view: HTTPView):
-        if not isinstance(view, HTTPView):
+    def get_shard(self, name: str):
+        return self._shards.get(name)
+
+    def get_view(self, path: str):
+        return self._views.get(path)
+
+    def register_view(self, view: typing.Union[HTTPView, WebsocketHTTPView]):
+        if not isinstance(view, (HTTPView, WebsocketHTTPView)):
             raise ViewRegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__))
 
         for route in view.as_routes(app=self):
             self.add_route(route)
 
-        self.views[view.__url_route__] = view
-        return view
-
-    def register_websocket_view(self, view: WebsocketHTTPView):
-        if not isinstance(view, WebsocketHTTPView):
-            raise ViewRegistrationError(
-                'Expected WebsocketHTTPView but got {0!r} instead.'.format(view.__class__.__name__))
-
-        for route in view.as_routes(app=self):
-            self.add_route(route, websocket=True)
-
-        self.views[view.__url_route__] = view
+        self._views[view.__url_route__] = view
         return view
 
     def view(self, path: str):
@@ -404,27 +445,31 @@ class Application:
             return route.add_middleware(func)
         return wrapper
 
-    def register_extension(self, filepath: str) -> typing.List[Extension]:
+    def find_extensions(self, module: types.ModuleType) -> typing.List[typing.Type[Extension]]:
+        extensions = []
+
+        for item, value in module.__dict__.items():
+            if inspect.isclass(value):
+                if issubclass(value, Extension):
+                    extensions.append(value)
+
+        return extensions
+
+    def register_extension(self, filepath: str, *args, **kwargs) -> typing.List[Extension]:
         try:
             module = importlib.import_module(filepath)
         except Exception as exc:
             raise ExtensionLoadError('Failed to load {0!r}.'.format(filepath)) from exc
 
-        localexts: typing.List[Extension] = []
-
-        for key, value in module.__dict__.items():
-            if inspect.isclass(value):
-                if issubclass(value, Extension):
-                    ext = value(self)
-                    ext._unpack()
-
-                    localexts.append(ext)
-                    self._extensions[ext.__extension_name__] = ext
-
-        if not localexts:
+        exts = self.find_extensions(module)
+        if not exts:
             raise ExtensionNotFound('No extensions were found for file {0!r}.'.format(filepath))
 
-        return localexts
+        for ext in exts:
+            instance = ext(self, *args, **kwargs)
+            instance._unpack()
+
+        return exts
 
     def remove_extension(self, name: str):
         if not name in self._extensions:
@@ -434,18 +479,3 @@ class Application:
         extension._pack()
 
         return extension
-
-    async def wait_for(self, event, *, timeout: int = 120.0):
-        future = self.loop.create_future()
-        listeners = self._listeners.get(event.lower())
-
-        if isinstance(event, Route):
-            event._waiter = future
-            return await asyncio.wait_for(future, timeout=timeout)
-
-        if not listeners:
-            listeners = []
-            self._listeners[event.lower()] = listeners
-
-        listeners.append(future)
-        return await asyncio.wait_for(future, timeout=timeout)

@@ -11,14 +11,7 @@ __all__ = (
 )
 
 class Settings(dict):
-    def __init__(self, settings_file: typing.Union[str, pathlib.Path], load_env: bool):
-
-        if load_env:
-            self.from_env_vars()
-
-        if settings_file:
-            self.from_file(settings_file)
-
+    def __init__(self):
         super().__init__(**DEFAULT_SETTINGS)
 
     def __setitem__(self, k, v) -> None:
@@ -41,7 +34,9 @@ class Settings(dict):
 
         return value
 
-    def from_file(self, fp: typing.Union[str, pathlib.Path]):
+    @classmethod
+    def from_file(cls, fp: typing.Union[str, pathlib.Path]):
+        self = cls()
         if isinstance(fp, pathlib.Path):
             fp = fp.name
 
@@ -52,7 +47,9 @@ class Settings(dict):
                 
         return self
 
-    def from_env_vars(self):
+    @classmethod
+    def from_env_vars(cls):
+        self = cls()
         envs = os.environ
 
         for name, value in envs.items():
