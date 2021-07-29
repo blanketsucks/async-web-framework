@@ -24,7 +24,6 @@ import typing
 import datetime
 import asyncio
 import importlib
-import watchgod
 
 def _get_event_loop(loop=None):
     if loop:
@@ -110,17 +109,6 @@ class Application:
             self.register_shard(shard)
 
         return self
-
-    async def _watch_for_changes(self):
-        async for changes in watchgod.awatch('.', watcher_cls=watchgod.PythonWatcher):
-            for change in changes:
-                self.__datetime = datetime.datetime.utcnow().strftime('%Y-%m-%d | %H:%M:%S')
-                print(f"[{self.__datetime}]: Detected change in {change[1]}. Reloading.")
-
-                filepath = change[1][2:-3].replace('\\', '.')
-
-                module = importlib.import_module(filepath)
-                importlib.reload(module)
 
     def _convert(self, func, args):
         return_args = []
@@ -218,12 +206,9 @@ class Application:
     def log(self, message: str):
         print(f'[{datetime.datetime.utcnow().strftime("%Y/%m/%d | %H:%M:%S")}] {message}')
 
-    async def start(self, host: str=None, port: int=None, *, debug: bool=False):
+    async def start(self, host: str=None, port: int=None):
         host = host or '127.0.0.1'
         port = port or 8080
-
-        if debug:
-            self.loop.create_task(self._watch_for_changes())
 
         server: asyncio.AbstractServer = await self.loop.create_server(self._protocol, host, port)
         self._server = server

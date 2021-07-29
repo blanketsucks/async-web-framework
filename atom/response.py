@@ -135,6 +135,25 @@ class Response:
     def add_header(self, key: str, value: str):
         self._headers[key] = value
 
+    def set_cookie(self, key: str, value: str, expires: int=None, path: str=None, domain: str=None, secure: bool=False, http_only: bool=False):
+        cookie = f"{key}={value};"
+        if expires:
+            cookie += f"expires={expires};"
+
+        if path:
+            cookie += f"path={path};"
+
+        if domain:
+            cookie += f"domain={domain};"
+
+        if secure:
+            cookie += f"secure;"
+
+        if http_only:
+            cookie += f"httpOnly;"
+        
+        self.add_header("Set-Cookie", cookie)
+
     def __repr__(self) -> str:
         fmt = '<Response body={0.body!r} content_type={0.content_type!r} status={0.status} version={0.version}>'
         return fmt.format(self)

@@ -36,9 +36,9 @@ class URL:
         return self._components.path or '/'
 
     @property
-    def query(self) -> MultiDict:
+    def query(self) -> dict:
         queries = self._components.query.split('?')
-        multidict = MultiDict()
+        multidict = {}
 
         for query in queries:
             name, value = query.split('=')

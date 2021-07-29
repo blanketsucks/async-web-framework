@@ -3,9 +3,9 @@ from .datastructures import HTTPHeaders, URL, Cookies
 from .response import Response
 from .utils import find_headers
 
+import yarl
 import datetime
 import typing
-import humanize
 import urllib.parse
 
 if typing.TYPE_CHECKING:
@@ -16,16 +16,9 @@ __all__ = (
     'RequestDate'
 )
 
-
 class RequestDate:
     def __init__(self, date: typing.Union[datetime.datetime, datetime.timedelta]) -> None:
         self.datatime = date
-
-        if isinstance(date, datetime.datetime):
-            self.humanized = humanize.naturaltime(self.datatime)
-
-        if isinstance(date, datetime.timedelta):
-            self.humanized = humanize.naturaldelta(self.datatime)
 
     def __repr__(self) -> str:
         return self.datatime.__repr__()
@@ -101,7 +94,7 @@ class Request:
     __slots__ = (
         '_encoding', 'version', 'method',
         '_url', 'headers', 'body', 'protocol', 'connection_info',
-        '_cookies', 'datetime', 'route'
+        '_cookies', 'route'
     )
 
     def __init__(self,
@@ -109,7 +102,6 @@ class Request:
                 url: str,
                 headers: typing.Dict,
                 protocol: 'ApplicationProtocol',
-                date: datetime.datetime,
                 version: str,
                 body: str):
 
@@ -118,19 +110,19 @@ class Request:
         self.version = version
         self.method = method
         self._url = url
-        self.headers = HTTPHeaders(headers)
-        self.datetime = RequestDate(date)
+        self.headers = headers
+        self._session = None
         self.body = body
         self.protocol = protocol
         self.route: typing.Union[Route, WebsocketRoute] = None
 
     @property
-    def url(self) -> URL:
-        return URL(self._url)
+    def url(self) -> yarl.URL:
+        return yarl.URL(self._url)
 
     @property
     def cookies(self) -> typing.Dict[str, str]:
-        cookie = self.headers.get('Cookie', None)
+        cookie = self.headers.get('Cookie', None) or self.headers.get('Set-Cookie')
 
         if cookie:
             cookies = Cookies(cookie)
@@ -173,6 +165,7 @@ class Request:
     def params(self):
         return self.url.query
 
+
     def redirect(self, to: str, headers: typing.Dict=None, status: int=None, content_type: str=None):
         headers = headers or {}
         status = status or 302
@@ -190,7 +183,7 @@ class Request:
         return response
 
     @classmethod
-    def parse(cls, data: bytes, protocol: 'ApplicationProtocol', date: datetime.datetime):
+    def parse(cls, data: bytes, protocol: 'ApplicationProtocol'):
         headers, body = find_headers(data)
         line, = next(headers)
 
@@ -201,15 +194,16 @@ class Request:
         version = parts[2]
         path = parts[1]
 
-        return cls(
+        self = cls(
             method=method,
             url=path,
             version=version,
             protocol=protocol,
-            date=date,
             headers=headers,
-            body=body
+            body=body,
         )
+
+        return self
 
     def __repr__(self) -> str:
         return '<Request url={0.url.path!r} method={0.method!r} version={0.version!r} ' \

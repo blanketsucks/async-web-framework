@@ -108,6 +108,7 @@ class ApplicationProtocol(asyncio.Protocol):
 
     def ensure_websockets(self):
         self.app._ensure_websockets()
+        
         for peer, websocket in self.websockets.items():
             if websocket.closed:
                 self.websockets.pop(peer)
@@ -116,7 +117,7 @@ class ApplicationProtocol(asyncio.Protocol):
         self.ensure_websockets()
         
         try:
-            request = Request.parse(data, self, datetime.utcnow())
+            request = Request.parse(data, self)
         except ValueError:
             self.app.dispatch('websocket_data_receive', data)
             return self.feed_into_websocket(data)

@@ -1,7 +1,7 @@
 import base64
 import typing
 
-from .errors import MultipleValuesFound, HeaderNotFound
+from .errors import MultipleValuesFound
 
 class BasicAuth:
     def __init__(self, username: str, password: str) -> None:
@@ -10,6 +10,19 @@ class BasicAuth:
 
     def encode(self):
         return _build_basic_auth(self.username, self.password)
+
+    @classmethod
+    def decode(cls, headers: typing.Dict):
+        auth: str = headers.get('Authorization')
+        if not auth:
+            return None
+
+        _, credentials = auth.split(' ', 1)
+
+        user_pass = base64.b64decode(credentials.encode()).decode()
+        username, password = user_pass.split(':', 1)
+
+        return cls(username, password)
 
 def _build_basic_auth(username, password):
     user_pass = f"{username}:{password}"
@@ -48,32 +61,25 @@ class MultiDict(typing.MutableMapping[str, str]):
                 *args: typing.Union[typing.Mapping, typing.Iterable, typing.Any], 
                 **kwargs: str) -> None:
 
-        self.__dict: typing.Dict[str, typing.List[str]] = {}
-        self.__list: typing.List[typing.Tuple[str, str]] = []
+        self._dict: typing.Dict[str, typing.List[str]] = {}
+        self._list: typing.List[typing.Tuple[str, str]] = []
 
         self.update(*args, **kwargs)
-    
-    @property
-    def original(self):
-        return self.__dict
-
-    def as_list(self):
-        return self.__list
 
     def __repr__(self) -> str:
-        return f'{self.__class__.__name__}({self.__list!r})'
+        return f'{self.__class__.__name__}({self._list!r})'
 
     def __contains__(self, key: str):
         if not isinstance(key, str):
             return False
 
-        return key in self.__dict
+        return key in self._dict
 
     def __setitem__(self, key: str, value: str) -> None:
-        default = self.__dict.setdefault(key, [])
+        default = self._dict.setdefault(key, [])
         default.append(value)
 
-        self.__list.append((key, value))
+        self._list.append((key, value))
 
     def __getitem__(self, key: str):
         keys = self.getall(key)
@@ -87,16 +93,16 @@ class MultiDict(typing.MutableMapping[str, str]):
         raise MultipleValuesFound(key)
 
     def __delitem__(self, key: str) -> None:
-        del self.__dict[key]
+        del self._dict[key]
 
     def __iter__(self) -> typing.Iterator[typing.Tuple[str, typing.List[str]]]:
-        yield from self.__dict.keys()
+        yield from self._dict.keys()
 
     def __len__(self) -> int:
-        return len(self.__list)
+        return len(self._list)
 
     def get(self, key: str, default=None) -> str:
-        keys = self.__dict.get(key, None)
+        keys = self._dict.get(key, None)
         if not keys:
             return default
 
@@ -106,24 +112,18 @@ class MultiDict(typing.MutableMapping[str, str]):
         keys = self.__dict.get(key, [])
         return keys
 
-    def items(self, list: bool=...) -> typing.Iterator[typing.Tuple[str, str]]:
-        if list:
-            yield from self.__list
-            return
-
-        yield from self.__dict.items()
+    def items(self) -> typing.Iterator[typing.Tuple[str, str]]:
+        yield from self._dict.items()
 
     def copy(self):
         cls = self.__class__
         return cls(self.items(list=False))
 
     def clear(self) -> 'MultiDict':
-        self.__list.clear()
-        self.__dict.clear()
+        self._list.clear()
+        self._dict.clear()
 
         return self
-
-
 
 class HTTPHeaders(MultiDict):
     def __str__(self) -> str:
@@ -146,7 +146,6 @@ class HTTPHeaders(MultiDict):
 
         return tuple(subprotocols.split(', '))
 
-
     def build_basic_auth(self, username: str, password: str) -> str:
         auth =  _build_basic_auth(self, username, password)
 
@@ -154,16 +153,7 @@ class HTTPHeaders(MultiDict):
         return auth
 
     def parse_basic_auth(self) -> typing.Tuple[str, str]:
-        auth = self.auth
-        _, credentials = auth.split(' ', 1)
-
-        if not auth:
-            raise HeaderNotFound('Authorization')
-
-        user_pass = base64.b64decode(credentials.encode()).decode()
-        username, password = user_pass.split(':', 1)
-
-        return username, password
+        return BasicAuth.decode(self)
 
     def get_encoding(self):
         content = self.content_type
