@@ -111,7 +111,6 @@ class Request:
         self.method = method
         self._url = url
         self.headers = headers
-        self._session = None
         self.body = body
         self.protocol = protocol
         self.route: typing.Union[Route, WebsocketRoute] = None
@@ -126,6 +125,7 @@ class Request:
 
         if cookie:
             cookies = Cookies(cookie)
+            cookies = cookies.load()
 
             self._cookies = {
                 name: cookie.value for name, cookie in cookies.items()

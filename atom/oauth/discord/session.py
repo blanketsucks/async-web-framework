@@ -41,7 +41,7 @@ class Session(AbstractSession):
             'Content-Type': 'application/x-www-form-urlencoded'
         }
 
-        async with self.session.post('https://discord.com/api/oauth2/token', data=data, headers=headers) as resp:
+        async with self.session.post('https://discord.com/api/v8/oauth2/token', data=data, headers=headers) as resp:
             data = await resp.json()
             self._access_token = data['access_token']
 

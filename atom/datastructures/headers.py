@@ -214,11 +214,12 @@ class Cookie:
     def __repr__(self) -> str:
         return '<Cookie {0.name}={0.value!r}>'.format(self)
 
-class Cookies(MultiDict):
+class Cookies(dict):
     def __init__(self, header: str, *args, **kwargs) -> None:
         self._header = header
 
         super().__init__(*args, **kwargs)
+
 
     def load(self):
         parts = self._header.split('; ')

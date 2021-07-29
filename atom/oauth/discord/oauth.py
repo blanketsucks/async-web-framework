@@ -27,9 +27,9 @@ class Oauth2Client(AbstarctOauth2Client):
 
     def redirect(self, request: Request, *, state: str=None, scopes: List[str]=None):
         scopes = scopes or ['identify']
-        scopes = ', '.join(scopes)
+        scopes = ' '.join(scopes)
 
-        params ={
+        params = {
             'client_id': self.client_id,
             'scope': scopes,
             'redirect_uri': self.redirect_uri,
