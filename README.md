@@ -10,7 +10,7 @@ import atom
 app = atom.Application()
 
 @app.route('/hello/{name}', 'GET')
-async def get_name(ctx: atom.Context, name: str):
+async def get_name(request: atom.Request, name: str):
     if len(name) > 64:
         error = {
             'error': 'name too long.
