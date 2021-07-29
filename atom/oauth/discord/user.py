@@ -36,4 +36,7 @@ class User:
 
     async def fetch_guilds(self):
         guilds = await self._session.request('/users/@me/guilds')
-        return guilds
+        return [Guild(guild, self._session) for guild in guilds]
+
+    def to_dict(self):
+        return self._payload

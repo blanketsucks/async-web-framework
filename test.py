@@ -1,5 +1,5 @@
 from atom.response import JSONResponse
-from atom.oauth import discord, github
+from atom.oauth import discord
 import atom
 
 oauth = discord.Oauth2Client(
@@ -28,6 +28,6 @@ async def guilds(request: atom.Request):
     session = oauth.get_session(code)
 
     guilds = await session.user.fetch_guilds()
-    return JSONResponse(body=guilds)
+    return JSONResponse(body=[guild.to_dict() for guild in guilds])
 
 app.run(port=8080)

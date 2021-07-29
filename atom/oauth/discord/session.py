@@ -2,8 +2,9 @@ from typing import Optional
 import aiohttp
 
 from .user import User
+from ..abc import AbstractSession
 
-class Session:
+class Session(AbstractSession):
     URL = 'https://discord.com/api/v8/'
     def __init__(self, 
                 code: str, 
