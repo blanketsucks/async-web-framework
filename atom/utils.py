@@ -1,12 +1,12 @@
 import traceback
-from .response import Response, HTMLResponse, JSONResponse
 import markdown as mark
 import json
 import traceback
 import warnings
 import functools
-import typing
+from typing import Type, Generator, Tuple
 
+from .response import Response, HTMLResponse, JSONResponse
 
 __all__ = (
     'format_exception',
@@ -15,13 +15,9 @@ __all__ = (
     'render_html',
     'deprecated',
     'Deprecated',
-    'DEFAULT_SETTINGS',
-    'VALID_SETTINGS',
     'SETTING_ENV_PREFIX',
-
     'VALID_METHODS'
 )
-
 
 class Deprecated:
     def __init__(self, func) -> None:
@@ -34,17 +30,6 @@ class Deprecated:
         return self.__repr
 
 
-DEFAULT_SETTINGS = {
-    'HOST': 'http://127.0.0.1/',
-    'PORT': 8080,
-    'DEBUG': False,
-}
-
-VALID_SETTINGS: typing.Tuple = (
-    'DEBUG',
-    'PORT',
-    'HOST'
-)
 SETTING_ENV_PREFIX = 'ATOM_'
 
 VALID_METHODS = (
@@ -57,25 +42,24 @@ VALID_METHODS = (
     "DELETE"
 )
 
+def warn(message: str, category: Type[Warning]):
+    warnings.simplefilter('always', category)
+    warnings.warn(message, category, stacklevel=4)
+
+    warnings.simplefilter('default', category)
 
 def deprecated(other=None):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> Deprecated:
-            warnings.simplefilter('always', DeprecationWarning)
-
             if other:
                 warning = f'{func.__name__} is deprecated, use {other} instead.'
             else:
                 warning = f'{func.__name__} is deprecated.'
 
-            warnings.warn(warning, DeprecationWarning, stacklevel=3)
-            warnings.simplefilter('default', DeprecationWarning)
-
+            warn(warning, DeprecationWarning)
             return Deprecated(func)
-
         return wrapper
-
     return decorator
 
 
@@ -124,7 +108,7 @@ def render_html(fp: str):
         resp = file.read()
         return HTMLResponse(resp)
 
-def iter_headers(headers: bytes) -> typing.Generator:
+def iter_headers(headers: bytes) -> Generator:
     offset = 0
 
     while True:
@@ -137,7 +121,7 @@ def iter_headers(headers: bytes) -> typing.Generator:
 
         yield [item.strip().decode() for item in data.split(b':', 1)]
 
-def find_headers(data: bytes) -> typing.Tuple[typing.Generator, str]:
+def find_headers(data: bytes) -> Tuple[Generator, str]:
     while True:
         end = data.find(b'\r\n\r\n') + 4
 

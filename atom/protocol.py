@@ -1,6 +1,5 @@
+from typing import TYPE_CHECKING, Dict, Tuple, Optional
 import asyncio
-from datetime import datetime
-import typing
 import hashlib
 import base64
 
@@ -8,7 +7,7 @@ from .request import Request
 from .response import Response, HTTPStatus
 from .websockets import Websocket
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from .app import Application
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -17,7 +16,7 @@ class ApplicationProtocol(asyncio.Protocol):
     def __init__(self, app: 'Application') -> None:
         self.app = app
         self.loop = app.loop
-        self.websockets: typing.Dict[typing.Tuple[str, int], Websocket] = {}
+        self.websockets: Dict[Tuple[str, int], Websocket] = {}
 
     def __call__(self):
         return self
@@ -88,7 +87,7 @@ class ApplicationProtocol(asyncio.Protocol):
         self.transport = transport
         self.app.dispatch('connection', transport, transport.get_extra_info('peername'))
 
-    def connection_lost(self, exc: typing.Optional[Exception]) -> None:
+    def connection_lost(self, exc: Optional[Exception]) -> None:
         if exc:
             raise exc
 
@@ -110,7 +109,7 @@ class ApplicationProtocol(asyncio.Protocol):
         self.app._ensure_websockets()
         
         for peer, websocket in self.websockets.items():
-            if websocket.closed:
+            if websocket.is_closed():
                 self.websockets.pop(peer)
 
     def data_received(self, data: bytes) -> None:

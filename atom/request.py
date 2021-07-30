@@ -1,134 +1,64 @@
-from .objects import Route, WebsocketRoute
-from .datastructures import HTTPHeaders, URL, Cookies
-from .response import Response
-from .utils import find_headers
-
+from __future__ import annotations
+import json
+from typing import TYPE_CHECKING, Union, Dict, Optional
 import yarl
-import datetime
-import typing
 import urllib.parse
 
-if typing.TYPE_CHECKING:
+from .objects import Route, WebsocketRoute
+from .response import Response
+from .utils import find_headers
+from .cookies import CookieJar
+
+if TYPE_CHECKING:
     from .protocol import ApplicationProtocol
+    from .app import Application
 
 __all__ = (
     'Request',
-    'RequestDate'
 )
-
-class RequestDate:
-    def __init__(self, date: typing.Union[datetime.datetime, datetime.timedelta]) -> None:
-        self.datatime = date
-
-    def __repr__(self) -> str:
-        return self.datatime.__repr__()
-
-    def __add__(self, other: 'RequestDate') -> 'RequestDate':
-        if not isinstance(other, RequestDate):
-            return RequestDate(self.datatime)
-
-        return RequestDate(self.datatime + other.datatime)
-
-    def __eq__(self, other: 'RequestDate') -> bool:
-        if not isinstance(other, RequestDate):
-            return NotImplemented
-
-        return self.datatime == other.datatime
-
-    def __sub__(self, other: 'RequestDate') -> 'RequestDate':
-        if not isinstance(other, RequestDate):
-            return RequestDate(self.datatime)
-
-        return RequestDate(self.datatime - other.datatime)
-
-    def __lt__(self, other: 'RequestDate') -> bool:
-        if not isinstance(other, RequestDate):
-            return False
-
-        return self.datatime < other.datatime
-
-    def __le__(self, other: 'RequestDate') -> bool:
-        if not isinstance(other, RequestDate):
-            return False
-
-        return self.datatime <= other.datatime
-
-    def __gt__(self, other: 'RequestDate') -> bool:
-        if not isinstance(other, RequestDate):
-            return False
-
-        return self.datatime > other.datatime
-
-    def __ge__(self, other: 'RequestDate') -> bool:
-        if not isinstance(other, RequestDate):
-            return False
-
-        return self.datatime >= other.datatime
-
-    @property
-    def year(self):
-        return self.datatime.year
-
-    @property
-    def month(self):
-        return self.datatime.month
-
-    @property
-    def day(self):
-        return self.datatime.day
-
-    @property
-    def hour(self):
-        return self.datatime.hour
-
-    @property
-    def minute(self):
-        return self.datatime.minute
-
-    @property
-    def second(self):
-        return self.datatime.second
-
 
 class Request:
     __slots__ = (
         '_encoding', 'version', 'method',
         '_url', 'headers', 'body', 'protocol', 'connection_info',
-        '_cookies', 'route'
+        '_cookies', 'route', '_app'
     )
 
     def __init__(self,
                 method: str,
                 url: str,
-                headers: typing.Dict,
-                protocol: 'ApplicationProtocol',
+                headers: Dict,
+                protocol: ApplicationProtocol,
                 version: str,
-                body: str):
-
+                body: str,
+                app: Application,):
         self._encoding = "utf-8"
-
+        self._app = app
+        self._url = url
+        self._body = body
         self.version = version
         self.method = method
-        self._url = url
         self.headers = headers
-        self.body = body
         self.protocol = protocol
-        self.route: typing.Union[Route, WebsocketRoute] = None
+        self.route: Union[Route, WebsocketRoute] = None
+
+    @property
+    def app(self):
+        return self._app
 
     @property
     def url(self) -> yarl.URL:
         return yarl.URL(self._url)
 
     @property
-    def cookies(self) -> typing.Dict[str, str]:
+    def cookies(self) -> Dict[str, str]:
         cookie = self.headers.get('Cookie', None) or self.headers.get('Set-Cookie')
 
         if cookie:
-            cookies = Cookies(cookie)
-            cookies = cookies.load()
+            jar = CookieJar.from_request(self)
 
             self._cookies = {
-                name: cookie.value for name, cookie in cookies.items()
+                name: cookie.value for name, cookie in jar._cookies.items()
             }
         else:
             self._cookies = {}
@@ -136,7 +66,7 @@ class Request:
         return self._cookies
 
     @property
-    def token(self) -> typing.Optional[str]:
+    def token(self) -> Optional[str]:
         prefixes = ('Bearer',)
         auth: str = self.headers.get('Authorization', None)
 
@@ -165,8 +95,13 @@ class Request:
     def params(self):
         return self.url.query
 
+    def text(self):
+        return self._body
 
-    def redirect(self, to: str, headers: typing.Dict=None, status: int=None, content_type: str=None):
+    def json(self):
+        return json.loads(self.text())
+
+    def redirect(self, to: str, headers: Dict=None, status: int=None, content_type: str=None):
         headers = headers or {}
         status = status or 302
         content_type = content_type or 'text/plain'
@@ -201,6 +136,7 @@ class Request:
             protocol=protocol,
             headers=headers,
             body=body,
+            app=protocol.app
         )
 
         return self

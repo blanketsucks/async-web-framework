@@ -1,4 +1,4 @@
-import typing
+from typing import Coroutine, Callable
 import inspect
 
 from .errors import MiddlewareRegistrationError
@@ -28,7 +28,7 @@ class Route:
     def cleanup_middlewares(self):
         self._middlewares.clear()
 
-    def add_middleware(self, callback: typing.Callable[..., typing.Coroutine]):
+    def add_middleware(self, callback: Callable[..., Coroutine]):
         if not inspect.iscoroutinefunction(callback):
             raise MiddlewareRegistrationError('All middlewares must be async')
 

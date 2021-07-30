@@ -42,8 +42,8 @@ class Oauth2Client(AbstarctOauth2Client):
         return request.redirect(f'{self.URL}?{params}')
 
     def get_session(self, code: str) -> Optional[Session]:
-        return super().get_session(code)
-
+        return self._sessions.get(code)
+        
     def create_session(self, code: str) -> 'Session':
         session = Session(
             client_id=self.client_id,

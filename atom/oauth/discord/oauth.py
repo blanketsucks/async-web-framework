@@ -58,5 +58,10 @@ class Oauth2Client(AbstarctOauth2Client):
         return session
 
     async def close(self):
+        for session in self._sessions.values():
+            await session.close()
+
         await self.session.close()
         self._sessions.clear()
+
+        return self

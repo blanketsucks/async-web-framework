@@ -1,5 +1,5 @@
+from typing import ByteString, Tuple, Dict, Coroutine, Callable
 import struct
-import typing
 import os
 import json
 import enum
@@ -36,7 +36,7 @@ __all__ = (
     'WebSocketFrame'
 )
 
-def mask(data: typing.ByteString, mask: bytes) -> bytearray:
+def mask(data: ByteString, mask: bytes) -> bytearray:
     data = bytearray(data)
 
     for i in range(len(data)):
@@ -68,7 +68,7 @@ class Data:
     def as_string(self):
         return self.data.decode()
 
-    def as_json(self) -> typing.Dict:
+    def as_json(self) -> Dict:
         string = self.as_string()
         return json.loads(string)
 
@@ -97,7 +97,7 @@ class WebSocketFrame:
         return f'<{self.__class__.__name__} {s}>'
 
     @staticmethod
-    def mask(data: typing.ByteString, mask: bytes) -> bytearray:
+    def mask(data: ByteString, mask: bytes) -> bytearray:
         data = bytearray(data)
 
         for i in range(len(data)):
@@ -144,7 +144,7 @@ class WebSocketFrame:
         return opcode
 
     @classmethod
-    async def decode(cls, read: typing.Callable[[int], typing.Coroutine[None, None, bytes]]) -> typing.Tuple[WebSocketOpcode, bytearray, 'WebSocketFrame']:
+    async def decode(cls, read: Callable[[int], Coroutine[None, None, bytes]]) -> Tuple[WebSocketOpcode, bytearray, 'WebSocketFrame']:
         raw = bytearray()
 
         data = await read(2)

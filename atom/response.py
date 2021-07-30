@@ -1,7 +1,8 @@
-
-import typing
+from typing import Dict, List, Union
 import json
 import enum
+
+from .cookies import CookieJar
 
 __all__ = (
     'Response',
@@ -95,7 +96,7 @@ class Response:
                 body: str=None,
                 status: int=None,
                 content_type: str=None,
-                headers: typing.Dict[str, str]=None,
+                headers: Dict[str, str]=None,
                 version: str=None):
 
         self.version = version or '1.1'
@@ -112,6 +113,8 @@ class Response:
         if body:
             self._headers['Content-Type'] = content_type
             self._headers['Content-Lenght'] = len(body)
+
+        self.cookies = CookieJar()
 
     @property
     def body(self):
@@ -135,35 +138,18 @@ class Response:
     def add_header(self, key: str, value: str):
         self._headers[key] = value
 
-    def set_cookie(self, key: str, value: str, expires: int=None, path: str=None, domain: str=None, secure: bool=False, http_only: bool=False):
-        cookie = f"{key}={value};"
-        if expires:
-            cookie += f"expires={expires};"
-
-        if path:
-            cookie += f"path={path};"
-
-        if domain:
-            cookie += f"domain={domain};"
-
-        if secure:
-            cookie += f"secure;"
-
-        if http_only:
-            cookie += f"httpOnly;"
-        
-        self.add_header("Set-Cookie", cookie)
-
     def __repr__(self) -> str:
         fmt = '<Response body={0.body!r} content_type={0.content_type!r} status={0.status} version={0.version}>'
         return fmt.format(self)
 
     def encode(self):
         status = HTTPStatus(self._status)
-
         response = [f'HTTP/{self.version} {status} {status.description}']
 
         response.extend(f'{k}: {v}' for k, v in self.headers.items())
+        if self.cookies:
+            response.append(self.cookies.encode())
+
         response.append('\r\n')
 
         response = b'\r\n'.join(part.encode() for part in response)
@@ -176,7 +162,7 @@ class HTMLResponse(Response):
     def __init__(self, 
                 body: str=None,
                 status: int=None,
-                headers: typing.Dict[str, str]=None,
+                headers: Dict[str, str]=None,
                 version: str=None):
 
         super().__init__(
@@ -190,9 +176,9 @@ class HTMLResponse(Response):
 
 class JSONResponse(Response):
     def __init__(self, 
-                body: typing.Union[typing.Dict, typing.List]=None, 
+                body: Union[Dict, List]=None, 
                 status: int=None, 
-                headers: typing.Dict[str, str]=None, 
+                headers: Dict[str, str]=None, 
                 version: str=None):
 
         body = body or {}

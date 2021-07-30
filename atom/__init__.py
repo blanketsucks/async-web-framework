@@ -11,6 +11,4 @@ from .router import *
 from .settings import *
 from .meta import *
 from .views import *
-from .extensions import Extension
-from .shards import Shard
 from .websockets import Websocket
