@@ -179,7 +179,7 @@ class Application:
     @protocol.setter
     def protocol(self, value):
         if not isinstance(value, asyncio.Protocol):
-            raise ValueError('Expected sockets.Protocol but got {0.__class__.__name__} instead'.format(value))
+            raise ValueError('Expected asyncio.Protocol but got {0.__class__.__name__} instead'.format(value))
 
         self._protocol = value
 
