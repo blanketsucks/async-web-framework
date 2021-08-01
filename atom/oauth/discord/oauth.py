@@ -45,7 +45,7 @@ class Oauth2Client(AbstarctOauth2Client):
     def get_session(self, code: str) -> Optional[Session]:
         return self._sessions.get(code)
 
-    def create_session(self, code: str):
+    async def create_session(self, code: str):
         session = Session(
             code=code,
             client_id=self.client_id,
@@ -54,6 +54,7 @@ class Oauth2Client(AbstarctOauth2Client):
             session=self.session,
         )
         self._sessions[code] = session
+        await session.fetch_token()
 
         return session
 
