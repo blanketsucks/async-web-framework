@@ -46,48 +46,52 @@ if __name__ == '__main__':
 ### Oauth example
 
 ```py
-import asyncio
-from atom.oauth import discord
 import atom
+from atom.oauth import discord
+
+app = atom.Application(supress_warnings=True)
+router = atom.Router()
+
+app.settings['SESSION_COOKIE_NAME'] = 'cookie_name'
 
 oauth = discord.Oauth2Client(
-    client_id="",
-    client_secret="",
-    redirect_uri="http://127.0.0.1:8080/callback",
+    client_id='',
+    client_secret='',
+    redirect_uri='http://127.0.0.1:8080/callback'
 )
-app = atom.Application()
 
-@app.get('/login')
-async def login(request: atom.Request):
-    return oauth.redirect(request, scopes=['identify', 'guilds'])
+@router.get('/callback')
+async def index(request: atom.Request):
+    code = request.url.query.get('code')
+    if not code:
+        return request.redirect('/login')
 
-@app.get('/callback')
-async def callback(request: atom.Request):
-    code = request.params.get('code')
     session = oauth.create_session(code)
+    token = await session.fetch_token()
 
-    response = request.redirect('/guilds')
-    response.set_cookie('code', code)
+    request.session['user_token'] = (token, code)
+    return request.redirect('/home')
 
-    return response
+@router.get('/home')
+async def home(request: atom.Request):
+    token, code = request.session.get('user_token')
+    if not token:
+        return request.redirect('/login')
 
-@app.get('/guilds')
-async def guilds(request: atom.Request):
-    code = request.cookies.get('code')
     session = oauth.get_session(code)
-    
     user = await session.fetch_user()
-    guilds = await user.fetch_guilds()
 
-    return JSONResponse(body=[guild.to_dict() for guild in guilds])
+    return atom.JSONResponse(user.to_dict())
 
-if __name__ == '__main__':
-    async def run():
-        try:
-            await app.start()
-        finally:
-            await app.wait_closed()
-            app.close()
+@router.get('/login')
+def redirect(request: atom.Request):
+    if request.session:
+        token, code = request.session.get('user_token')
+        if code:
+            return request.redirect('/home')
 
-    asyncio.run(run())
+    return oauth.redirect(request)
+
+app.add_router(router)
+app.run()
 ```
