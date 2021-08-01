@@ -62,6 +62,10 @@ oauth = discord.Oauth2Client(
 
 @router.get('/callback')
 async def index(request: atom.Request):
+    token, code = request.session.get('code')
+    if code:
+        return request.redirect('/home')
+
     code = request.url.query.get('code')
     if not code:
         return request.redirect('/login')
@@ -69,12 +73,12 @@ async def index(request: atom.Request):
     session = oauth.create_session(code)
     token = await session.fetch_token()
 
-    request.session['user_token'] = (token, code)
+    request.session['code'] = (token['access_token'], code)
     return request.redirect('/home')
 
 @router.get('/home')
 async def home(request: atom.Request):
-    token, code = request.session.get('user_token')
+    token, code = request.session.get('code')
     if not token:
         return request.redirect('/login')
 
@@ -85,13 +89,14 @@ async def home(request: atom.Request):
 
 @router.get('/login')
 def redirect(request: atom.Request):
-    if request.session:
-        token, code = request.session.get('user_token')
-        if code:
-            return request.redirect('/home')
+    token, code = request.session.get('code')
+    if code:
+        return request.redirect('/home')
 
     return oauth.redirect(request)
 
 app.add_router(router)
-app.run()
+
+if __name__ == '__main__':
+    app.run()
 ```
