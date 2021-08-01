@@ -1,42 +1,3 @@
-"""
-
-exception hierarchy (this is the general one for all the framework not only this module):
-
-AtomException:
-    ApplicationError:
-        BadConversion
-        HTTPException:
-            NotFound
-            BadRequest
-            Unauthorized
-            Forbidden
-        EndpointError:
-            EndpointLoadError
-            EndpointNotFound
-        RegistrationError:
-            RouteRegistrationError
-            ListenerRegistrationError
-            MiddlewareRegistrationError
-            ShardRegistrationError
-            ViewRegistrationError
-            WebsocketRouteRegistrationError
-        InvalidSetting
-    ServerError:
-        ConnectionError
-    WebsocketError:
-        InvalidHandshake
-    MultipleValuesFound
-    MissingHeader
-    DatabaseError:
-        NoConnections
-    CLIException:
-        CommandError:
-            CommandInvokationError:
-                FailedConversion
-                MissingArgument
-                MissingContextArgument
-
-"""
 
 from .response import Response, HTTPStatus
 
@@ -52,19 +13,7 @@ __all__ = (
     'Found',
     'Unauthorized',
     'Forbidden',
-    'EndpointError',
-    'EndpointLoadError',
-    'EndpointNotFound',
-    'ExtensionLoadError',
-    'ExtensionError',
-    'ExtensionNotFound',
     'RegistrationError',
-    'RouteRegistrationError',
-    'ListenerRegistrationError',
-    'MiddlewareRegistrationError',
-    'ShardRegistrationError',
-    'ViewRegistrationError',
-    'WebsocketRouteRegistrationError',
     'InvalidSetting',
     'abort',
     'status'
@@ -140,59 +89,11 @@ class Found(HTTPException):
         self.add_header("Location", location)
 
 
-class EndpointError(ApplicationError):
-    ...
-
-
-class EndpointLoadError(EndpointError):
-    ...
-
-
-class EndpointNotFound(EndpointError):
-    ...
-
-
-class ExtensionError(ApplicationError):
-    ...
-
-
-class ExtensionLoadError(ExtensionError):
-    ...
-
-
-class ExtensionNotFound(ExtensionError):
-    ...
-
-
 class InvalidSetting(ApplicationError):
     ...
 
 
 class RegistrationError(ApplicationError):
-    ...
-
-
-class RouteRegistrationError(RegistrationError):
-    ...
-
-
-class WebsocketRouteRegistrationError(RegistrationError):
-    ...
-
-
-class ListenerRegistrationError(RegistrationError):
-    ...
-
-
-class MiddlewareRegistrationError(RegistrationError):
-    ...
-
-
-class ShardRegistrationError(RegistrationError):
-    ...
-
-
-class ViewRegistrationError(RegistrationError):
     ...
 
 

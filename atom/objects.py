@@ -1,7 +1,7 @@
 from typing import Coroutine, Callable
 import inspect
 
-from .errors import MiddlewareRegistrationError
+from .errors import RegistrationError
 
 __all__ = (
     'Route',
@@ -11,8 +11,8 @@ __all__ = (
 )
 
 class Route:
-    def __init__(self, path, method, callback, *, app) -> None:
-        self._app = app
+    def __init__(self, path, method, callback, *, router) -> None:
+        self._router = router
 
         self.path = path
         self.method = method
@@ -30,7 +30,7 @@ class Route:
 
     def add_middleware(self, callback: Callable[..., Coroutine]):
         if not inspect.iscoroutinefunction(callback):
-            raise MiddlewareRegistrationError('All middlewares must be async')
+            raise RegistrationError('All middlewares must be async')
 
         self._middlewares.append(callback)
         return Middleware(callback, self)
@@ -43,7 +43,7 @@ class Route:
         return callback
 
     def destroy(self):
-        self._app.remove_route(self)
+        self._router.remove_route(self)
         return self
 
     def __repr__(self) -> str:

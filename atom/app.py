@@ -1,12 +1,11 @@
-from typing import Type, Callable, Coroutine, Dict, List, Optional, Tuple, Union
+from typing import Callable, Coroutine, Dict, List, Optional, Tuple, Union
 import pathlib
 import re
-import types
 import inspect
 import datetime
 import asyncio
-import importlib
 
+from .abc import AbstractRouter, AbstractProtocol, AbstractApplication
 from .request import Request
 from .errors import *
 from .protocol import ApplicationProtocol
@@ -14,7 +13,7 @@ from .router import Router
 from . import utils
 from .settings import Settings
 from .objects import Route, Listener, WebsocketRoute
-from .views import HTTPView, WebsocketHTTPView
+from .views import HTTPView
 from .response import Response, JSONResponse
 
 def _get_event_loop(loop=None):
@@ -39,7 +38,7 @@ __all__ = (
     'Application',
 )
 
-class Application:
+class Application(AbstractApplication):
     def __init__(self, 
                 url_prefix: str=None, 
                 *, 
@@ -49,7 +48,7 @@ class Application:
                 supress_warnings: bool=False):
         self.loop = _get_event_loop(loop)
         self.url_prefix = url_prefix or ''
-        self.router = Router()
+        self.router: AbstractRouter = Router()
         self.websocket_tasks: List[asyncio.Task] = []
         self.settings = Settings()
         self.surpress_warnings = supress_warnings
@@ -61,13 +60,14 @@ class Application:
             self.settings = Settings.from_env_vars()
 
         self._listeners: Dict[str, List[Callable]] = {}
-        self._views: Dict[str, Union[WebsocketHTTPView, HTTPView]] = {}
+        self._views: Dict[str, HTTPView] = {}
         self._middlewares: List[Callable] = []
         self._active_listeners: List[asyncio.Task] = []
         self._protocol = ApplicationProtocol(
             app=self,
         )
         self._server = None
+        self._closed = False
 
     def __repr__(self) -> str:
         return '<Application>'
@@ -182,6 +182,9 @@ class Application:
             raise ValueError('Expected asyncio.Protocol but got {0.__class__.__name__} instead'.format(value))
 
         self._protocol = value
+    
+    def is_closed(self):
+        return self._closed
 
     def get_transport(self) -> Optional[asyncio.Transport]:
         return getattr(self._protocol, 'transport', None)
@@ -238,6 +241,8 @@ class Application:
             raise ApplicationError('The Application is not running')
 
         self._server.close()
+        self._closed = True
+
         self.dispatch('shutdown')
 
     def run(self, *args, **kwargs):
@@ -250,7 +255,7 @@ class Application:
 
         # self.loop.create_task(coro=runner())
         # self.loop.run_forever()
-
+        
         self.loop.run_until_complete(self.start(*args, **kwargs))
 
     def websocket(self, path: str):
@@ -273,7 +278,7 @@ class Application:
     def add_route(self, route: Union[Route, WebsocketRoute]):
         if not isinstance(route, (Route, WebsocketRoute)):
             fmt = 'Expected Route or WebsocketRoute but got {0!r} instead'
-            raise RouteRegistrationError(fmt.format(route.__class__.__name__))
+            raise RegistrationError(fmt.format(route.__class__.__name__))
 
         if not inspect.iscoroutinefunction(route.callback):
             if not self.surpress_warnings:
@@ -286,7 +291,7 @@ class Application:
                 )
 
         if route in self.router.routes:
-            raise RouteRegistrationError('{0!r} is already a route.'.format(route.path))
+            raise RegistrationError('{0!r} is already a route.'.format(route.path))
 
         self.router.add_route(route)
         return route
@@ -296,7 +301,9 @@ class Application:
             fmt = 'Expected Router but got {0!r} instead'
             raise TypeError(fmt.format(router.__class__.__name__))
 
-        self.router.routes.update(router.routes)
+        for route in router:
+            self.add_route(route)
+        
         return router
 
     def get_route(self, method: str, path: str):
@@ -344,9 +351,9 @@ class Application:
         self.router.routes.pop((route.path, route.method))
         return route
 
-    def add_listener(self, coro: Callable[..., Coroutine], name: str = None):
+    def add_event_listener(self, coro: Callable[..., Coroutine], name: str = None):
         if not inspect.iscoroutinefunction(coro):
-            raise ListenerRegistrationError('Listeners must be coroutines')
+            raise RegistrationError('Listeners must be coroutines')
 
         actual = name if name else coro.__name__
 
@@ -357,7 +364,7 @@ class Application:
         self._listeners[actual] = [coro]
         return Listener(coro, actual)
 
-    def remove_listener(self, func: Callable[..., Coroutine] = None, name: str = None):
+    def remove_event_listener(self, func: Callable[..., Coroutine] = None, name: str = None):
         if not func:
             if name:
                 self._listeners.pop(name.lower())
@@ -366,10 +373,9 @@ class Application:
 
         self._listeners[name].remove(func)
 
-    def listen(self, name: str = None):
+    def event(self, name: str = None):
         def decorator(func: Callable[..., Coroutine]):
-            return self.add_listener(func, name)
-
+            return self.add_event_listener(func, name)
         return decorator
 
     def dispatch(self, name: str, *args, **kwargs):
@@ -379,7 +385,11 @@ class Application:
         try:
             listeners = self._listeners[name]
         except KeyError:
-            return
+            coro = getattr(self, name, None)
+            if not coro:
+                return
+
+            listeners = [coro]
 
         for listener in listeners:
             task = self.loop.create_task(listener(*args, **kwargs))
@@ -388,9 +398,9 @@ class Application:
     def get_view(self, path: str):
         return self._views.get(path)
 
-    def register_view(self, view: Union[HTTPView, WebsocketHTTPView]):
-        if not isinstance(view, (HTTPView, WebsocketHTTPView)):
-            raise ViewRegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__))
+    def register_view(self, view: HTTPView):
+        if not isinstance(view, HTTPView):
+            raise RegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__))
 
         for route in view.as_routes(app=self):
             self.add_route(route)
@@ -409,7 +419,7 @@ class Application:
 
     def middleware(self, func):
         if not inspect.iscoroutinefunction(func):
-            raise MiddlewareRegistrationError('Middlewares must be coroutines')
+            raise RegistrationError('Middlewares must be coroutines')
 
         self._middlewares.append(func)
         return func

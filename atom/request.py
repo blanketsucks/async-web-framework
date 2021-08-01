@@ -1,17 +1,15 @@
 from __future__ import annotations
 import json
-from typing import TYPE_CHECKING, Union, Dict, Optional
-import yarl
+from typing import TYPE_CHECKING, Union, Dict, Optional, Any
 import urllib.parse
 
 from .objects import Route, WebsocketRoute
 from .response import Response
 from .utils import find_headers
 from .cookies import CookieJar
-
-if TYPE_CHECKING:
-    from .protocol import ApplicationProtocol
-    from .app import Application
+from .datastructures import URL
+from .sessions import CookieSession
+from .abc import AbstractApplication, AbstractProtocol
 
 __all__ = (
     'Request',
@@ -20,7 +18,7 @@ __all__ = (
 class Request:
     __slots__ = (
         '_encoding', 'version', 'method',
-        '_url', 'headers', 'body', 'protocol', 'connection_info',
+        '_url', 'headers', '_body', 'protocol', 'connection_info',
         '_cookies', 'route', '_app'
     )
 
@@ -28,10 +26,10 @@ class Request:
                 method: str,
                 url: str,
                 headers: Dict,
-                protocol: ApplicationProtocol,
+                protocol: AbstractProtocol,
                 version: str,
                 body: str,
-                app: Application,):
+                app: AbstractApplication):
         self._encoding = "utf-8"
         self._app = app
         self._url = url
@@ -47,8 +45,8 @@ class Request:
         return self._app
 
     @property
-    def url(self) -> yarl.URL:
-        return yarl.URL(self._url)
+    def url(self) -> URL:
+        return URL(self._url)
 
     @property
     def cookies(self) -> Dict[str, str]:
@@ -58,12 +56,16 @@ class Request:
             jar = CookieJar.from_request(self)
 
             self._cookies = {
-                name: cookie.value for name, cookie in jar._cookies.items()
+                cookie.name: cookie.value for cookie in jar
             }
         else:
             self._cookies = {}
 
         return self._cookies
+
+    @property
+    def session(self):
+        return CookieSession.from_request(self)
 
     @property
     def token(self) -> Optional[str]:
@@ -95,10 +97,10 @@ class Request:
     def params(self):
         return self.url.query
 
-    def text(self):
+    def text(self) -> str:
         return self._body
 
-    def json(self):
+    def json(self) -> Dict[str, Any]:
         return json.loads(self.text())
 
     def redirect(self, to: str, headers: Dict=None, status: int=None, content_type: str=None):
@@ -118,7 +120,7 @@ class Request:
         return response
 
     @classmethod
-    def parse(cls, data: bytes, protocol: 'ApplicationProtocol'):
+    def parse(cls, data: bytes, protocol: AbstractProtocol):
         headers, body = find_headers(data)
         line, = next(headers)
 

@@ -5,16 +5,11 @@ import pathlib
 
 from .errors import InvalidSetting
 from .utils import SETTING_ENV_PREFIX
+from .datastructures import ImmutableMapping
 
 __all__ = (
     'Settings',
 )
-
-_BASE_SETTINGS = {
-    'HOST': '127.0.0.1',
-    'PORT': 8080,
-    'COOKIE_SESSION_NAME': None
-}
 
 class Crendentials:
     def __init__(self, client_id: str, client_secret: str, redirect_uri: str) -> None:
@@ -46,10 +41,10 @@ class Authentication:
     def __iter__(self):
         yield from self._creditials.items()
 
-class Settings(dict):
-    def __init__(self):
+class Settings(ImmutableMapping[str, Union[str, int, bool]]):
+    def __init__(self, defaults: Dict[str, Union[str, int, bool]] = None) -> None:
         self.authentication = Authentication()
-        super().__init__(**_BASE_SETTINGS)
+        super().__init__(**defaults)
 
     def __getitem__(self, k: str):
         return self.get(k.upper())

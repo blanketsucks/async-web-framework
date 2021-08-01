@@ -90,5 +90,9 @@ class Session(AbstractSession):
         async with self.session.post(url, headers=headers, data=data):
             self._closed = True
         
+    async def __aenter__(self):
+        return self
 
+    async def __aexit__(self, *args):
+        return await self.close()
         

@@ -66,7 +66,7 @@ class CookieJar:
         return '; '.join(encoded)
 
     def __iter__(self):
-        yield from self._cookies.items()
+        return self._cookies.values().__iter__()
 
     def __bool__(self):
         return bool(self._cookies)

@@ -46,6 +46,7 @@ if __name__ == '__main__':
 ### Oauth example
 
 ```py
+import asyncio
 from atom.oauth import discord
 import atom
 
@@ -81,5 +82,12 @@ async def guilds(request: atom.Request):
     return JSONResponse(body=[guild.to_dict() for guild in guilds])
 
 if __name__ == '__main__':
-    app.run(port=8080)
+    async def run():
+        try:
+            await app.start()
+        finally:
+            await app.wait_closed()
+            app.close()
+
+    asyncio.run(run())
 ```

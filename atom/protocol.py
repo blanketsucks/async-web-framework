@@ -6,13 +6,14 @@ import base64
 from .request import Request
 from .response import Response, HTTPStatus
 from .websockets import Websocket
+from .abc import AbstractProtocol
 
 if TYPE_CHECKING:
     from .app import Application
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-class ApplicationProtocol(asyncio.Protocol):
+class ApplicationProtocol(AbstractProtocol):
     def __init__(self, app: 'Application') -> None:
         self.app = app
         self.loop = app.loop
