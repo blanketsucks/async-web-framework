@@ -37,7 +37,7 @@ app.users = {}
 @app.view('/users') # Either this or class UsersView(atom.HTTPView, path='/users'), both work
 class UsersView(atom.HTTPView):
     async def get(self, request: atom.Request):
-        return app.users
+        return request.app.users
 
 if __name__ == '__main__':
     app.run()
