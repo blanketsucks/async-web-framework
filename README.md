@@ -70,22 +70,21 @@ async def index(request: atom.Request):
     if not code:
         return request.redirect('/login')
 
-    session = oauth.create_session(code)
-    token = await session.fetch_token()
-
-    request.session['code'] = (token['access_token'], code)
-    return request.redirect('/home')
-
-@router.get('/')
-async def index(request: atom.Request):
-    code = request.url.query.get('code')
-    if not code:
-        return request.redirect('/login')
-
     session = await oauth.create_session(code)
     request.session['code'] = (session.access_token, code)
 
     return request.redirect('/home')
+
+@router.get('/home')
+async def index(request: atom.Request):
+    token, code = request.session.get('code')
+    if not token:
+        return request.redirect('/login')
+
+    session = oauth.get_session(code)
+    user = await session.fetch_user()
+
+    return atom.JSONResponse(user.to_dict())
 
 @router.get('/login')
 def redirect(request: atom.Request):
