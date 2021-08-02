@@ -1,4 +1,4 @@
-from typing import Callable, Coroutine, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Union
 import pathlib
 import re
 import inspect
@@ -14,25 +14,9 @@ from . import utils
 from .settings import Settings
 from .objects import Route, Listener, WebsocketRoute
 from .views import HTTPView
-from .response import Response, JSONResponse
-
-def _get_event_loop(loop=None):
-    if loop:
-        if not isinstance(loop, asyncio.AbstractEventLoop):
-            raise TypeError('Invalid argument type for loop argument')
-
-        return loop
-
-    try:
-        return asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.get_event_loop()
-
-async def _maybe_coroutine(func, *args, **kwargs):
-    if asyncio.iscoroutinefunction(func):
-        return await func(*args, **kwargs)
-
-    return func(*args, **kwargs)
+from .response import Response, JSONResponse, FileResponse
+from .file import File
+from .websockets import Websocket
 
 __all__ = (
     'Application',
@@ -46,7 +30,7 @@ class Application(AbstractApplication):
                 settings_file: Union[str, pathlib.Path]=None, 
                 load_settings_from_env: bool=None,
                 supress_warnings: bool=False):
-        self.loop = _get_event_loop(loop)
+        self.loop = self._get_event_loop(loop)
         self.url_prefix = url_prefix or ''
         self.router: AbstractRouter = Router()
         self.websocket_tasks: List[asyncio.Task] = []
@@ -70,7 +54,28 @@ class Application(AbstractApplication):
         self._closed = False
 
     def __repr__(self) -> str:
-        return '<Application>'
+        prefix = self.url_prefix or '/'
+        return f'<Application url_prefix={prefix!r} is_closed={self.is_closed()}>'
+
+    @staticmethod
+    async def _maybe_coroutine(func, *args, **kwargs):
+        if asyncio.iscoroutinefunction(func):
+            return await func(*args, **kwargs)
+
+        return func(*args, **kwargs)
+
+    @staticmethod
+    def _get_event_loop(loop=None):
+        if loop:
+            if not isinstance(loop, asyncio.AbstractEventLoop):
+                raise TypeError('Invalid argument type for loop argument')
+
+            return loop
+
+        try:
+            return asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.get_event_loop()
 
     def _ensure_listeners(self):
         for task in self._active_listeners:
@@ -100,7 +105,7 @@ class Application(AbstractApplication):
         return return_args
 
     def _resolve(self, request: 'Request') -> Tuple[Dict, Union[Route, WebsocketRoute]]:
-        for route in self.router.routes.values():
+        for route in self.router:
             match = re.fullmatch(route.path, request.url.path)
 
             if match is None:
@@ -114,53 +119,77 @@ class Application(AbstractApplication):
 
         raise NotFound(reason=f'Could not find {request.url.path!r}')
 
-    async def _request_handler(self, request: Request, *, websocket):
+    def _parse_response(self, response: Union[str, bytes, dict, list, File, Response]) -> bytes:
+        if isinstance(response, Response):
+            return response.encode()
+
+        if isinstance(response, str):
+            resp = Response(response, content_type='text/html')
+            return resp.encode()
+
+        if isinstance(response, (dict, list)):
+            resp = JSONResponse(response)
+            return resp.encode()
+
+        if isinstance(response, File):
+            resp = FileResponse(response)
+            return resp.encode()
+
+        if isinstance(response, bytes):
+            return response
+
+        return b''
+
+    async def _run_middlewares(self, request: Request, route: Route, args: Tuple[Any]):
+        middlewares = route.middlewares.copy()
+        middlewares.extend(self._middlewares)
+
+        await asyncio.gather(
+            *[middleware(route, request, *args) for middleware in middlewares],
+        )
+
+    def _handle_websocket_connection(self, route: WebsocketRoute, request: Request, websocket: Websocket):
+        coro = route(request, websocket)
+        task = self.loop.create_task(coro)
+
+        self.websocket_tasks.append(task)
+        self._ensure_websockets()
+
+        return task
+
+    def _resolve_all(self, request: Request):
+        args, route = self._resolve(request)
+        request.route = route
+
+        args = self._convert(route.callback, args)
+        return args, route
+
+    async def _request_handler(self, request: Request, *, websocket: Websocket):
         resp = None
         try:
-            args, route = self._resolve(request)
-
-            if getattr(route, '_waiter', None):
-                route._waiter.set_result(request)
-
-            # route._extras['params'] = args
-            request.route = route
-
-            args = self._convert(route.callback, args)
-            
-            middlewares = route.middlewares.copy()
-            middlewares.extend(self._middlewares)
-
-            await asyncio.gather(*[middleware(route, request, *args) for middleware in route.middlewares])
-
+            args, route = self._resolve_all(request)
+    
+            await self._run_middlewares(
+                request=request,
+                route=route,
+                args=args,
+            )
             if isinstance(route, WebsocketRoute):
-                task = self.loop.create_task(
-                    coro=route(request, websocket)
+                return self._handle_websocket_connection(
+                    route=route,
+                    request=request,
+                    websocket=websocket,
                 )
 
-                self.websocket_tasks.append(task)
-                return
-
-            resp = await _maybe_coroutine(route.callback, request, *args)
-
-            if isinstance(resp, str):
-                resp = Response(
-                    body=resp, 
-                    status=200, 
-                    content_type='text/plain'
-                )
-
-            if isinstance(resp, (dict, list)):
-                resp = JSONResponse(
-                    body=resp,
-                    status=200
-                )
-
+            resp = await self._maybe_coroutine(route.callback, request, *args)
         except Exception as exc:
             resp = utils.format_exception(exc)
             self.dispatch('error', exc)
 
+        data = self._parse_response(resp)
+
         transport = self.get_transport()
-        transport.write(resp.encode())
+        transport.write(data)
 
         transport.close()
 
@@ -270,7 +299,7 @@ class Application(AbstractApplication):
         def decorator(func: Callable[..., Coroutine]) -> Route:
             actual = path
 
-            route = Route(actual, method, func, app=self)
+            route = Route(actual, method, func, router=self.router)
             return self.add_route(route)
 
         return decorator
@@ -290,11 +319,10 @@ class Application(AbstractApplication):
                     category=Warning,
                 )
 
-        if route in self.router.routes:
+        if route in self.router:
             raise RegistrationError('{0!r} is already a route.'.format(route.path))
 
-        self.router.add_route(route)
-        return route
+        return self.router.add_route(route)
 
     def add_router(self, router: Router):
         if not isinstance(router, Router):

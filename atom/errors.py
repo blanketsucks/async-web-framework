@@ -88,7 +88,6 @@ class Found(HTTPException):
         super().__init__(reason=reason, content_type=content_type)
         self.add_header("Location", location)
 
-
 class InvalidSetting(ApplicationError):
     ...
 

@@ -13,3 +13,4 @@ from .views import *
 from .websockets import Websocket
 from .abc import *
 from .datastructures import *
+from .file import File

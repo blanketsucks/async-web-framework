@@ -44,6 +44,9 @@ class Authentication:
 class Settings(ImmutableMapping[str, Union[str, int, bool]]):
     def __init__(self, defaults: Dict[str, Union[str, int, bool]] = None) -> None:
         self.authentication = Authentication()
+        if not defaults:
+            defaults = {}
+
         super().__init__(**defaults)
 
     def __getitem__(self, k: str):

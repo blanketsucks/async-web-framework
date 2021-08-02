@@ -1,27 +1,29 @@
-from typing import Any, Callable, Coroutine, Optional, Union
+from typing import Any, Callable, Coroutine, Iterator, Optional, TYPE_CHECKING, Union
 import asyncio
 import pathlib
 
-from .settings import Settings
-from .request import Request
 from .websockets import Websocket
-from .objects import Route as _Route, WebsocketRoute as _WebsocketRoute
 
+if TYPE_CHECKING:
+    from .settings import Settings
+    from .objects import Route as _Route, WebsocketRoute as _WebsocketRoute
+    from .request import Request
+    
 __all__ = (
     'AbstractRouter',
     'AbstractApplication',
     'AbstractProtocol',
 )
 
-Route = Callable[[Callable[[Request], Coroutine[Any, Any, Any]]], _Route]
-WebsocketRoute = Callable[[Callable[[Request], Coroutine[Any, Any, Any]]], _WebsocketRoute]
-Middleware = Callable[[Request, Callable[[Request], Coroutine[Any, Any, Any]]], Coroutine[Any, Any, Any]]
+Route = Callable[[Callable[['Request'], Coroutine[Any, Any, Any]]], '_Route']
+WebsocketRoute = Callable[[Callable[['Request'], Coroutine[Any, Any, Any]]], '_WebsocketRoute']
+Middleware = Callable[['Request', Callable[['Request'], Coroutine[Any, Any, Any]]], Coroutine[Any, Any, Any]]
 
 class AbstractRouter:
-    def add_route(self, route: Union[_Route, _WebsocketRoute]) -> Union[_Route, _WebsocketRoute]:
+    def add_route(self, route: Union['_Route', '_WebsocketRoute']) -> Union['_Route', '_WebsocketRoute']:
         raise NotImplementedError
 
-    def remove_route(self, route: Union[_Route, _WebsocketRoute]) -> Union[_Route, _WebsocketRoute]:
+    def remove_route(self, route: Union['_Route', '_WebsocketRoute']) -> Union['_Route', '_WebsocketRoute']:
         raise NotImplementedError
 
     def websocket(self, path: str) -> WebsocketRoute:
@@ -54,9 +56,12 @@ class AbstractRouter:
     def middleware(self, func: Middleware) -> Middleware:
         raise NotImplementedError
 
+    def __iter__(self) -> Iterator[Union['_Route', '_WebsocketRoute']]:
+        raise NotImplementedError
+
 class AbstractApplication:
     loop: asyncio.AbstractEventLoop
-    settings: Settings
+    settings: 'Settings'
     url_prefix: str
     surpress_warnings: bool
 
@@ -90,7 +95,7 @@ class AbstractApplication:
     def run(self, *args, **kwargs) -> None:
         raise NotImplementedError
 
-    def add_route(self, route: Union[_Route, _WebsocketRoute]) -> Union[_Route, _WebsocketRoute]:
+    def add_route(self, route: Union['_Route', '_WebsocketRoute']) -> Union['_Route', '_WebsocketRoute']:
         raise NotImplementedError
 
     def add_router(self, router: AbstractRouter) -> AbstractRouter:

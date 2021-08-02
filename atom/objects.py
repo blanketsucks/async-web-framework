@@ -11,7 +11,7 @@ __all__ = (
 )
 
 class Route:
-    def __init__(self, path, method, callback, *, router) -> None:
+    def __init__(self, path: str, method: str, callback, *, router) -> None:
         self._router = router
 
         self.path = path

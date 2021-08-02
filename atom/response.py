@@ -1,13 +1,19 @@
 from typing import Dict, List, Union
 import json
 import enum
+import mimetypes
 
 from .cookies import CookieJar
+from .file import File
+from .datastructures import MultiDict
+
+from .abc import AbstractApplication
 
 __all__ = (
     'Response',
     'HTMLResponse',
     'JSONResponse',
+    'FileResponse'
 )
 
 class HTTPStatus(enum.IntEnum):
@@ -108,7 +114,7 @@ class Response:
         if headers is None:
             headers = {}
 
-        self._headers = headers
+        self._headers = MultiDict(headers)
 
         if body:
             self._headers['Content-Type'] = content_type
@@ -137,6 +143,21 @@ class Response:
 
     def add_header(self, key: str, value: str):
         self._headers[key] = value
+
+    def add_cookie(self, 
+                name: str, 
+                value: str, 
+                *, 
+                domain: str=None, 
+                http_only: bool=False, 
+                is_secure: bool=False):
+        return self.cookies.add_cookie(
+            name=name,
+            value=value,
+            domain=domain,
+            http_only=http_only,
+            is_secure=is_secure
+        )
 
     def __repr__(self) -> str:
         fmt = '<Response body={0.body!r} content_type={0.content_type!r} status={0.status} version={0.version}>'
@@ -189,3 +210,32 @@ class JSONResponse(Response):
             headers=headers, 
             version=version
         )
+
+class FileResponse(Response):
+    def __init__(self, 
+                file: File,
+                status: int=None, 
+                headers: Dict[str, str]=None, 
+                version: str=None):
+        self.file = file
+
+        super().__init__(
+            body=file.read(),
+            status=status, 
+            content_type=self.get_content_type(), 
+            headers=headers, 
+            version=version
+        )
+
+        self.file.close()
+
+    def get_content_type(self):
+        filename = self.file.filename
+        content_type, encoding = mimetypes.guess_type(filename)
+
+        if not content_type:
+            content_type = 'application/octet-stream'
+
+        return content_type
+
+
