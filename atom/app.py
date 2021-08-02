@@ -148,6 +148,14 @@ class Application(AbstractApplication):
 
         return b''
 
+    async def _write(self, resp: Union[str, bytes, dict, list, File, Response]):
+        data = await self._parse_response(resp)
+        transport = self.get_transport()
+
+        if transport:
+            transport.write(data)
+            transport.close()
+    
     async def _run_middlewares(self, request: Request, route: Route, args: Tuple[Any]):
         middlewares = route.middlewares.copy()
         middlewares.extend(self._middlewares)
@@ -194,12 +202,7 @@ class Application(AbstractApplication):
             resp = utils.format_exception(exc)
             self.dispatch('error', exc)
 
-        data = await self._parse_response(resp)
-
-        transport = self.get_transport()
-        transport.write(data)
-
-        transport.close()
+        await self._write(resp)
 
     @property
     def listeners(self):
