@@ -105,7 +105,7 @@ class Response:
                 version: str=None):
 
         self.version = version or '1.1'
-        self._status = status or 200
+        self._status = HTTPStatus(status or 200)
         self._body = body or ''
         self._content_type = content_type or 'text/plain'
         self._encoding = "utf-8"
@@ -163,8 +163,7 @@ class Response:
         return fmt.format(self)
 
     def encode(self):
-        status = HTTPStatus(self._status)
-        response = [f'HTTP/{self.version} {status} {status.description}']
+        response = [f'HTTP/{self.version} {self.status} {self.status.description}']
 
         response.extend(f'{k}: {v}' for k, v in self.headers.items())
         if self.cookies:
