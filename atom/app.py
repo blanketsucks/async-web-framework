@@ -119,8 +119,14 @@ class Application(AbstractApplication):
 
         raise NotFound(reason=f'Could not find {request.url.path!r}')
 
-    def _parse_response(self, response: Union[str, bytes, dict, list, File, Response]) -> bytes:
+    async def _parse_response(self, response: Union[str, bytes, dict, list, File, Response]) -> bytes:
         if isinstance(response, Response):
+            if isinstance(response, FileResponse):
+                await response.read()
+                response.file.close()
+
+                return response.encode()
+
             return response.encode()
 
         if isinstance(response, str):
@@ -133,6 +139,8 @@ class Application(AbstractApplication):
 
         if isinstance(response, File):
             resp = FileResponse(response)
+            await resp.read()
+
             return resp.encode()
 
         if isinstance(response, bytes):
@@ -186,7 +194,7 @@ class Application(AbstractApplication):
             resp = utils.format_exception(exc)
             self.dispatch('error', exc)
 
-        data = self._parse_response(resp)
+        data = await self._parse_response(resp)
 
         transport = self.get_transport()
         transport.write(data)

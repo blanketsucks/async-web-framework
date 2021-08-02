@@ -1,3 +1,4 @@
+import asyncio
 from typing import Dict, List, Union
 import json
 import enum
@@ -6,8 +7,6 @@ import mimetypes
 from .cookies import CookieJar
 from .file import File
 from .datastructures import MultiDict
-
-from .abc import AbstractApplication
 
 __all__ = (
     'Response',
@@ -220,14 +219,11 @@ class FileResponse(Response):
         self.file = file
 
         super().__init__(
-            body=file.read(),
             status=status, 
             content_type=self.get_content_type(), 
             headers=headers, 
             version=version
         )
-
-        self.file.close()
 
     def get_content_type(self):
         filename = self.file.filename
@@ -238,4 +234,8 @@ class FileResponse(Response):
 
         return content_type
 
+    async def read(self, loop: asyncio.AbstractEventLoop):
+        data = await loop.run_in_executor(None, self.file.read)
+        self._body = data
 
+        return data
