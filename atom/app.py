@@ -14,7 +14,7 @@ from . import utils
 from .settings import Settings
 from .objects import Route, Listener, WebsocketRoute
 from .views import HTTPView
-from .response import Response, JSONResponse, FileResponse
+from .response import Response, JSONResponse, FileResponse, HTMLResponse
 from .file import File
 from .websockets import Websocket
 
@@ -130,7 +130,7 @@ class Application(AbstractApplication):
             return response.encode()
 
         if isinstance(response, str):
-            resp = Response(response, content_type='text/html')
+            resp = HTMLResponse(response)
             return resp.encode()
 
         if isinstance(response, (dict, list)):
