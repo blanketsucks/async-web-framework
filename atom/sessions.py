@@ -5,7 +5,12 @@ if TYPE_CHECKING:
     from .request import Request
 
 class CookieSession(dict):
-    __sessions__ = {}
+    cache = {}
+
+    @classmethod
+    def create(cls, session_id: str) -> CookieSession:
+        self = cls.cache.setdefault(session_id, CookieSession(session_id))
+        return self
 
     @classmethod
     def from_request(cls, request: Request) -> 'CookieSession':
@@ -15,12 +20,7 @@ class CookieSession(dict):
         if not session_id:
             return cls(None)
 
-        self = cls.__sessions__.get(session_id)
-        if not self:
-            self = cls(session_id)
-            self.__sessions__[session_id] = self
-
-        return self
+        return cls.create(session_id)
 
     def __init__(self, session_id: str) -> None:
         self.id: str = session_id

@@ -5,13 +5,13 @@ import json
 from .frame import WebSocketFrame, WebSocketOpcode, Data, WebSocketCloseCode
 
 if TYPE_CHECKING:
-    from atom.protocol import ApplicationProtocol
+    from atom.protocol import ApplicationProtocol, Connection
 
 class Websocket:
-    def __init__(self, transport: asyncio.Transport, peer: Tuple[str, int]) -> None:
-        self.transport = transport
-        self.peer = peer
-        self.protocol: 'ApplicationProtocol' = transport.get_protocol()
+    def __init__(self, connection: Connection) -> None:
+        self.connection = connection
+        self.peer = connection.peername
+        self.protocol: 'ApplicationProtocol' = connection.get_protocol()
 
         self.reader = asyncio.StreamReader()
         self.queue = asyncio.Queue()
@@ -26,7 +26,7 @@ class Websocket:
 
     def send_frame(self, frame: WebSocketFrame):
         data = frame.encode()
-        self.transport.write(data)
+        self.connection.write(data)
 
         return len(data)
 
@@ -65,7 +65,7 @@ class Websocket:
         self._closed = True
         len = self.send_frame(frame)
 
-        self.transport.close()
+        self.connection.close()
         return len
 
     async def receive(self):

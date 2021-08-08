@@ -1,7 +1,8 @@
 import importlib
 import sys
+import asyncio
 
-from .app import Application
+from .app import Application, run
 
 def import_from_string(string: str):
     if len(string.split(':')) > 2:
@@ -22,4 +23,4 @@ def import_from_string(string: str):
 
 if __name__ == '__main__':
     app = import_from_string(sys.argv[1])
-    app.run()
+    asyncio.run(run(app))

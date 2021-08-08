@@ -34,6 +34,9 @@ class CookieJar:
     @classmethod
     def from_request(cls, request: Request) -> CookieJar:
         header = request.headers.get('Cookie', '')
+        if not header:
+            return cls()
+
         cookies = header.split('; ')
 
         jar = cls()

@@ -4,6 +4,7 @@ import inspect
 
 from .request import Request
 from .objects import Route, WebsocketRoute
+from .abc import AbstractRouter
 from .utils import VALID_METHODS
 
 __all__ = (
@@ -27,25 +28,18 @@ class ViewMeta(type):
         self.__routes__ = view_routes
         return self
 
-
 class HTTPView(metaclass=ViewMeta):
-    async def dispatch(self, request: Request, *args, **kwargs):
-        coro = getattr(self, request.method.lower(), None)
-
-        if coro:
-            await coro(*args, **kwargs)
-
-    def add(self, method: str, coro: Callable):
+    def add_route(self, method: str, coro: Callable):
         setattr(self, method, coro)
         return coro
 
-    def as_routes(self, *, app):
+    def as_routes(self, router: AbstractRouter):
         routes = []
 
         for coro in self.__routes__:
             actual = functools.partial(coro, self)
 
-            route = Route(self.__url_route__, coro.__name__.upper(), actual, app=app)
-            routes.append(route)
-
-        yield from routes
+            route = Route(self.__url_route__, coro.__name__.upper(), actual, router=router)
+            router.add_route(route)
+            
+        return routes

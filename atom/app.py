@@ -3,39 +3,59 @@ import pathlib
 import re
 import inspect
 import datetime
+import logging
 import asyncio
 
-from .abc import AbstractRouter, AbstractProtocol, AbstractApplication
+from .abc import AbstractRouter, AbstractProtocol, AbstractApplication, AbstractConnection
 from .request import Request
+from .responses import NotFound, MethodNotAllowed
 from .errors import *
-from .protocol import ApplicationProtocol
+from .protocol import ApplicationProtocol, Connection
 from .router import Router
 from . import utils
 from .settings import Settings
-from .objects import Route, Listener, WebsocketRoute
+from .objects import PartialRoute, Route, Listener, WebsocketRoute
 from .views import HTTPView
 from .response import Response, JSONResponse, FileResponse, HTMLResponse
 from .file import File
 from .websockets import Websocket
 
+log = logging.getLogger(__name__)
+
 __all__ = (
     'Application',
+    'run'
 )
 
 class Application(AbstractApplication):
-    def __init__(self, 
+    """
+    A class respreseting an ASGI application.
+
+    Attributes:
+        router: A [Router](./router.md) instance.
+        settings: A [Settings](./settings.md) instance.
+        suppress_warnings: A bool indicating whether warnings should be surpressed.
+    """
+    def __init__(self,
                 url_prefix: str=None, 
                 *, 
-                loop: asyncio.AbstractEventLoop=None,
                 settings_file: Union[str, pathlib.Path]=None, 
                 load_settings_from_env: bool=None,
-                supress_warnings: bool=False):
-        self.loop = self._get_event_loop(loop)
+                suppress_warnings: bool=False):
+        """
+        Constructor.
+
+        Args:
+            url_prefix: A string to prefix all routes with.
+            settings_file: A string or pathlib.Path instance to a settings file to load.
+            load_settings_from_env: A bool indicating whether to load settings from the environment.
+            suppress_warnings: A bool indicating whether to surpress warnings.
+        """
         self.url_prefix = url_prefix or ''
         self.router: AbstractRouter = Router()
         self.websocket_tasks: List[asyncio.Task] = []
         self.settings = Settings()
-        self.surpress_warnings = supress_warnings
+        self.suppress_warnings = suppress_warnings
 
         if settings_file is not None:
             self.settings = Settings.from_file(settings_file)
@@ -47,6 +67,7 @@ class Application(AbstractApplication):
         self._views: Dict[str, HTTPView] = {}
         self._middlewares: List[Callable] = []
         self._active_listeners: List[asyncio.Task] = []
+        self._loop = None
         self._protocol = ApplicationProtocol(
             app=self,
         )
@@ -113,7 +134,7 @@ class Application(AbstractApplication):
 
             if match:
                 if route.method != request.method:
-                    raise BadRequest(reason=f"{request.method!r} is not allowed for {request.url.path!r}")
+                    raise MethodNotAllowed(reason=f"{request.method!r} is not allowed for {request.url.path!r}")
 
                 return match.groupdict(), route
 
@@ -122,7 +143,7 @@ class Application(AbstractApplication):
     async def _parse_response(self, response: Union[str, bytes, dict, list, File, Response]) -> bytes:
         if isinstance(response, Response):
             if isinstance(response, FileResponse):
-                await response.read()
+                await response.read(self.loop)
                 response.file.close()
 
                 return response.encode()
@@ -139,8 +160,9 @@ class Application(AbstractApplication):
 
         if isinstance(response, File):
             resp = FileResponse(response)
-            await resp.read()
+            await resp.read(self.loop)
 
+            response.close()
             return resp.encode()
 
         if isinstance(response, bytes):
@@ -148,14 +170,6 @@ class Application(AbstractApplication):
 
         return b''
 
-    async def _write(self, resp: Union[str, bytes, dict, list, File, Response]):
-        data = await self._parse_response(resp)
-        transport = self.get_transport()
-
-        if transport:
-            transport.write(data)
-            transport.close()
-    
     async def _run_middlewares(self, request: Request, route: Route, args: Tuple[Any]):
         middlewares = route.middlewares.copy()
         middlewares.extend(self._middlewares)
@@ -180,8 +194,10 @@ class Application(AbstractApplication):
         args = self._convert(route.callback, args)
         return args, route
 
-    async def _request_handler(self, request: Request, *, websocket: Websocket):
+    async def _request_handler(self, request: Request, connection: Connection, *, websocket: Websocket):
         resp = None
+        route = None
+
         try:
             args, route = self._resolve_all(request)
     
@@ -199,43 +215,87 @@ class Application(AbstractApplication):
 
             resp = await self._maybe_coroutine(route.callback, request, *args)
         except Exception as exc:
-            resp = utils.format_exception(exc)
-            self.dispatch('error', exc)
+            if not route:
+                route = PartialRoute(
+                    path=request.url.path,
+                    method=request.method
+                )
 
-        await self._write(resp)
+            resp = utils.format_exception(exc)
+            self.dispatch('error', route, request, exc)
+
+        data = await self._parse_response(resp)
+        await connection.write(data)
+
+        connection.close()
 
     @property
-    def listeners(self):
+    def listeners(self) -> Dict[str, List[Callable[..., Coroutine]]]:
+        """
+        Returns:
+            A dictionary of all listeners.
+        """
         return self._listeners
 
     @property
-    def websockets(self):
+    def websockets(self) -> Dict[Tuple[str, int], Websocket]:
+        """
+        Returns:
+            A dict contaning the current websocket connections.
+        """
         return self._protocol.websockets
 
     @property
-    def protocol(self):
+    def connections(self) -> Dict[Tuple[str, int], AbstractConnection]:
+        """
+        Returns:
+            A list of all connections.
+        """
+        return self._protocol.connections
+
+    @property
+    def protocol(self) -> AbstractProtocol:
+        """
+        Returns:
+            The current protocol.
+        """
         return self._protocol
 
     @protocol.setter
     def protocol(self, value):
-        if not isinstance(value, asyncio.Protocol):
-            raise ValueError('Expected asyncio.Protocol but got {0.__class__.__name__} instead'.format(value))
+        if not isinstance(value, AbstractProtocol):
+            raise ValueError('Expected AbstractProtocol but got {0.__class__.__name__} instead'.format(value))
 
         self._protocol = value
+
+    @property
+    def loop(self) -> Optional[asyncio.AbstractEventLoop]:
+        return self._loop
     
-    def is_closed(self):
+    def is_closed(self) -> bool:
+        """
+        Whether or not the application has been closed
+
+        Returns:
+            True if the application has been closed, False otherwise.
+
+        """
         return self._closed
-
-    def get_transport(self) -> Optional[asyncio.Transport]:
-        return getattr(self._protocol, 'transport', None)
-
-    def get_request_task(self) -> Optional[asyncio.Task]:
-        return getattr(self._protocol, 'request', None)
 
     def log(self, message: str):
         print(f'[{datetime.datetime.utcnow().strftime("%Y/%m/%d | %H:%M:%S")}] {message}')
 
-    async def start(self, host: str=None, port: int=None):
+    async def start(self, host: Optional[str]=None, port: Optional[int]=None):
+        """
+        Starts the application.
+
+        Args:
+            host: The host to listen on.
+            port: The port to listen on.
+        """
+        self._loop = self._get_event_loop()
+        self._protocol.loop = self.loop
+
         host = host or '127.0.0.1'
         port = port or 8080
 
@@ -243,9 +303,16 @@ class Application(AbstractApplication):
         self._server = server
 
         self.dispatch('startup')
+        log.info(f'Started listening on {host}:{port}')
+
         await server.serve_forever()
 
     async def wait_closed(self):
+        """
+        Waits till the application has finished cleaning up.
+        """
+        log.info(f'Waiting for application to close...')
+
         self._ensure_listeners()
         self.protocol.ensure_websockets()
 
@@ -261,14 +328,9 @@ class Application(AbstractApplication):
             if not listener.done():
                 listener.cancel()
 
-        transport = self.get_transport()
-        if transport:
-            transport.close()
-
-        request = self.get_request_task()
-        if request:
-            if not request.done():
-                request.cancel()
+        conn = self.get_current_connection()
+        if conn:
+            conn.close()
 
         self._active_listeners.clear()
         self.websocket_tasks.clear()
@@ -277,6 +339,9 @@ class Application(AbstractApplication):
         await self._server.wait_closed()
 
     def close(self):
+        """
+        Closes the application.
+        """
         if not self._server:
             raise ApplicationError('The Application is not running')
 
@@ -284,35 +349,20 @@ class Application(AbstractApplication):
         self._closed = True
 
         self.dispatch('shutdown')
-
-    def run(self, *args, **kwargs):
-        # async def runner():
-        #     try:
-        #         await self.start(*args, **kwargs)
-        #     except:
-        #         await self.wait_closed()
-        #         self.close()
-
-        # self.loop.create_task(coro=runner())
-        # self.loop.run_forever()
-        
-        self.loop.run_until_complete(self.start(*args, **kwargs))
+        log.info(f'Closed application')
 
     def websocket(self, path: str):
         def decorator(coro: Callable[..., Coroutine]) -> WebsocketRoute:
-            route = WebsocketRoute(path, 'GET', coro, app=self)
-            route.subprotocols = tuple()
-
+            route = WebsocketRoute(path, 'GET', coro, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def route(self, path: str, method: str):
+    def route(self, path: str, method: str=None):
+        method = method or 'GET'
+
         def decorator(func: Callable[..., Coroutine]) -> Route:
-            actual = path
-
-            route = Route(actual, method, func, router=self.router)
+            route = Route(path, method, func, router=self.router)
             return self.add_route(route)
-
         return decorator
 
     def add_route(self, route: Union[Route, WebsocketRoute]):
@@ -321,7 +371,7 @@ class Application(AbstractApplication):
             raise RegistrationError(fmt.format(route.__class__.__name__))
 
         if not inspect.iscoroutinefunction(route.callback):
-            if not self.surpress_warnings:
+            if not self.suppress_warnings:
                 fmt = (
                     'This framework does support synchronous routes but due to everything being done in asynchronous manner it\'s not recommended'
                 )
@@ -329,6 +379,8 @@ class Application(AbstractApplication):
                     message=fmt,
                     category=Warning,
                 )
+
+                log.warn(fmt)
 
         if route in self.router:
             raise RegistrationError('{0!r} is already a route.'.format(route.path))
@@ -418,6 +470,8 @@ class Application(AbstractApplication):
         return decorator
 
     def dispatch(self, name: str, *args, **kwargs):
+        log.debug(f'Dispatching event: {name}')
+
         self._ensure_listeners()
         name = 'on_' + name
 
@@ -441,10 +495,9 @@ class Application(AbstractApplication):
         if not isinstance(view, HTTPView):
             raise RegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__))
 
-        for route in view.as_routes(app=self):
-            self.add_route(route)
-
+        routes = view.as_routes(router=self.router)
         self._views[view.__url_route__] = view
+
         return view
 
     def view(self, path: str):
@@ -462,3 +515,18 @@ class Application(AbstractApplication):
 
         self._middlewares.append(func)
         return func
+
+    # async def on_error(self, 
+    #                 route: Union[Route, PartialRoute], 
+    #                 request: Request, 
+    #                 exception: Exception):
+    #     raise exception
+
+async def run(app: Application, *args, **kwargs):
+    try:
+        await app.start(*args, **kwargs)
+    finally:
+        await app.wait_closed()
+        app.close()
+
+    return app

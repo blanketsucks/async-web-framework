@@ -12,7 +12,7 @@ __all__ = (
     'Response',
     'HTMLResponse',
     'JSONResponse',
-    'FileResponse'
+    'FileResponse',
 )
 
 class HTTPStatus(enum.IntEnum):
@@ -159,8 +159,8 @@ class Response:
         )
 
     def __repr__(self) -> str:
-        fmt = '<Response body={0.body!r} content_type={0.content_type!r} status={0.status} version={0.version}>'
-        return fmt.format(self)
+        name = self.__class__.__name__
+        return f'<{name} status={self.status} content_type={self.content_type!r} version={self.version!r}>'
 
     def encode(self):
         response = [f'HTTP/{self.version} {self.status} {self.status.description}']

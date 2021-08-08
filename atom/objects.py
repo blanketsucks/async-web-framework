@@ -5,10 +5,18 @@ from .errors import RegistrationError
 
 __all__ = (
     'Route',
+    'PartialRoute',
     'WebsocketRoute',
-    'Middleware',
     'Listener'
 )
+
+class PartialRoute:
+    def __init__(self, path: str, method: str) -> None:
+        self.path = path
+        self.method = method
+
+    def __repr__(self) -> str:
+        return f'<PartialRoute path={self.path!r} method={self.method!r}>'
 
 class Route:
     def __init__(self, path: str, method: str, callback, *, router) -> None:
@@ -33,7 +41,7 @@ class Route:
             raise RegistrationError('All middlewares must be async')
 
         self._middlewares.append(callback)
-        return Middleware(callback, self)
+        return callback
 
     def middleware(self, callback):
         return self.add_middleware(callback)
@@ -52,22 +60,8 @@ class Route:
     async def __call__(self, *args, **kwargs):
         return await self.callback(*args, **kwargs)
 
-
 class WebsocketRoute(Route):
     pass
-
-class Middleware:
-    def __init__(self, callback, route) -> None:
-        self._route = route
-        self.callback = callback
-
-    @property
-    def route(self):
-        return self._route
-
-    async def __call__(self, *args, **kwargs):
-        return await self.callback(*args, **kwargs)
-
 
 class Listener:
     def __init__(self, callback, name) -> None:

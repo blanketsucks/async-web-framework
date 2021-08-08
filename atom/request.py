@@ -10,6 +10,7 @@ from .cookies import CookieJar
 from .datastructures import URL
 from .sessions import CookieSession
 from .abc import AbstractApplication, AbstractProtocol
+from .responses import redirects
 
 __all__ = (
     'Request',
@@ -25,7 +26,7 @@ class Request:
     def __init__(self,
                 method: str,
                 url: str,
-                headers: Dict,
+                headers: Dict[str, str],
                 protocol: AbstractProtocol,
                 version: str,
                 body: str,
@@ -50,36 +51,20 @@ class Request:
 
     @property
     def cookies(self) -> Dict[str, str]:
-        cookie = self.headers.get('Cookie', None) or self.headers.get('Set-Cookie')
-
-        if cookie:
-            jar = CookieJar.from_request(self)
-
-            self._cookies = {
-                cookie.name: cookie.value for cookie in jar
-            }
-        else:
-            self._cookies = {}
+        jar = self.cookie_jar
+        self._cookies = {
+            cookie.name: cookie.value for cookie in jar
+        }
 
         return self._cookies
 
     @property
-    def session(self):
-        return CookieSession.from_request(self)
+    def cookie_jar(self):
+        return CookieJar.from_request(self)
 
     @property
-    def token(self) -> Optional[str]:
-        prefixes = ('Bearer',)
-        auth: str = self.headers.get('Authorization', None)
-
-        if auth:
-            prefix, token = auth.split(' ', maxsplit=1)
-            if prefix not in prefixes:
-                return None
-
-            return token
-
-        return None
+    def session(self):
+        return CookieSession.from_request(self)
 
     @property
     def user_agent(self):
@@ -94,29 +79,28 @@ class Request:
         return self.headers.get('Connection')
 
     @property
-    def params(self):
+    def query(self):
         return self.url.query
 
     def text(self) -> str:
-        return self._body
+        return self._body.decode() if isinstance(self._body, (bytes, bytearray)) else self._body
 
     def json(self) -> Dict[str, Any]:
         return json.loads(self.text())
 
-    def redirect(self, to: str, headers: Dict=None, status: int=None, content_type: str=None):
+    def redirect(self, to: str, body: Any=None, headers: Dict=None, status: int=None, content_type: str=None):
         headers = headers or {}
         status = status or 302
         content_type = content_type or 'text/plain'
 
         url = urllib.parse.quote_plus(to, ":/%#?&=@[]!$&'()*+,;")
-        headers['Location'] = url
+        cls = redirects.get(status)
 
-        response = Response(
-            status=status,
-            content_type=content_type,
-            headers=headers
-        )
+        if not cls:
+            ret = f'{status} is not a valid redirect status code'
+            raise ValueError(ret)
 
+        response = cls(location=url, body=body, headers=headers, content_type=content_type)
         return response
 
     @classmethod
@@ -126,7 +110,7 @@ class Request:
 
         parts = line.split(' ')
         headers = dict(headers)
-
+        
         method = parts[0]
         version = parts[2]
         path = parts[1]
