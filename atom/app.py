@@ -1,11 +1,15 @@
-from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Union
+import ssl
+from typing import Any, Callable, Coroutine, Counter, Dict, List, Optional, Tuple, Union
 import pathlib
 import re
 import inspect
 import datetime
 import logging
+import multiprocessing
+import socket
 import asyncio
 
+from .server import ClientConnection
 from .abc import AbstractRouter, AbstractProtocol, AbstractApplication, AbstractConnection
 from .request import Request
 from .responses import NotFound, MethodNotAllowed
@@ -19,6 +23,8 @@ from .views import HTTPView
 from .response import Response, JSONResponse, FileResponse, HTMLResponse
 from .file import File
 from .websockets import Websocket
+from .workers import Worker
+from .models import Model
 
 log = logging.getLogger(__name__)
 
@@ -37,11 +43,15 @@ class Application(AbstractApplication):
         suppress_warnings: A bool indicating whether warnings should be surpressed.
     """
     def __init__(self,
+                host: str=None,
+                port: int=None,
                 url_prefix: str=None, 
                 *, 
                 settings_file: Union[str, pathlib.Path]=None, 
                 load_settings_from_env: bool=None,
-                suppress_warnings: bool=False):
+                suppress_warnings: bool=False,
+                use_ssl: bool=False,
+                ssl_context: ssl.SSLContext=None):
         """
         Constructor.
 
@@ -51,11 +61,19 @@ class Application(AbstractApplication):
             load_settings_from_env: A bool indicating whether to load settings from the environment.
             suppress_warnings: A bool indicating whether to surpress warnings.
         """
+        self.host = host or '127.0.0.1'
+        self.port = port or 8080
+
         self.url_prefix = url_prefix or ''
         self.router: AbstractRouter = Router()
         self.websocket_tasks: List[asyncio.Task] = []
         self.settings = Settings()
         self.suppress_warnings = suppress_warnings
+        self.is_ssl = use_ssl
+        self.ssl_context = ssl_context
+
+        if self.is_ssl and self.ssl_context is None:
+            self.ssl_context = ssl.create_default_context()
 
         if settings_file is not None:
             self.settings = Settings.from_file(settings_file)
@@ -73,6 +91,7 @@ class Application(AbstractApplication):
         )
         self._server = None
         self._closed = False
+        self._workers = []
 
     def __repr__(self) -> str:
         prefix = self.url_prefix or '/'
@@ -108,20 +127,30 @@ class Application(AbstractApplication):
             if ws.done():
                 self.websocket_tasks.remove(ws)
 
-    def _convert(self, func, args):
+    def _convert(self, func: Callable, args: Dict, request: 'Request'):
         return_args = []
         params = inspect.signature(func)
 
         for key, value in params.parameters.items():
-            for name, match in args.items():
-                if key == name:
+            param = args.get(key)
+            if param:
+                if value.annotation is inspect.Signature.empty:
+                    return_args.append(param)
+                else:
                     try:
-                        param = value.annotation(match)
+                        param = value.annotation(param)
                     except ValueError:
                         fut = 'Failed conversion to {0!r} for parameter {1!r}.'.format(value.annotation.__name__, key)
                         raise BadConversion(fut) from None
                     else:
                         return_args.append(param)
+
+            else:
+                if issubclass(value.annotation, Model):
+                    data = request.json()
+                    model = value.annotation.from_json(data.get(key))
+
+                    return_args.append(model)
 
         return return_args
 
@@ -141,32 +170,36 @@ class Application(AbstractApplication):
         raise NotFound(reason=f'Could not find {request.url.path!r}')
 
     async def _parse_response(self, response: Union[str, bytes, dict, list, File, Response]) -> bytes:
+        status = 200
+        if isinstance(response, tuple):
+            response, status = response
+
+            if not isinstance(status, int):
+                raise TypeError('Response status must be an integer.')
+
+        if isinstance(response, File):
+            response = FileResponse(response, status=status)  
+
         if isinstance(response, Response):
             if isinstance(response, FileResponse):
-                await response.read(self.loop)
+                await response.read()
                 response.file.close()
 
                 return response.encode()
 
             return response.encode()
 
+        if isinstance(response, Model):
+            resp = JSONResponse(response.json(), status=status)
+            return resp
+
         if isinstance(response, str):
-            resp = HTMLResponse(response)
+            resp = HTMLResponse(response, status=status)
             return resp.encode()
 
         if isinstance(response, (dict, list)):
-            resp = JSONResponse(response)
+            resp = JSONResponse(response, status=status)
             return resp.encode()
-
-        if isinstance(response, File):
-            resp = FileResponse(response)
-            await resp.read(self.loop)
-
-            response.close()
-            return resp.encode()
-
-        if isinstance(response, bytes):
-            return response
 
         return b''
 
@@ -191,10 +224,10 @@ class Application(AbstractApplication):
         args, route = self._resolve(request)
         request.route = route
 
-        args = self._convert(route.callback, args)
+        args = self._convert(route.callback, args, request)
         return args, route
 
-    async def _request_handler(self, request: Request, connection: Connection, *, websocket: Websocket):
+    async def _request_handler(self, request: Request, connection: ClientConnection, *, websocket: Websocket):
         resp = None
         route = None
 
@@ -221,13 +254,17 @@ class Application(AbstractApplication):
                     method=request.method
                 )
 
-            resp = utils.format_exception(exc)
             self.dispatch('error', route, request, exc)
+            return
 
         data = await self._parse_response(resp)
         await connection.write(data)
 
         connection.close()
+
+    @property
+    def workers(self) -> List[Worker]:
+        return self._workers
 
     @property
     def listeners(self) -> Dict[str, List[Callable[..., Coroutine]]]:
@@ -285,7 +322,7 @@ class Application(AbstractApplication):
     def log(self, message: str):
         print(f'[{datetime.datetime.utcnow().strftime("%Y/%m/%d | %H:%M:%S")}] {message}')
 
-    async def start(self, host: Optional[str]=None, port: Optional[int]=None):
+    async def start(self):
         """
         Starts the application.
 
@@ -293,59 +330,34 @@ class Application(AbstractApplication):
             host: The host to listen on.
             port: The port to listen on.
         """
-        self._loop = self._get_event_loop()
-        self._protocol.loop = self.loop
+        self._loop = asyncio.get_running_loop()
 
-        host = host or '127.0.0.1'
-        port = port or 8080
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-        server: asyncio.AbstractServer = await self.loop.create_server(self._protocol, host, port)
-        self._server = server
+        sock.bind((self.host, self.port))
 
-        self.dispatch('startup')
-        log.info(f'Started listening on {host}:{port}')
+        count = (multiprocessing.cpu_count() * 2) + 1
 
-        await server.serve_forever()
+        for num in range(count):
+            worker = Worker(self, sock)
+            self.workers.append(worker)
 
-    async def wait_closed(self):
-        """
-        Waits till the application has finished cleaning up.
-        """
-        log.info(f'Waiting for application to close...')
+            self.loop.create_task(worker.run(), name=f'Worker-{num}')
+        
+        future = self.loop.create_future()
+        await future
 
-        self._ensure_listeners()
-        self.protocol.ensure_websockets()
-
-        for websocket in self.websockets.values():
-            ws = self.websockets.pop(websocket.peer)
-            ws.close(b'')
-            
-        for task in self.websocket_tasks:
-            if not task.done():
-                task.cancel()
-
-        for listener in self._active_listeners:
-            if not listener.done():
-                listener.cancel()
-
-        conn = self.get_current_connection()
-        if conn:
-            conn.close()
-
-        self._active_listeners.clear()
-        self.websocket_tasks.clear()
-        self._protocol.websockets.clear()
-
-        await self._server.wait_closed()
-
-    def close(self):
+    async def close(self):
         """
         Closes the application.
         """
         if not self._server:
             raise ApplicationError('The Application is not running')
 
-        self._server.close()
+        for worker in self.workers:
+            await worker.stop()
+
         self._closed = True
 
         self.dispatch('shutdown')
@@ -516,17 +528,18 @@ class Application(AbstractApplication):
         self._middlewares.append(func)
         return func
 
-    # async def on_error(self, 
-    #                 route: Union[Route, PartialRoute], 
-    #                 request: Request, 
-    #                 exception: Exception):
-    #     raise exception
+    async def on_error(self, 
+                    route: Union[Route, PartialRoute], 
+                    request: Request, 
+                    exception: Exception):
+        raise exception
 
 async def run(app: Application, *args, **kwargs):
+    app._loop = asyncio.get_running_loop()
+
     try:
         await app.start(*args, **kwargs)
     finally:
-        await app.wait_closed()
-        app.close()
+        await app.close()
 
     return app

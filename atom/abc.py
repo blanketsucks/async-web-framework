@@ -42,7 +42,7 @@ class AbstractConnection:
     def close(self) -> None:
         raise NotImplementedError
 
-    async def write(self, data: bytes) -> None:
+    def write(self, data: bytes) -> None:
         raise NotImplementedError
 
 class AbstractRouter:
@@ -156,7 +156,7 @@ class AbstractApplication:
     def remove_event_listener(self, func: Callable[..., Coroutine]=None, name: str=None) -> None:
         raise NotImplementedError
 
-    def event(self, name: str = None) -> Callable[[Callable[..., Coroutine]], Listener]:
+    def event(self, name: str=None) -> Callable[[Callable[..., Coroutine]], Listener]:
         raise NotImplementedError
     
 

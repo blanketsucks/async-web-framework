@@ -8,7 +8,7 @@ from asyncio.trsock import TransportSocket
 from .request import Request
 from .response import Response, HTTPStatus
 from .websockets import Websocket
-from .abc import AbstractProtocol
+from .abc import AbstractProtocol, AbstractConnection
 
 if TYPE_CHECKING:
     from .app import Application
@@ -44,7 +44,7 @@ class Connection:
         self.transport.close()
         self._closed = True
 
-    async def write(self, data: bytes):
+    def write(self, data: bytes):
         log.info(f"Writing {len(data)} bytes to {self.peername}")
         self.transport.write(data)
 

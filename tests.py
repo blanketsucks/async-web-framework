@@ -1,19 +1,9 @@
-import aiohttp
 import asyncio
+import atom
 
-async def get(tries):
-    try:
-        print(f'Try: {tries}')
+app = atom.Application()
 
-        connector = aiohttp.TCPConnector()
-        async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.get('http://127.0.0.1:8080/post') as resp:
-                pass
-    except Exception as e:
-        raise e
+from atom.openapi.router import openapi
+app.add_router(openapi)
 
-async def main():
-    tasks = [get(i) for i in range(100)]
-    await asyncio.gather(*tasks, return_exceptions=True)
-
-asyncio.run(main())
+asyncio.run(atom.run(app))

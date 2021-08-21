@@ -233,8 +233,8 @@ class FileResponse(Response):
 
         return content_type
 
-    async def read(self, loop: asyncio.AbstractEventLoop):
-        data = await loop.run_in_executor(None, self.file.read)
-        self._body = data
+    async def read(self):
+        data = await self.file.read()
+        self._body = data.decode()
 
         return data

@@ -11,6 +11,7 @@ from .datastructures import URL
 from .sessions import CookieSession
 from .abc import AbstractApplication, AbstractProtocol
 from .responses import redirects
+from .formdata import FormData
 
 __all__ = (
     'Request',
@@ -20,25 +21,25 @@ class Request:
     __slots__ = (
         '_encoding', 'version', 'method',
         '_url', 'headers', '_body', 'protocol', 'connection_info',
-        '_cookies', 'route', '_app'
+        '_cookies', 'route', '_app', 'peername'
     )
 
     def __init__(self,
                 method: str,
                 url: str,
                 headers: Dict[str, str],
-                protocol: AbstractProtocol,
                 version: str,
                 body: str,
-                app: AbstractApplication):
+                app: AbstractApplication,
+                peername: str):
         self._encoding = "utf-8"
         self._app = app
         self._url = url
         self._body = body
         self.version = version
         self.method = method
+        self.peername = peername
         self.headers = headers
-        self.protocol = protocol
         self.route: Union[Route, WebsocketRoute] = None
 
     @property
@@ -88,6 +89,9 @@ class Request:
     def json(self) -> Dict[str, Any]:
         return json.loads(self.text())
 
+    def form(self):
+        return FormData.from_request(self)
+
     def redirect(self, to: str, body: Any=None, headers: Dict=None, status: int=None, content_type: str=None):
         headers = headers or {}
         status = status or 302
@@ -104,7 +108,7 @@ class Request:
         return response
 
     @classmethod
-    def parse(cls, data: bytes, protocol: AbstractProtocol):
+    def parse(cls, data: bytes, app: AbstractApplication, peername: str) -> Request:
         headers, body = find_headers(data)
         line, = next(headers)
 
@@ -119,10 +123,10 @@ class Request:
             method=method,
             url=path,
             version=version,
-            protocol=protocol,
             headers=headers,
             body=body,
-            app=protocol.app
+            app=app,
+            peername=peername
         )
 
         return self

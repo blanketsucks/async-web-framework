@@ -1,18 +1,17 @@
 import traceback
-import markdown as mark
+import markdown as _markdown
 import json
 import traceback
 import warnings
 import functools
+import asyncio
 from typing import Type, Generator, Tuple
 
-from .response import Response, HTMLResponse, JSONResponse
+from .response import HTMLResponse, JSONResponse
 
 __all__ = (
-    'format_exception',
     'jsonify',
     'markdown',
-    'render_html',
     'deprecated',
     'Deprecated',
     'SETTING_ENV_PREFIX',
@@ -63,23 +62,6 @@ def deprecated(other=None):
     return decorator
 
 
-def format_exception(exc):
-    server_exception_templ = """
-    <div>
-        <h1>500 Internal server error</h1>
-        <span>Server got itself in trouble : <b>{exc}</b><span>
-        <p>{traceback}</p>
-    </div> 
-    """
-
-    resp = Response(status=500, content_type="text/html")
-    trace = traceback.format_exc().replace("\n", "</br>")
-
-    msg = server_exception_templ.format(exc=str(exc), traceback=trace)
-    resp.add_body(msg)
-
-    return resp
-
 
 def jsonify(*, response=True, **kwargs):
     """Inspired by Flask's jsonify"""
@@ -91,22 +73,14 @@ def jsonify(*, response=True, **kwargs):
 
     return data
 
-def markdown(fp: str):
-    actual = fp + '.md'
+async def markdown(path: str, *, loop: asyncio.AbstractEventLoop = None) -> str:
+    def read(path: str):
+        with open(path, 'r') as file:
+            content = file.read()
+            return _markdown.markdown(content)
 
-    with open(actual, 'r') as file:
-        content = file.read()
-        resp = mark.markdown(content)
-
-        return HTMLResponse(resp)
-
-
-def render_html(fp: str):
-    actual = fp + '.html'
-
-    with open(actual, 'r') as file:
-        resp = file.read()
-        return HTMLResponse(resp)
+    body = await loop.run_in_executor(None, read, path)
+    return HTMLResponse(body)
 
 def iter_headers(headers: bytes) -> Generator:
     offset = 0
