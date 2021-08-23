@@ -1,6 +1,5 @@
 import asyncio
 import atom
-from atom import oauth
 
 app = atom.Application()
 client = atom.TestClient(app)
@@ -18,8 +17,4 @@ async def on_worker_shutdown(worker: atom.Worker):
     print(f'Worker-{worker.id} has shutdown')
 
 if __name__ == '__main__':
-    async def main():
-        async with client.ws_connect('/feed') as websocket:
-            pass
-    
-    asyncio.run(main())
+    asyncio.run(atom.run(app))
