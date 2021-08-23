@@ -13,9 +13,10 @@ app = atom.Application()
 async def get_name(request: atom.Request, name: str):
     if len(name) > 64:
         error = {
-            'error': 'name too long.
+            'message': 'name too long.',
+            'status': 400
         }
-        return atom.abort(400, message=error, content_type='application/json')
+        return error, 400
 
     return {
         'Hello': name
