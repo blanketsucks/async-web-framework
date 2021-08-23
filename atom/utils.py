@@ -1,4 +1,3 @@
-import markdown as _markdown
 import json
 import warnings
 import functools
@@ -9,7 +8,6 @@ from .response import HTMLResponse, JSONResponse
 
 __all__ = (
     'jsonify',
-    'markdown',
     'deprecated',
     'Deprecated',
     'SETTING_ENV_PREFIX',
@@ -70,15 +68,6 @@ def jsonify(*, response=True, **kwargs):
         return resp
 
     return data
-
-async def markdown(path: str, *, loop: asyncio.AbstractEventLoop = None) -> str:
-    def read(path: str):
-        with open(path, 'r') as file:
-            content = file.read()
-            return _markdown.markdown(content)
-
-    body = await loop.run_in_executor(None, read, path)
-    return HTMLResponse(body)
 
 def iter_headers(headers: bytes) -> Generator:
     offset = 0
