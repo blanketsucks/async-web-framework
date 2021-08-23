@@ -15,7 +15,6 @@ from atom.http.utils import AsyncIterator
 
 if TYPE_CHECKING:
     from .client import HTTPSession
-    from .websockets import WebsocketClient
 
 _T = TypeVar('_T')
 SSL_SCHEMES = ('https', 'wss')
