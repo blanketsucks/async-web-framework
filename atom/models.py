@@ -130,9 +130,3 @@ class Model(metaclass=ModelMeta):
                     raise IncompatibleType(name, accepts, type) from None
 
         return cls(**data)
-
-class User(Model):
-    id: int
-
-user = User.from_json({'id': '123'})
-print(user)
