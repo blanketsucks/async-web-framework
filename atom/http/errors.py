@@ -1,9 +1,8 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .client import HTTPSession
-    from .websockets import WebsocketClient
     from .abc import Hooker
 
 class InvalidHost(TypeError):
@@ -12,11 +11,11 @@ class InvalidHost(TypeError):
         super().__init__(message)
 
 class HookerError(Exception):
-    def __init__(self, message: str, *, hooker: Hooker, client: Union[HTTPSession, WebsocketClient]) -> None:
+    def __init__(self, message: str=None, *, hooker: Hooker, client: HTTPSession) -> None:
         self.hooker = hooker
         self.client = client
 
-        super().__init__(message)
+        super().__init__('' if message is None else message)
 
 class HookerAlreadyConnected(HookerError):
     pass
