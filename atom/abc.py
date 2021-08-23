@@ -11,12 +11,15 @@ if TYPE_CHECKING:
 __all__ = (
     'AbstractRouter',
     'AbstractApplication',
-    'AbstractProtocol',
 )
 
-Route = Callable[[Callable[[Request], Coroutine[Any, Any, Any]]], _Route]
-WebsocketRoute = Callable[[Callable[[Request], Coroutine[Any, Any, Any]]], _WebsocketRoute]
-Middleware = Callable[[Request, Callable[[Request], Coroutine[Any, Any, Any]]], Coroutine[Any, Any, Any]]
+# Route = Callable[[Callable[[Request], Coroutine[Any, Any, Any]]], _Route]
+# WebsocketRoute = Callable[[Callable[[Request], Coroutine[Any, Any, Any]]], _WebsocketRoute]
+# Middleware = Callable[[Request, Callable[[Request], Coroutine[Any, Any, Any]]], Coroutine[Any, Any, Any]]
+
+Route = Callable
+WebsocketRoute = Callable
+Middleware = Callable
 
 
 class AbstractRouter:

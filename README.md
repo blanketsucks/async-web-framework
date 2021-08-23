@@ -6,12 +6,13 @@
 
 ```py
 import atom
+import asyncio
 
 app = atom.Application()
 
 @app.route('/hello/{name}', 'GET')
 async def get_name(request: atom.Request, name: str):
-    if len(name) > 64:
+    if len(name) > 25:
         error = {
             'message': 'name too long.',
             'status': 400
@@ -24,13 +25,13 @@ async def get_name(request: atom.Request, name: str):
 
 if __name__ == '__main__':
     asyncio.run(atom.run(app))
-
 ```
 
 ### Views Example
 
 ```py
 import atom
+import asyncio
 
 app = atom.Application()
 app.users = {}
@@ -47,6 +48,7 @@ if __name__ == '__main__':
 ### Oauth example
 
 ```py
+import asyncio
 import atom
 from atom.oauth import discord
 
