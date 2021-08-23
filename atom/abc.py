@@ -1,10 +1,7 @@
 from __future__ import annotations
-from typing import Any, Callable, Coroutine, Iterator, Optional, TYPE_CHECKING, Tuple, Union
+from typing import Any, Callable, Coroutine, Iterator, Optional, TYPE_CHECKING, Union
 import asyncio
 import pathlib
-from asyncio.trsock import TransportSocket
-
-from .websockets import Websocket
 
 if TYPE_CHECKING:
     from .settings import Settings
@@ -17,16 +14,16 @@ __all__ = (
     'AbstractProtocol',
 )
 
-Route = Callable[[Callable[['Request'], Coroutine[Any, Any, Any]]], '_Route']
-WebsocketRoute = Callable[[Callable[['Request'], Coroutine[Any, Any, Any]]], '_WebsocketRoute']
-Middleware = Callable[['Request', Callable[['Request'], Coroutine[Any, Any, Any]]], Coroutine[Any, Any, Any]]
+Route = Callable[[Callable[[Request], Coroutine[Any, Any, Any]]], _Route]
+WebsocketRoute = Callable[[Callable[[Request], Coroutine[Any, Any, Any]]], _WebsocketRoute]
+Middleware = Callable[[Request, Callable[[Request], Coroutine[Any, Any, Any]]], Coroutine[Any, Any, Any]]
 
 
 class AbstractRouter:
-    def add_route(self, route: Union['_Route', '_WebsocketRoute']) -> Union['_Route', '_WebsocketRoute']:
+    def add_route(self, route: Union[_Route, _WebsocketRoute]) -> Union[_Route, _WebsocketRoute]:
         raise NotImplementedError
 
-    def remove_route(self, route: Union['_Route', '_WebsocketRoute']) -> Union['_Route', '_WebsocketRoute']:
+    def remove_route(self, route: Union[_Route, _WebsocketRoute]) -> Union[_Route, _WebsocketRoute]:
         raise NotImplementedError
 
     def websocket(self, path: str) -> WebsocketRoute:
@@ -59,12 +56,12 @@ class AbstractRouter:
     def middleware(self, func: Middleware) -> Middleware:
         raise NotImplementedError
 
-    def __iter__(self) -> Iterator[Union['_Route', '_WebsocketRoute']]:
+    def __iter__(self) -> Iterator[Union[_Route, _WebsocketRoute]]:
         raise NotImplementedError
 
 class AbstractApplication:
     loop: Optional[asyncio.AbstractEventLoop]
-    settings: 'Settings'
+    settings: Settings
     url_prefix: str
     surpress_warnings: bool
 
@@ -87,13 +84,13 @@ class AbstractApplication:
     async def close(self) -> None:
         raise NotImplementedError
 
-    def add_route(self, route: Union['_Route', '_WebsocketRoute']) -> Union['_Route', '_WebsocketRoute']:
+    def add_route(self, route: Union[_Route, _WebsocketRoute]) -> Union[_Route, _WebsocketRoute]:
         raise NotImplementedError
 
-    def get_route(self, method: str, path: str) -> Union['_Route', '_WebsocketRoute']:
+    def get_route(self, method: str, path: str) -> Union[_Route, _WebsocketRoute]:
         raise NotImplementedError
 
-    def remove_route(self, route: Union['_Route', '_WebsocketRoute']) -> Union['_Route', '_WebsocketRoute']:
+    def remove_route(self, route: Union[_Route, _WebsocketRoute]) -> Union[_Route, _WebsocketRoute]:
         raise NotImplementedError
 
     def add_router(self, router: AbstractRouter) -> AbstractRouter:
