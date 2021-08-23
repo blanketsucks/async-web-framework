@@ -33,7 +33,6 @@ class Disposition:
     def filename(self):
         return _get(self._parts, 2)
 
-
 class FormData:
     def __init__(self) -> None:
         self.files: List[Tuple[File, Disposition]] = []
@@ -72,8 +71,3 @@ class FormData:
                 form.add_file(file, disposition)
 
         return form
-
-
-
-
-        
