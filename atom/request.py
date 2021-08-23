@@ -1,15 +1,14 @@
 from __future__ import annotations
 import json
-from typing import TYPE_CHECKING, Union, Dict, Optional, Any
+from typing import Union, Dict, Any
 import urllib.parse
 
 from .objects import Route, WebsocketRoute
-from .response import Response
 from .utils import find_headers
 from .cookies import CookieJar
 from .datastructures import URL
 from .sessions import CookieSession
-from .abc import AbstractApplication, AbstractProtocol
+from .abc import AbstractApplication
 from .responses import redirects
 from .formdata import FormData
 
@@ -72,6 +71,10 @@ class Request:
         return self.headers.get('User-Agent')
 
     @property
+    def content_type(self):
+        return self.headers.get('Content-Type')
+
+    @property
     def host(self):
         return self.headers.get('Host')
 
@@ -92,7 +95,17 @@ class Request:
     def form(self):
         return FormData.from_request(self)
 
-    def redirect(self, to: str, body: Any=None, headers: Dict=None, status: int=None, content_type: str=None):
+    def graphql(self):
+        if self.content_type == 'application/json':
+            data = self.json()
+            query = data.get('query')
+
+        else:
+            query = self.text()
+
+        return query
+
+    def redirect(self, to: str, *, body: Any=None, headers: Dict=None, status: int=None, content_type: str=None):
         headers = headers or {}
         status = status or 302
         content_type = content_type or 'text/plain'

@@ -1,5 +1,5 @@
 import inspect
-from typing import Callable, Coroutine, List, TYPE_CHECKING, Dict, Tuple, Union
+from typing import Callable, Coroutine, List, Dict, Tuple, Union
 import re
 
 from .abc import AbstractRouter

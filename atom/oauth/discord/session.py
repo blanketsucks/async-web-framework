@@ -1,9 +1,9 @@
 from typing import Optional
-import aiohttp
 
+from atom import http
 from .user import User
-from ..abc import AbstractSession
-from ..errors import SessionClosed 
+from atom.oauth.abc import AbstractSession
+from atom.oauth.errors import SessionClosed 
 
 class Session(AbstractSession):
     URL = 'https://discord.com/api/v8/'
@@ -12,7 +12,7 @@ class Session(AbstractSession):
                 client_id: str, 
                 client_secret: str,
                 redirect_uri: str, 
-                session: aiohttp.ClientSession) -> None:
+                session: http.HTTPSession) -> None:
         self.code = code
         self.client_id = client_id
         self.client_secret = client_secret

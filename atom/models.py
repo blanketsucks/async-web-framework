@@ -1,5 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple, Type, Optional, TypeVar
-import inspect
+from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple, Type, TypeVar
 
 __all__ = (
     'Field',
@@ -8,7 +7,16 @@ __all__ = (
 
 _T = TypeVar('_T')
 
-def _make_fn(name: str, body: str):
+class IncompatibleType(Exception):
+    def __init__(self, name: str, accepts: Type, argument: Type) -> None:
+        self.name = name
+        self.accepts = accepts
+        self.argument = argument
+
+        message = f'Incompatible type {argument} for argument {name!r} which accepts {accepts}'
+        super().__init__(message)
+
+def _make_fn(name: str, body: str) -> Callable:
     txt = f"def __create_fn__():\n {body}\n return {name}"
 
     ns = {}
@@ -72,16 +80,20 @@ class Field:
 class ModelMeta(type):
     def __new__(cls, name: str, bases: Tuple[Type], attrs: Dict[str, Any], **kwargs):
         annotations = attrs.get('__annotations__')
+
         if annotations:
             body = _make_init(annotations)
-            fn = _make_fn('__init__', body)
             fields = _make_fields(annotations)
+
+            fn = _make_fn('__init__', body)
+            fn.__qualname__ = f'{name}.__init__'
 
             attrs['__fields__'] = fields
             attrs['__init__'] = fn
 
             return super().__new__(cls, name, bases, attrs)
 
+        attrs['__fields__'] = ()
         return super().__new__(cls, name, bases, attrs)
 
 class Model(metaclass=ModelMeta):
@@ -102,10 +114,25 @@ class Model(metaclass=ModelMeta):
     def from_json(cls: Type[_T], data: Dict[str, Any]) -> _T:
         for field in cls.__fields__:
             if field.name in data:
-                if issubclass(field.type, Model):
-                    data[field.name] = field.type(**data[field.name])
+                try:
+                    if issubclass(field.type, Model):
+                        data[field.name] = field.type(**data[field.name])
 
-                else:
-                    data[field.name] = field.type(data[field.name])
+                    else:
+                        data[field.name] = field.type(data[field.name])
+                except (ValueError, TypeError):
+                    name = field.name
+                    accepts = field.type
+
+                    argument = data[name]
+                    type = argument.__class__
+
+                    raise IncompatibleType(name, accepts, type) from None
 
         return cls(**data)
+
+class User(Model):
+    id: int
+
+user = User.from_json({'id': '123'})
+print(user)

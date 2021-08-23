@@ -15,10 +15,10 @@ class AbstarctOauth2Client:
     def redirect(self, request: Request, *, state: str=None, scopes: List[str]=None):
         raise NotImplementedError
 
-    def get_session(self, code: str) -> Optional['AbstractSession']:
+    def get_session(self, access_token: str) -> Optional['AbstractSession']:
         raise NotImplementedError
 
-    def create_session(self, code: str) -> 'AbstractSession':
+    def create_session(self, access_token: str) -> 'AbstractSession':
         raise NotImplementedError
 
     async def close(self):

@@ -1,10 +1,10 @@
 from typing import Dict, List, Optional
 from urllib.parse import urlencode
-import aiohttp
+from atom import http
 
 from atom import Request
 from .session import Session
-from ..abc import AbstarctOauth2Client
+from atom.oauth.abc import AbstarctOauth2Client
 
 class Oauth2Client(AbstarctOauth2Client):
     URL = 'https://discordapp.com/api/oauth2/authorize'
@@ -13,11 +13,11 @@ class Oauth2Client(AbstarctOauth2Client):
                 client_secret: str, 
                 redirect_uri: str,
                 *,
-                session: aiohttp.ClientSession=None) -> None:
+                session: http.HTTPSession=None) -> None:
         self.client_id = client_id
         self.redirect_uri = redirect_uri
         self.client_secret = client_secret
-        self.session = session or aiohttp.ClientSession()
+        self.session = session or http.HTTPSession()
 
         self._sessions = {}
 
@@ -42,8 +42,8 @@ class Oauth2Client(AbstarctOauth2Client):
         params = urlencode(params)
         return request.redirect(f'{self.URL}?{params}')
 
-    def get_session(self, code: str) -> Optional[Session]:
-        return self._sessions.get(code)
+    def get_session(self, access_token: str) -> Optional[Session]:
+        return self._sessions.get(access_token)
 
     async def create_session(self, code: str):
         session = Session(
@@ -53,9 +53,9 @@ class Oauth2Client(AbstarctOauth2Client):
             redirect_uri=self.redirect_uri,
             session=self.session,
         )
-        self._sessions[code] = session
         await session.fetch_token()
 
+        self._sessions[session.access_token] = session
         return session
 
     async def close(self):

@@ -14,7 +14,8 @@ from .websockets import Websocket
 from .abc import *
 from .datastructures import *
 from .file import File
-from .protocol import ApplicationProtocol, Connection
 from .formdata import FormData
 from .templates import *
 from .models import Model
+from .workers import Worker
+from .testclient import TestClient

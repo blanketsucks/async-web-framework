@@ -1,10 +1,10 @@
-from typing import Any, Tuple, Dict, Coroutine, Callable
 import struct
+import typing
 import os
 import json
 import enum
 
-class WebSocketOpcode(enum.IntEnum):
+class WebsocketOpcode(enum.IntEnum):
     CONTINUATION = 0x0
     TEXT = 0x1
     BINARY = 0x2
@@ -12,7 +12,7 @@ class WebSocketOpcode(enum.IntEnum):
     PING = 0x9
     PONG = 0xA
 
-class WebSocketCloseCode(enum.IntEnum):
+class WebsocketCloseCode(enum.IntEnum):
     NORMAL = 1000
     GOING_AWAY = 1001
     PROTOCOL_ERROR = 1002
@@ -33,11 +33,19 @@ class WebSocketCloseCode(enum.IntEnum):
 __all__ = (
     'mask',
     'Data',
-    'WebSocketFrame'
+    'WebsocketFrame'
 )
 
+def mask(data: typing.ByteString, mask: bytes) -> bytearray:
+    data = bytearray(data)
+
+    for i in range(len(data)):
+        data[i] ^= mask[i % 4]
+
+    return bytes(data)
+
 class Data:
-    def __init__(self, raw: bytearray, frame: 'WebSocketFrame') -> None:
+    def __init__(self, raw: bytearray, frame: 'WebsocketFrame') -> None:
         self.raw = raw
         self.frame = frame
 
@@ -49,9 +57,9 @@ class Data:
     def data(self):
         return self.frame.data
 
-    def encode(self, opcode: WebSocketOpcode=None, *, masked: bool=False):
-        frame = WebSocketFrame(
-            opcode=WebSocketOpcode.TEXT if opcode is None else opcode,
+    def encode(self, opcode: WebsocketOpcode=None, *, masked: bool=False):
+        frame = WebsocketFrame(
+            opcode=WebsocketOpcode.TEXT if opcode is None else opcode,
             data=self.data
         )   
 
@@ -60,16 +68,16 @@ class Data:
     def as_string(self):
         return self.data.decode()
 
-    def as_json(self) -> Dict:
+    def as_json(self) -> typing.Dict:
         string = self.as_string()
         return json.loads(string)
 
-class WebSocketFrame:
+class WebsocketFrame:
     SHORT_LENGTH = struct.Struct('!H')
     LONGLONG_LENGTH = struct.Struct('!Q')
 
     def __init__(self, *, 
-                opcode: WebSocketOpcode, 
+                opcode: WebsocketOpcode, 
                 fin: bool=True,
                 rsv1: bool=False, 
                 rsv2: bool=False, 
@@ -89,7 +97,7 @@ class WebSocketFrame:
         return f'<{self.__class__.__name__} {s}>'
 
     @staticmethod
-    def mask(data: bytes, mask: bytes) -> bytearray:
+    def mask(data: typing.ByteString, mask: bytes) -> bytearray:
         data = bytearray(data)
 
         for i in range(len(data)):
@@ -127,8 +135,16 @@ class WebSocketFrame:
         buffer.extend(data)
         return buffer
 
+    @staticmethod
+    def get_opcode(data: bytes):
+        data = data[:2]
+        head1, _ = struct.unpack("!BB", data)
+
+        opcode = WebsocketOpcode(head1 & 0b00001111)
+        return opcode
+
     @classmethod
-    async def decode(cls, read: Callable[[int], Coroutine[None, None, bytes]]) -> Tuple[WebSocketOpcode, bytearray, 'WebSocketFrame']:
+    async def decode(cls, read: typing.Callable[[int], typing.Coroutine[None, None, bytes]], *, masked: bool=False) -> typing.Tuple[WebsocketOpcode, bytearray, 'WebsocketFrame']:
         raw = bytearray()
 
         data = await read(2)
@@ -142,7 +158,7 @@ class WebSocketFrame:
         rsv2 = True if head1 & 0b00100000 else False
         rsv3 = True if head1 & 0b00010000 else False
 
-        opcode = WebSocketOpcode(head1 & 0b00001111)
+        opcode = WebsocketOpcode(head1 & 0b00001111)
         length = head2 & 0b01111111
 
         if length == 126:
@@ -157,13 +173,15 @@ class WebSocketFrame:
 
             length = struct.unpack("!Q", data)[0]
 
-        mask_bits = await read(4)
-        raw += data
+        if masked:
+            mask_bits = await read(4)
+            raw += data
 
         data = await read(length)
         raw += data
 
-        data = cls.mask(data, mask_bits)
+        if masked:
+            data = cls.mask(data, mask_bits)
 
         frame = cls(
             opcode=opcode,
@@ -175,3 +193,13 @@ class WebSocketFrame:
         )
 
         return opcode, raw, frame
+
+    @classmethod
+    def _decode(cls, data):
+        frame = bytearray(data)
+        head2 = frame[1]
+
+        length = head2 & 0b01111111
+
+        mask = frame[-length:]
+        return mask

@@ -2,8 +2,7 @@ from typing import Callable
 import functools
 import inspect
 
-from .request import Request
-from .objects import Route, WebsocketRoute
+from .objects import Route
 from .abc import AbstractRouter
 from .utils import VALID_METHODS
 

@@ -1,5 +1,5 @@
+from __future__ import annotations
 from typing import TYPE_CHECKING
-import aiohttp
 
 from .guild import Guild
 
@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from .session import Session
 
 class Avatar:
-    def __init__(self, user: 'User') -> None:
+    def __init__(self, user: User) -> None:
         self.user = user
 
     async def read(self, extension: str=None) -> bytes:
@@ -22,7 +22,7 @@ class Avatar:
             return await response.read()
 
 class User:
-    def __init__(self, data, session: 'Session') -> None:
+    def __init__(self, data, session: Session) -> None:
         self._payload = data
         self._session = session
 
@@ -39,4 +39,4 @@ class User:
         return [Guild(guild, self._session) for guild in guilds]
 
     def to_dict(self):
-        return self._payload
+        return self._payload.copy()

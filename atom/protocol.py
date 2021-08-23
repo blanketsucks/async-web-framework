@@ -8,7 +8,6 @@ from asyncio.trsock import TransportSocket
 from .request import Request
 from .response import Response, HTTPStatus
 from .websockets import Websocket
-from .abc import AbstractProtocol, AbstractConnection
 
 if TYPE_CHECKING:
     from .app import Application
@@ -37,7 +36,7 @@ class Connection:
     def is_closed(self) -> bool:
         return self._closed
 
-    def get_protocol(self) -> AbstractProtocol:
+    def get_protocol(self):
         return self.transport.get_protocol()
 
     def close(self):
@@ -48,7 +47,7 @@ class Connection:
         log.info(f"Writing {len(data)} bytes to {self.peername}")
         self.transport.write(data)
 
-class ApplicationProtocol(AbstractProtocol):
+class ApplicationProtocol:
     def __init__(self, app: 'Application') -> None:
         self.app = app
         self.loop = app.loop
@@ -115,7 +114,7 @@ class ApplicationProtocol(AbstractProtocol):
 
         self.connection.write(response.encode())
 
-    def handle_request(self, request, websocket) -> asyncio.Task[bytes]:
+    def handle_request(self, request, websocket) -> 'asyncio.Task[bytes]':
         task = self.loop.create_task(
             coro=self.app._request_handler(request, self.connection, websocket=websocket)
         )

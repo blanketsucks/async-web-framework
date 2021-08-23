@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Any, Callable, Coroutine, Iterator, Optional, TYPE_CHECKING, Tuple, Union
 import asyncio
 import pathlib
@@ -20,30 +21,6 @@ Route = Callable[[Callable[['Request'], Coroutine[Any, Any, Any]]], '_Route']
 WebsocketRoute = Callable[[Callable[['Request'], Coroutine[Any, Any, Any]]], '_WebsocketRoute']
 Middleware = Callable[['Request', Callable[['Request'], Coroutine[Any, Any, Any]]], Coroutine[Any, Any, Any]]
 
-class AbstractConnection:
-    @property
-    def socket(self) -> TransportSocket:
-        raise NotImplementedError
-
-    @property
-    def peername(self) -> Tuple[str, int]:
-        raise NotImplementedError
-
-    @property
-    def sockname(self) -> Tuple[str, int]:
-        raise NotImplementedError
-
-    def is_closed(self) -> bool:
-        raise NotImplementedError
-
-    def get_protocol(self) -> 'AbstractProtocol':
-        raise NotImplementedError
-
-    def close(self) -> None:
-        raise NotImplementedError
-
-    def write(self, data: bytes) -> None:
-        raise NotImplementedError
 
 class AbstractRouter:
     def add_route(self, route: Union['_Route', '_WebsocketRoute']) -> Union['_Route', '_WebsocketRoute']:
@@ -91,7 +68,9 @@ class AbstractApplication:
     url_prefix: str
     surpress_warnings: bool
 
-    def __init__(self, 
+    def __init__(self,
+                host: str=None,
+                port: int=None, 
                 url_prefix: str=None, 
                 *, 
                 settings_file: Union[str, pathlib.Path]=None, 
@@ -102,13 +81,10 @@ class AbstractApplication:
     def is_closed(self) -> bool:
         raise NotImplementedError
 
-    async def start(self, host: str=None, port: int=None) -> None:
+    async def start(self) -> None:
         raise NotImplementedError
 
-    async def wait_closed(self) -> None:
-        raise NotImplementedError
-
-    def close(self) -> None:
+    async def close(self) -> None:
         raise NotImplementedError
 
     def add_route(self, route: Union['_Route', '_WebsocketRoute']) -> Union['_Route', '_WebsocketRoute']:
@@ -160,36 +136,17 @@ class AbstractApplication:
         raise NotImplementedError
     
 
-class AbstractProtocol(asyncio.Protocol):
-    def is_websocket_request(self, request: Request):
+class AbstractWorker:
+    id: int
+
+    async def start(self, loop: asyncio.AbstractEventLoop):
         raise NotImplementedError
 
-    def parse_websocket_key(self, request: Request):
+    async def run(self, loop: asyncio.AbstractEventLoop):
         raise NotImplementedError
 
-    def handshake(self, request: Request):
+    async def stop(self):
         raise NotImplementedError
 
-    def handle_request(self, request, websocket):
-        raise NotImplementedError
-
-    def connection_made(self, transport: asyncio.Transport) -> None:
-        raise NotImplementedError
-
-    def connection_lost(self, exc: Optional[Exception]) -> None:
-        raise NotImplementedError
-
-    def store_websocket(self, ws: Websocket):
-        raise NotImplementedError
-
-    def get_websocket(self):
-        raise NotImplementedError
-
-    def feed_into_websocket(self, data: bytes):
-        raise NotImplementedError
-
-    def ensure_websockets(self):
-        raise NotImplementedError
-
-    def data_received(self, data: bytes) -> None:
+    async def handle(self):
         raise NotImplementedError

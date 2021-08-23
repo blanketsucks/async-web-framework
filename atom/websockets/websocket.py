@@ -40,7 +40,7 @@ class Websocket:
     async def send_json(self, data: Dict, *, opcode: WebSocketOpcode=None):
         return await self.send_str(json.dumps(data), opcode=opcode)
 
-    async def ping(self, data: bytes) -> asyncio.Future[None]:
+    async def ping(self, data: bytes):
         await self.send_bytes(data, opcode=WebSocketOpcode.PING)
 
     async def pong(self, data: bytes):

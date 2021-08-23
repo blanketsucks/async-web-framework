@@ -13,7 +13,7 @@ VT = TypeVar('VT')
 def is_immutable(obj):
     raise TypeError(f'{obj.__class__.__name__!r} is immutable')
 
-class ImmutableMapping(dict[KT, VT]):
+class ImmutableMapping(Dict[KT, VT]):
     def setdefault(self, key, default=None):
         is_immutable(self)
 

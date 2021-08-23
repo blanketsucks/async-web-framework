@@ -4,6 +4,8 @@ import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
 import ssl
 
+from atom import compat
+
 __all__ = [
     'ClientConnection',
     'BaseServer',
@@ -89,7 +91,7 @@ class ServerProtocol(asyncio.Protocol):
 
         self.readers: Dict[Tuple[str, int], Reader] = {}
         self.writers: Dict[Tuple[str, int], Writer] = {}
-        self.waiters: Dict[Tuple[str, int], asyncio.Future] = {}
+
         self.pending: asyncio.Queue[asyncio.Transport] = asyncio.Queue(
             maxsize=max_connections
         )
@@ -110,23 +112,17 @@ class ServerProtocol(asyncio.Protocol):
         reader = Reader(loop=self.loop)
         writer = Writer(transport)
 
-        waiter = self.loop.create_future()
-
         self.readers[peername] = reader
         self.writers[peername] = writer
-        self.waiters[peername] = waiter
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
         if exc:
             raise exc
 
         peername = self.transport.get_extra_info('peername')
-        self.readers.pop(peername, None)
 
-        waiter = self.waiters.get(peername, None)
-        if waiter:
-            waiter.set_result(None)
-            self.waiters.pop(peername, None)
+        self.readers.pop(peername, None)
+        self.writers.pop(peername, None)
 
     def get_reader(self, peername: str) -> Optional[Reader]:
         return self.readers.get(peername)
@@ -134,12 +130,10 @@ class ServerProtocol(asyncio.Protocol):
     def get_writer(self, peername: str) -> Optional[Writer]:
         return self.writers.get(peername)
 
-    def get_waiter(self, peername: str) -> Optional[asyncio.Future]:
-        return self.waiters.get(peername)
-
     def data_received(self, data: bytes) -> None:
         peername = self.transport.get_extra_info('peername')
         reader = self.get_reader(peername)
+
         if not reader:
             return
 
@@ -197,10 +191,6 @@ class ClientConnection:
     def sockname(self):
         return self._writer.get_extra_info('sockname')
 
-    async def wait_closed(self) -> None:
-        waiter = self._protocol.get_waiter(self.peername)
-        return await waiter
-
     async def receive(self, *, timeout: int=None):
         data = await self._reader.read(timeout=timeout)
         return data
@@ -232,7 +222,7 @@ class ClientConnection:
 
         data = await self.loop.run_in_executor(None, read, path)
         return await self.loop.sendfile(
-            transport=self._transport,
+            transport=self._writer._transport,
             file=data,
             offset=offset,
             count=count,
@@ -259,9 +249,9 @@ def _get_event_loop(loop):
         return loop
 
     try:
-        return asyncio.get_running_loop()
+        return compat.get_running_loop()
     except RuntimeError:
-        return asyncio.get_event_loop()
+        return compat.get_event_loop()
 
 class BaseServer:
     def __init__(self,
@@ -393,6 +383,7 @@ class Server(BaseServer):
             )
         else:
             self._server = await self.loop.create_server(self._protocol, host=self.host, port=self.port)
+
         await self._server.start_serving()
 
         self._waiter = self.loop.create_future()

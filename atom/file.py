@@ -1,7 +1,8 @@
-import asyncio
 from typing import Union
 import pathlib
 import io
+
+from . import compat
 
 class File:
     def __init__(self, fp: Union[str, pathlib.Path, io.BytesIO], *, filename: str=None) -> None:
@@ -23,7 +24,7 @@ class File:
         self.filename = filename
 
     async def save_as(self, name: str):
-        loop = asyncio.get_running_loop()
+        loop = compat.get_running_loop()
         data = await self.read()
 
         def save(fn: str, data: bytes):
@@ -33,7 +34,7 @@ class File:
         await loop.run_in_executor(None, save, name, data)
 
     async def read(self):
-        loop = asyncio.get_running_loop()
+        loop = compat.get_running_loop()
         data = await loop.run_in_executor(None, self.fp.read)
 
         return data

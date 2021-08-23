@@ -1,22 +1,21 @@
 import ssl
-from typing import Any, Callable, Coroutine, Counter, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Union
 import pathlib
 import re
 import inspect
-import datetime
 import logging
 import multiprocessing
 import socket
 import asyncio
 
+from . import compat
+from . import utils
+from . import abc
 from .server import ClientConnection
-from .abc import AbstractRouter, AbstractProtocol, AbstractApplication, AbstractConnection
 from .request import Request
 from .responses import NotFound, MethodNotAllowed
 from .errors import *
-from .protocol import ApplicationProtocol, Connection
 from .router import Router
-from . import utils
 from .settings import Settings
 from .objects import PartialRoute, Route, Listener, WebsocketRoute
 from .views import HTTPView
@@ -33,7 +32,7 @@ __all__ = (
     'run'
 )
 
-class Application(AbstractApplication):
+class Application(abc.AbstractApplication):
     """
     A class respreseting an ASGI application.
 
@@ -46,7 +45,8 @@ class Application(AbstractApplication):
                 host: str=None,
                 port: int=None,
                 url_prefix: str=None, 
-                *, 
+                *,
+                worker_count: int=None, 
                 settings_file: Union[str, pathlib.Path]=None, 
                 load_settings_from_env: bool=None,
                 suppress_warnings: bool=False,
@@ -65,9 +65,10 @@ class Application(AbstractApplication):
         self.port = port or 8080
 
         self.url_prefix = url_prefix or ''
-        self.router: AbstractRouter = Router()
+        self.router: abc.AbstractRouter = Router()
         self.websocket_tasks: List[asyncio.Task] = []
         self.settings = Settings()
+        self.worker_count = worker_count or (multiprocessing.cpu_count() * 2) + 1
         self.suppress_warnings = suppress_warnings
         self.is_ssl = use_ssl
         self.ssl_context = ssl_context
@@ -85,17 +86,24 @@ class Application(AbstractApplication):
         self._views: Dict[str, HTTPView] = {}
         self._middlewares: List[Callable] = []
         self._active_listeners: List[asyncio.Task] = []
+
         self._loop = None
-        self._protocol = ApplicationProtocol(
-            app=self,
-        )
-        self._server = None
         self._closed = False
-        self._workers = []
+
+        self._socket = self._make_socket()
+        self._workers = self._add_workers()
 
     def __repr__(self) -> str:
         prefix = self.url_prefix or '/'
         return f'<Application url_prefix={prefix!r} is_closed={self.is_closed()}>'
+
+    async def __aenter__(self):
+        await self.start()
+        return self
+    
+    async def __aexit__(self, *args):
+        await self.close()
+        return self
 
     @staticmethod
     async def _maybe_coroutine(func, *args, **kwargs):
@@ -104,18 +112,23 @@ class Application(AbstractApplication):
 
         return func(*args, **kwargs)
 
-    @staticmethod
-    def _get_event_loop(loop=None):
-        if loop:
-            if not isinstance(loop, asyncio.AbstractEventLoop):
-                raise TypeError('Invalid argument type for loop argument')
+    def _add_workers(self):
+        workers = {}
 
-            return loop
+        for i in range(self.worker_count):
+            worker = Worker(self, i)
+            workers[worker.id] = worker
+        
+        return workers
 
-        try:
-            return asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.get_event_loop()
+    def _make_socket(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        addr = (self.host, self.port)
+        sock.bind(addr)
+        
+        return sock
 
     def _ensure_listeners(self):
         for task in self._active_listeners:
@@ -227,7 +240,11 @@ class Application(AbstractApplication):
         args = self._convert(route.callback, args, request)
         return args, route
 
-    async def _request_handler(self, request: Request, connection: ClientConnection, *, websocket: Websocket):
+    async def _request_handler(self, 
+                        request: Request, 
+                        connection: ClientConnection, 
+                        websocket: Websocket,
+                        worker: abc.AbstractWorker):
         resp = None
         route = None
 
@@ -254,7 +271,7 @@ class Application(AbstractApplication):
                     method=request.method
                 )
 
-            self.dispatch('error', route, request, exc)
+            self.dispatch('error', route, request, worker, exc)
             return
 
         data = await self._parse_response(resp)
@@ -264,7 +281,11 @@ class Application(AbstractApplication):
 
     @property
     def workers(self) -> List[Worker]:
-        return self._workers
+        return list(self._workers.values())
+
+    @property
+    def socket(self) -> socket.socket:
+        return self._socket
 
     @property
     def listeners(self) -> Dict[str, List[Callable[..., Coroutine]]]:
@@ -273,37 +294,6 @@ class Application(AbstractApplication):
             A dictionary of all listeners.
         """
         return self._listeners
-
-    @property
-    def websockets(self) -> Dict[Tuple[str, int], Websocket]:
-        """
-        Returns:
-            A dict contaning the current websocket connections.
-        """
-        return self._protocol.websockets
-
-    @property
-    def connections(self) -> Dict[Tuple[str, int], AbstractConnection]:
-        """
-        Returns:
-            A list of all connections.
-        """
-        return self._protocol.connections
-
-    @property
-    def protocol(self) -> AbstractProtocol:
-        """
-        Returns:
-            The current protocol.
-        """
-        return self._protocol
-
-    @protocol.setter
-    def protocol(self, value):
-        if not isinstance(value, AbstractProtocol):
-            raise ValueError('Expected AbstractProtocol but got {0.__class__.__name__} instead'.format(value))
-
-        self._protocol = value
 
     @property
     def loop(self) -> Optional[asyncio.AbstractEventLoop]:
@@ -319,8 +309,21 @@ class Application(AbstractApplication):
         """
         return self._closed
 
-    def log(self, message: str):
-        print(f'[{datetime.datetime.utcnow().strftime("%Y/%m/%d | %H:%M:%S")}] {message}')
+    def is_serving(self):
+        return all([worker.is_serving() for worker in self.workers])
+
+    def get_worker(self, id: int) -> Optional[Worker]:
+        return self._workers.get(id)
+
+    def add_worker(self, worker: abc.AbstractWorker):
+        if not isinstance(worker, abc.AbstractWorker):
+            raise TypeError('worker must be an instance of AbstractWorker')
+
+        if worker.id in self._workers:
+            raise ValueError(f'Worker with id {worker.id} already exists')
+
+        self._workers[worker.id] = worker
+        return worker
 
     async def start(self):
         """
@@ -330,31 +333,17 @@ class Application(AbstractApplication):
             host: The host to listen on.
             port: The port to listen on.
         """
-        self._loop = asyncio.get_running_loop()
+        self._loop = loop = compat.get_running_loop()
 
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        for worker in self.workers:
+            self.loop.create_task(worker.run(loop), name=f'Worker-{worker.id}')
 
-        sock.bind((self.host, self.port))
-
-        count = (multiprocessing.cpu_count() * 2) + 1
-
-        for num in range(count):
-            worker = Worker(self, sock)
-            self.workers.append(worker)
-
-            self.loop.create_task(worker.run(), name=f'Worker-{num}')
-        
-        future = self.loop.create_future()
-        await future
+        self.dispatch('startup')
 
     async def close(self):
         """
         Closes the application.
         """
-        if not self._server:
-            raise ApplicationError('The Application is not running')
-
         for worker in self.workers:
             await worker.stop()
 
@@ -417,37 +406,44 @@ class Application(AbstractApplication):
 
     def get(self, path: str):
         def decorator(func: Callable[..., Coroutine]) -> Route:
-            return self.route(path, 'GET')(func)
+            route = Route(path, 'GET', func, router=self.router)
+            return self.add_route(route)
         return decorator
 
     def put(self, path: str):
         def decorator(func: Callable[..., Coroutine]):
-            return self.route(path, 'PUT')(func)
+            route = Route(path, 'PUT', func, router=self.router)
+            return self.add_route(route)
         return decorator
 
     def post(self, path: str):
         def decorator(func: Callable[..., Coroutine]):
-            return self.route(path, 'POST')(func)
+            route = Route(path, 'POST', func, router=self.router)
+            return self.add_route(route)
         return decorator
 
     def delete(self, path: str):
         def decorator(func: Callable[..., Coroutine]):
-            return self.route(path, 'DELETE')(func)
+            route = Route(path, 'DELETE', func, router=self.router)
+            return self.add_route(route)
         return decorator
 
     def head(self, path: str):
         def decorator(func: Callable[..., Coroutine]):
-            return self.route(path, 'HEAD')(func)
+            route = Route(path, 'HEAD', func, router=self.router)
+            return self.add_route(route)
         return decorator
 
     def options(self, path: str):
         def decorator(func: Callable[..., Coroutine]):
-            return self.route(path, 'OPTIONS')(func)
+            route = Route(path, 'OPTIONS', func, router=self.router)
+            return self.add_route(route)
         return decorator
 
     def patch(self, path: str):
         def decorator(func: Callable[..., Coroutine]):
-            return self.route(path, 'PATCH')(func)
+            route = Route(path, 'PATCH', func, router=self.router)
+            return self.add_route(route)
         return decorator
 
     def remove_route(self, route: Union[Route, WebsocketRoute]):
@@ -471,6 +467,7 @@ class Application(AbstractApplication):
         if not func:
             if name:
                 self._listeners.pop(name.lower())
+                return
 
             raise TypeError('Only the function or the name can be None, not both.')
 
@@ -482,6 +479,7 @@ class Application(AbstractApplication):
         return decorator
 
     def dispatch(self, name: str, *args, **kwargs):
+        loop = self.loop
         log.debug(f'Dispatching event: {name}')
 
         self._ensure_listeners()
@@ -496,9 +494,8 @@ class Application(AbstractApplication):
 
             listeners = [coro]
 
-        for listener in listeners:
-            task = self.loop.create_task(listener(*args, **kwargs))
-            self._active_listeners.append(task)
+        tasks = [loop.create_task(listener(*args, **kwargs)) for listener in listeners]
+        self._active_listeners.extend(tasks)
 
     def get_view(self, path: str):
         return self._views.get(path)
@@ -530,15 +527,18 @@ class Application(AbstractApplication):
 
     async def on_error(self, 
                     route: Union[Route, PartialRoute], 
-                    request: Request, 
+                    request: Request,
+                    worker: abc.AbstractWorker, 
                     exception: Exception):
         raise exception
 
-async def run(app: Application, *args, **kwargs):
-    app._loop = asyncio.get_running_loop()
-
+async def run(app: Application):
     try:
-        await app.start(*args, **kwargs)
+        await app.start()
+        loop = app._loop
+        
+        fut = loop.create_future()
+        await fut
     finally:
         await app.close()
 

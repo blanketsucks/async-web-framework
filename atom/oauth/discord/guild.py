@@ -1,7 +1,11 @@
-from typing import List
+from __future__ import annotations
+from typing import List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .session import Session
 
 class Icon:
-    def __init__(self, guild: 'Guild') -> None:
+    def __init__(self, guild: Guild) -> None:
         self.guild = guild
 
     async def read(self) -> bytes:
@@ -10,10 +14,9 @@ class Icon:
 
         async with session.get(url) as resp:
             return await resp.read()
-        
 
 class Guild:
-    def __init__(self, data, session) -> None:
+    def __init__(self, data, session: Session) -> None:
         self._payload = data
         self._session = session
 
@@ -26,4 +29,4 @@ class Guild:
         return Icon(self)
 
     def to_dict(self):
-        return self._payload
+        return self._payload.copy()

@@ -10,6 +10,9 @@ from .response import Response, HTTPStatus
 __all__ = (
     'HTTPException',
     'Continue',
+    'SwitchingProtocols',
+    'Processing',
+    'EarlyHints',
     'OK',
     'Created',
     'Accepted',

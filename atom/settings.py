@@ -3,7 +3,6 @@ import importlib
 import os
 import pathlib
 
-from .errors import InvalidSetting
 from .utils import SETTING_ENV_PREFIX
 from .datastructures import ImmutableMapping
 

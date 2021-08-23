@@ -1,7 +1,5 @@
-import traceback
 import markdown as _markdown
 import json
-import traceback
 import warnings
 import functools
 import asyncio

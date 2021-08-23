@@ -1,6 +1,6 @@
 from __future__ import annotations
 import io
-from typing import Dict, Iterable, List, Optional, TYPE_CHECKING, Tuple, TypeVar
+from typing import Iterable, List, Optional, TYPE_CHECKING, Tuple, TypeVar
 
 from .utils import find_headers
 from .file import File
