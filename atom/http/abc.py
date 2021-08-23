@@ -20,7 +20,7 @@ _T = TypeVar('_T')
 SSL_SCHEMES = ('https', 'wss')
 
 class Protocol(asyncio.Protocol):
-    def __init__(self, client: Union['HTTPSession', 'WebsocketClient']) -> None:
+    def __init__(self, client: HTTPSession) -> None:
         self.client = client
 
     def __call__(self):
@@ -58,7 +58,7 @@ class Protocol(asyncio.Protocol):
         raise NotImplementedError
 
 class Hooker:
-    def __init__(self, client: Union[HTTPSession, WebsocketClient]) -> None:
+    def __init__(self, client: HTTPSession) -> None:
         self.client = client
 
         self.connected = False
