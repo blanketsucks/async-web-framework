@@ -8,9 +8,7 @@ import multiprocessing
 import socket
 import asyncio
 
-from . import compat
-from . import utils
-from . import abc
+from . import compat, utils, abc
 from .server import ClientConnection
 from .request import Request
 from .responses import NotFound, MethodNotAllowed
@@ -182,8 +180,9 @@ class Application(abc.AbstractApplication):
 
         raise NotFound(reason=f'Could not find {request.url.path!r}')
 
-    async def _parse_response(self, response: Union[str, bytes, dict, list, File, Response]) -> bytes:
+    async def _parse_response(self, response: Union[str, bytes, dict, list, File, Response]) -> Optional[Response]:
         status = 200
+
         if isinstance(response, tuple):
             response, status = response
 
@@ -198,23 +197,22 @@ class Application(abc.AbstractApplication):
                 await response.read()
                 response.file.close()
 
-                return response.encode()
-
-            return response.encode()
+            return response
 
         if isinstance(response, Model):
             resp = JSONResponse(response.json(), status=status)
             return resp
 
+        if isinstance(response, bytes):
+            response = response.decode()
+
         if isinstance(response, str):
             resp = HTMLResponse(response, status=status)
-            return resp.encode()
+            return resp
 
         if isinstance(response, (dict, list)):
             resp = JSONResponse(response, status=status)
-            return resp.encode()
-
-        return b''
+            return resp
 
     async def _run_middlewares(self, request: Request, route: Route, args: Tuple[Any]):
         middlewares = route.middlewares.copy()
@@ -274,14 +272,21 @@ class Application(abc.AbstractApplication):
             self.dispatch('error', route, request, worker, exc)
             return
 
-        data = await self._parse_response(resp)
-        await connection.write(data)
+        response = await self._parse_response(resp)
+        if not response:
+            ret = f'No valid response returned by {route.callback.__name__!r}'
+            raise ValueError(ret)
 
+        await worker.write(response, connection)
         connection.close()
 
     @property
     def workers(self) -> List[Worker]:
         return list(self._workers.values())
+
+    @property
+    def views(self) -> List[HTTPView]:
+        return list(self._views.values())
 
     @property
     def socket(self) -> socket.socket:
@@ -494,7 +499,7 @@ class Application(abc.AbstractApplication):
 
             listeners = [coro]
 
-        tasks = [loop.create_task(listener(*args, **kwargs)) for listener in listeners]
+        tasks = [loop.create_task(listener(*args, **kwargs), name=f'Event-{name}') for listener in listeners]
         self._active_listeners.extend(tasks)
 
     def get_view(self, path: str):

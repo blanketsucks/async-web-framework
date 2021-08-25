@@ -2,10 +2,9 @@ import asyncio
 from typing import Any, Dict, List, Optional
 import json as _json
 
-from .hooker import TCPHooker
+from .hooker import TCPHooker, WebsocketHooker, Websocket
 from .response import Response
 from .utils import AsyncContextManager
-from .websockets import Websocket, WebsocketHooker
 
 from atom import compat
 
@@ -23,13 +22,13 @@ class HTTPSession:
         return self
 
     async def __aexit__(self, *exc):
-        self.close()
+        await self.close()
         return self
 
-    def close(self):
+    async def close(self):
         for hooker in self._hookers:
             if not hooker.closed:
-                hooker.close()
+                await hooker.close()
 
     def request(self, method: str, url: str, **kwargs):
         return AsyncContextManager(self._request(url, method, **kwargs))
@@ -96,9 +95,9 @@ class HTTPSession:
         is_ssl, host, path = hooker.parse_host(url)
 
         if is_ssl:
-            transport = await hooker.create_ssl_connection(host)
+           await hooker.create_ssl_connection(host)
         else:
-            transport = await hooker.create_connection(host)
+            await hooker.create_connection(host)
 
         request = hooker.build_request(
             method=method,
@@ -108,7 +107,7 @@ class HTTPSession:
             body=body
         )
 
-        hooker.write(request, transport=transport)
+        await hooker.write(request)
         response = await hooker.build_response()
 
         if not ignore_redirects:

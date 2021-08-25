@@ -1,11 +1,12 @@
 import asyncio
-from typing import Dict, Tuple, TYPE_CHECKING
+from typing import Dict, Optional, Tuple, TYPE_CHECKING, Union
 import hashlib
 import base64
 
 from .server import Server, ClientConnection
 from .websockets import Websocket
 from .request import Request
+from .response import Response
 from .responses import SwitchingProtocols
 from .abc import AbstractWorker
 
@@ -20,6 +21,7 @@ class Worker(AbstractWorker):
         self.id = id
         self.websockets: Dict[Tuple[str, int], Websocket] = {}
 
+        self.current_task = None
         self._working = False
         self.server = None
 
@@ -38,6 +40,10 @@ class Worker(AbstractWorker):
     def host(self):
         return self.app.host
 
+    @property
+    def loop(self) -> Optional[asyncio.AbstractEventLoop]:
+        return self.app.loop
+
     def is_working(self):
         return self._working
 
@@ -55,9 +61,19 @@ class Worker(AbstractWorker):
 
         while True:
             connection = await self.server.accept()
-            await self.handle(connection)
+            if not connection:
+                continue
+
+            self.current_task = self.loop.create_task(
+                coro=self.handler(connection),
+                name=f'Worker-{self.id}-{connection.peername}'
+            )
 
     async def stop(self):
+        if self.current_task:
+            await self.current_task
+            self.current_task = None
+
         self.ensure_websockets()
         await self.server.close()
 
@@ -139,9 +155,12 @@ class Worker(AbstractWorker):
         response.add_header(key='Connection', value='Upgrade')
         response.add_header(key='Sec-WebSocket-Accept', value=key)
 
-        await connection.write(response.encode())
+        await self.write(response, connection)
 
-    async def handle(self, connection: ClientConnection):
+    async def write(self, data: Union[Response, Request], connection: ClientConnection):
+        return await connection.write(data.encode())
+
+    async def handler(self, connection: ClientConnection):
         self._working = True
         data = await connection.receive()
 

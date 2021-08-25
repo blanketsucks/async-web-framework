@@ -18,12 +18,12 @@ class AsyncContextManager(Generic[T]):
         return self._resp
 
     async def __aexit__(self, *args):
-        from .websockets import Websocket
+        from .hooker import Websocket
 
         if isinstance(self._resp, Websocket):
-            self._resp.close()
+            await self._resp.close()
         else:
-            self._resp._hooker.close()
+            await self._resp._hooker.close()
             
         return self
 

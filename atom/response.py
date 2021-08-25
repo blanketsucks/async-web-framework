@@ -9,6 +9,7 @@ from .datastructures import MultiDict
 
 __all__ = (
     'Response',
+    'HTTPStatus',
     'HTMLResponse',
     'JSONResponse',
     'FileResponse',
@@ -106,7 +107,7 @@ class Response:
         self.version = version or '1.1'
         self._status = HTTPStatus(status or 200)
         self._body = body or ''
-        self._content_type = content_type or 'text/plain'
+        self._content_type = content_type or 'text/html'
         self._encoding = "utf-8"
 
         if headers is None:

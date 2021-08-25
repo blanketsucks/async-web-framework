@@ -128,7 +128,7 @@ class WebSocketFrame:
         return buffer
 
     @classmethod
-    async def decode(cls, read: Callable[[int], Coroutine[None, None, bytes]]) -> Tuple[WebSocketOpcode, bytearray, 'WebSocketFrame']:
+    async def decode(cls, read: Callable[[int], Coroutine[None, None, bytes]], mask: bool=True) -> Tuple[WebSocketOpcode, bytearray, 'WebSocketFrame']:
         raw = bytearray()
 
         data = await read(2)
@@ -157,13 +157,16 @@ class WebSocketFrame:
 
             length = struct.unpack("!Q", data)[0]
 
-        mask_bits = await read(4)
+        if mask:
+            mask_bits = await read(4)
+
         raw += data
 
         data = await read(length)
         raw += data
 
-        data = cls.mask(data, mask_bits)
+        if mask:
+            data = cls.mask(data, mask_bits)
 
         frame = cls(
             opcode=opcode,

@@ -4,6 +4,7 @@ import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
 import ssl
 
+from atom.stream import StreamWriter, StreamReader
 from atom import compat
 
 __all__ = [
@@ -15,82 +16,12 @@ __all__ = [
 if sys.platform != 'win32':
     __all__.append('UnixServer')
 
-class Writer:
-    def __init__(self, transport: asyncio.Transport) -> None:
-        self._transport = transport
-        self._waiter = None
-
-    async def _wait_for_drain(self):
-        if self._waiter is None:
-            return
-
-        try:
-            await self._waiter
-        finally:
-            self._waiter = None
-
-    async def write(self, data: Union[bytearray, bytes]) -> None:
-        self._transport.write(data)
-        await self._wait_for_drain()
-
-    async def writelines(self, data: List[Union[bytearray, bytes]]) -> None:
-        self._transport.writelines(data)
-        await self._wait_for_drain()
-
-    def get_extra_info(self, name: str, default: Optional[Any]=None) -> Any:
-        return self._transport.get_extra_info(name, default)
-
-    def close(self):
-        self._transport.close()
-
-class Reader:
-    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
-        self.buffer = bytearray()
-        self.loop = loop
-
-        self._waiter = None
-
-    async def _wait_for_data(self, timeout: float=None):
-        self._waiter = self.loop.create_future()
-
-        try:
-            await asyncio.wait_for(self._waiter, timeout)
-        finally:
-            self._waiter = None
-
-    def feed_data(self, data: Union[bytearray, bytes]) -> None:
-        self.buffer.extend(data)
-
-        if self._waiter:
-            self._waiter.set_result(None)
-
-    def feed_eof(self):
-        pass
-
-    async def read(self, nbytes: int=None, *, timeout: float=None):
-        if not self.buffer:
-            await self._wait_for_data(timeout=timeout)
-
-        if not nbytes:
-            data = self.buffer
-            self.buffer = bytearray()
-
-            return bytes(data)
-
-        if nbytes > len(self.buffer):
-            await self._wait_for_data(timeout=timeout)
-
-        data = self.buffer[:nbytes]
-        self.buffer = self.buffer[nbytes:]
-
-        return bytes(data)
-
 class ServerProtocol(asyncio.Protocol):
     def __init__(self, loop: asyncio.AbstractEventLoop, max_connections: int) -> None:
         self.loop = loop
 
-        self.readers: Dict[Tuple[str, int], Reader] = {}
-        self.writers: Dict[Tuple[str, int], Writer] = {}
+        self.readers: Dict[Tuple[str, int], StreamReader] = {}
+        self.writers: Dict[Tuple[str, int], StreamWriter] = {}
 
         self.pending: asyncio.Queue[asyncio.Transport] = asyncio.Queue(
             maxsize=max_connections
@@ -109,8 +40,8 @@ class ServerProtocol(asyncio.Protocol):
             self.transport.close()
             raise ConnectionAbortedError('Too many connections')
 
-        reader = Reader(loop=self.loop)
-        writer = Writer(transport)
+        reader = StreamReader()
+        writer = StreamWriter(transport)
 
         self.readers[peername] = reader
         self.writers[peername] = writer
@@ -124,10 +55,10 @@ class ServerProtocol(asyncio.Protocol):
         self.readers.pop(peername, None)
         self.writers.pop(peername, None)
 
-    def get_reader(self, peername: str) -> Optional[Reader]:
+    def get_reader(self, peername: str) -> Optional[StreamReader]:
         return self.readers.get(peername)
 
-    def get_writer(self, peername: str) -> Optional[Writer]:
+    def get_writer(self, peername: str) -> Optional[StreamWriter]:
         return self.writers.get(peername)
 
     def data_received(self, data: bytes) -> None:
@@ -168,8 +99,8 @@ class ServerProtocol(asyncio.Protocol):
 class ClientConnection:
     def __init__(self, 
                 protocol: ServerProtocol, 
-                writer: Writer,
-                reader: Reader, 
+                writer: StreamWriter,
+                reader: StreamReader, 
                 loop: asyncio.AbstractEventLoop) -> None:
         self._reader = reader
         self._writer = writer
@@ -307,7 +238,7 @@ class BaseServer:
 
         self._closed = True
 
-    async def accept(self, *, timeout: int=None):
+    async def accept(self, *, timeout: int=None) -> Optional[ClientConnection]:
         protocol = self._protocol
 
         if self._server is None:

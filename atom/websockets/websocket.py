@@ -1,17 +1,14 @@
-from typing import TYPE_CHECKING, Tuple, Dict
-import asyncio
+from typing import TYPE_CHECKING, Dict
 import json
 
 from .frame import WebSocketFrame, WebSocketOpcode, Data, WebSocketCloseCode
 from atom.server import ClientConnection
-
-if TYPE_CHECKING:
-    from atom.protocol import ApplicationProtocol, Connection
+from atom.stream import StreamReader, StreamWriter
 
 class Websocket:
-    def __init__(self, connection: ClientConnection) -> None:
-        self.connection = connection
-        self.peer = connection.peername
+    def __init__(self, reader: StreamReader, writer: StreamWriter) -> None:
+        self._reader = reader
+        self._writer = writer
 
         self._closed = False
 
@@ -19,11 +16,11 @@ class Websocket:
         return self._closed
 
     def feed_data(self, data: bytes):
-        return self.connection._reader.feed_data(data)
+        return self._reader.feed_data(data)
 
     async def send_frame(self, frame: WebSocketFrame):
         data = frame.encode()
-        await self.connection.write(data)
+        await self._writer.write(data)
 
         return len(data)
 
@@ -62,11 +59,11 @@ class Websocket:
         self._closed = True
         len = await self.send_frame(frame)
 
-        self.connection.close()
+        self._writer.close()
         return len
 
     async def receive(self):
-        opcode, raw, data = await WebSocketFrame.decode(self.connection.read)
+        opcode, raw, data = await WebSocketFrame.decode(self._reader.read)
         return Data(raw, data), opcode
 
     async def receive_bytes(self):

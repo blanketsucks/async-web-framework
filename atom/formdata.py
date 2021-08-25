@@ -66,7 +66,7 @@ class FormData:
                 disposition = Disposition(headers.get('Content-Disposition'))
 
                 data = io.BytesIO(body)
-                file = File(data)
+                file = File(data, filename=disposition.filename)
 
                 form.add_file(file, disposition)
 

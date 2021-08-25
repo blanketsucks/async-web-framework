@@ -29,9 +29,9 @@ class Response:
 
         return self._body
 
-    async def text(self):
+    async def text(self) -> str:
         body = await self.read()
-        return body.decode('utf-8')
+        return body
 
     async def json(self) -> typing.Dict[str, typing.Any]:
         text = await self.text()

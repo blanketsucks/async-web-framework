@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple, Type, TypeVar
 
 __all__ = (
@@ -8,12 +9,20 @@ __all__ = (
 _T = TypeVar('_T')
 
 class IncompatibleType(Exception):
-    def __init__(self, name: str, accepts: Type, argument: Type) -> None:
-        self.name = name
-        self.accepts = accepts
+    def __init__(self, field: Field, argument: Type, data: Dict[str, Any]) -> None:
+        self.field = field
+        self.data = data
         self.argument = argument
 
-        message = f'Incompatible type {argument} for argument {name!r} which accepts {accepts}'
+        message = f'Incompatible type {argument} for argument {field.name!r} which accepts {field.type}'
+        super().__init__(message)
+
+class MissingField(Exception):
+    def __init__(self, field: Field, data: Dict[str, Any]) -> None:
+        self.field = field
+        self.data = data
+
+        message = f'Missing field {field.name!r}'
         super().__init__(message)
 
 def _make_fn(name: str, body: str) -> Callable:
@@ -40,7 +49,7 @@ def _make_init(annotations: Dict[str, Type]) -> str:
     args = ', '.join(args)
     body = '\n'.join(f'  {b}' for b in body)
 
-    return f'def __init__(self, *, {args}):\n{body}'
+    return f'def __init__(self, *, {args}) -> None:\n{body}'
 
 def _make_fields(annotations: Dict[str, Type]):
     fields = []
@@ -50,6 +59,7 @@ def _make_fields(annotations: Dict[str, Type]):
         fields.append(field)
 
     return tuple(fields)
+
 
 def _getattr(obj, name: str):
     attr = getattr(obj, name)
@@ -78,7 +88,7 @@ class Field:
         return self.name
 
 class ModelMeta(type):
-    def __new__(cls, name: str, bases: Tuple[Type], attrs: Dict[str, Any], **kwargs):
+    def __new__(cls, name: str, bases: Tuple[Type], attrs: Dict[str, Any]):
         annotations = attrs.get('__annotations__')
 
         if annotations:
@@ -112,21 +122,28 @@ class Model(metaclass=ModelMeta):
 
     @classmethod
     def from_json(cls: Type[_T], data: Dict[str, Any]) -> _T:
+        if not isinstance(data, dict):
+            ret = f"Invalid argument type for 'data'. Expected {dict!r} got {data.__class__!r} instead"
+            raise TypeError(ret)
+
+        kwargs = {}
+
         for field in cls.__fields__:
             if field.name in data:
                 try:
                     if issubclass(field.type, Model):
-                        data[field.name] = field.type(**data[field.name])
+                        kwargs[field.name] = field.type(**data[field.name])
 
                     else:
-                        data[field.name] = field.type(data[field.name])
+                        kwargs[field.name] = field.type(data[field.name])
                 except (ValueError, TypeError):
-                    name = field.name
-                    accepts = field.type
-
-                    argument = data[name]
+                    argument = data[field.name]
                     type = argument.__class__
 
-                    raise IncompatibleType(name, accepts, type) from None
+                    raise IncompatibleType(field, type, data) from None
 
-        return cls(**data)
+            else:
+                name = field.name
+                raise MissingField(name, data)
+
+        return cls(**kwargs)

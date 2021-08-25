@@ -3,10 +3,14 @@ from typing import Any, Callable, Coroutine, Iterator, Optional, TYPE_CHECKING, 
 import asyncio
 import pathlib
 
+from .server import ClientConnection
+from .response import Response
+
 if TYPE_CHECKING:
     from .settings import Settings
     from .objects import Listener, Route as _Route, WebsocketRoute as _WebsocketRoute
     from .request import Request
+    
     
 __all__ = (
     'AbstractRouter',
@@ -145,8 +149,11 @@ class AbstractWorker:
     async def run(self, loop: asyncio.AbstractEventLoop):
         raise NotImplementedError
 
+    async def write(self, data: Union[Response, Request], connection: ClientConnection) -> int:
+        raise NotImplementedError
+
     async def stop(self):
         raise NotImplementedError
 
-    async def handle(self):
+    async def handler(self):
         raise NotImplementedError

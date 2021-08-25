@@ -12,9 +12,10 @@ from .response import Response, HTTPStatus
 from .request import Request
 from atom.utils import find_headers
 from atom.http.utils import AsyncIterator
+from atom.client import Client
 
 if TYPE_CHECKING:
-    from .client import HTTPSession
+    from .sessions import HTTPSession
 
 _T = TypeVar('_T')
 SSL_SCHEMES = ('https', 'wss')
@@ -58,8 +59,9 @@ class Protocol(asyncio.Protocol):
         raise NotImplementedError
 
 class Hooker:
-    def __init__(self, client: HTTPSession) -> None:
-        self.client = client
+    def __init__(self, session: HTTPSession) -> None:
+        self.session = session
+        self._client = None
 
         self.connected = False
         self.closed = False
@@ -70,21 +72,18 @@ class Hooker:
 
     @property
     def loop(self):
-        return self.client.loop
+        return self.session.loop
 
     def ensure(self):
         if self.connected:
-            raise HookerAlreadyConnected('', hooker=self, client=self.client)
+            raise HookerAlreadyConnected(hooker=self, client=self.session)
 
         if self.closed:
-            raise HookerClosed('', hooker=self, client=self.client)
+            raise HookerClosed(hooker=self, client=self.session)
 
     def copy(self):
         hooker = copy.copy(self)
         return hooker
-
-    def create_protocol(self, cls: Type[_T]) -> _T:
-        return cls(self.client)
 
     def create_default_ssl_context(self):
         return ssl.create_default_context()
@@ -113,8 +112,8 @@ class Hooker:
     async def read(self):
         raise NotImplementedError
 
-    def write(self, data: bytes, *, transport: asyncio.Transport):
-        transport.write(data)
+    async def write(self, data: bytes):
+        raise NotImplementedError
 
     def build_request(self, 
                     method: str, 

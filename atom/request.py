@@ -95,7 +95,7 @@ class Request:
     def form(self):
         return FormData.from_request(self)
 
-    def graphql(self):
+    def graphql(self) -> str:
         if self.content_type == 'application/json':
             data = self.json()
             query = data.get('query')
