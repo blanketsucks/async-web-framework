@@ -1,9 +1,11 @@
 from __future__ import annotations
 import json
-from typing import Union, Dict, Any
+from typing import TYPE_CHECKING, Union, Dict, Any, Optional, Tuple, List
 import urllib.parse
+import datetime
 
 from .objects import Route, WebsocketRoute
+from .response import Response
 from .utils import find_headers
 from .cookies import CookieJar
 from .datastructures import URL
@@ -11,6 +13,12 @@ from .sessions import CookieSession
 from .abc import AbstractApplication
 from .responses import redirects
 from .formdata import FormData
+from .server import ClientConnection
+from .file import File
+
+if TYPE_CHECKING:
+    from .workers import Worker
+    from .app import Application
 
 __all__ = (
     'Request',
@@ -18,9 +26,9 @@ __all__ = (
 
 class Request:
     __slots__ = (
-        '_encoding', 'version', 'method',
+        '_encoding', 'version', 'method', 'worker', 'connection'
         '_url', 'headers', '_body', 'protocol', 'connection_info',
-        '_cookies', 'route', '_app', 'peername'
+        '_cookies', 'route', '_app', 'peername', 'created_at'
     )
 
     def __init__(self,
@@ -28,18 +36,40 @@ class Request:
                 url: str,
                 headers: Dict[str, str],
                 version: str,
-                body: str,
-                app: AbstractApplication,
-                peername: str):
+                body: Union[str, bytes],
+                app: Application,
+                connection: ClientConnection,
+                worker: Worker,
+                created_at: datetime.datetime):
         self._encoding = "utf-8"
         self._app = app
         self._url = url
         self._body = body
         self.version = version
         self.method = method
-        self.peername = peername
+        self.connection = connection
+        self.worker = worker
         self.headers = headers
-        self.route: Union[Route, WebsocketRoute] = None
+        self.route: Optional[Union[Route, WebsocketRoute]] = None
+        self.created_at = created_at
+
+    async def send(self, response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, Any], File, Response, Any]):
+        data = await self.app.parse_response(response)
+        if not data:
+            ret = 'No valid response returned'
+            raise ValueError(ret)
+
+        await self.worker.write(
+            data=data,
+            connection=self.connection
+        )
+
+    async def close(self):
+        if not self.connection.is_closed():
+            await self.connection.close()
+
+    def is_closed(self):
+        return self.connection.is_closed()
 
     @property
     def app(self):
@@ -79,10 +109,6 @@ class Request:
         return self.headers.get('Host')
 
     @property
-    def connection(self):
-        return self.headers.get('Connection')
-
-    @property
     def query(self):
         return self.url.query
 
@@ -95,7 +121,7 @@ class Request:
     def form(self):
         return FormData.from_request(self)
 
-    def graphql(self) -> str:
+    def graphql(self) -> Optional[str]:
         if self.content_type == 'application/json':
             data = self.json()
             query = data.get('query')
@@ -105,7 +131,13 @@ class Request:
 
         return query
 
-    def redirect(self, to: str, *, body: Any=None, headers: Dict=None, status: int=None, content_type: str=None):
+    def redirect(self, 
+                to: str, 
+                *, 
+                body: Any=None, 
+                headers: Optional[Dict[str, Any]]=None, 
+                status: Optional[int]=None, 
+                content_type: Optional[str]=None):
         headers = headers or {}
         status = status or 302
         content_type = content_type or 'text/plain'
@@ -121,7 +153,14 @@ class Request:
         return response
 
     @classmethod
-    def parse(cls, data: bytes, app: AbstractApplication, peername: str) -> Request:
+    def parse(cls, 
+            data: bytes, 
+            app: AbstractApplication, 
+            connection: ClientConnection, 
+            worker: Worker, 
+            created_at: datetime.datetime) -> Request:
+        line: str
+
         headers, body = find_headers(data)
         line, = next(headers)
 
@@ -139,7 +178,9 @@ class Request:
             headers=headers,
             body=body,
             app=app,
-            peername=peername
+            connection=connection,
+            worker=worker,
+            created_at=created_at
         )
 
         return self

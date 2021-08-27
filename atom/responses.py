@@ -4,7 +4,7 @@ All the responses were taken from:
 
 """
 
-from typing import Any, Dict, Type
+from typing import Any, Dict, Type, Union
 from .response import Response, HTTPStatus
 
 __all__ = (
@@ -77,7 +77,7 @@ __all__ = (
     'server_errors',
 )
 
-responses: Dict[int, Type['HTTPResponse']] = {}
+responses: Dict[int, Union[Type['HTTPResponse'], Type['Redirection']]] = {}
 
 def get(status: int):
     return responses.get(status)
@@ -554,7 +554,7 @@ successful_responses = {
     for code, cls in responses.items() if 200 <= code <= 299
 }
 
-redirects = {
+redirects: Dict[int, Redirection] = {
     code: cls
     for code, cls in responses.items() if 300 <= code <= 399
 }

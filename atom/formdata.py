@@ -1,6 +1,6 @@
 from __future__ import annotations
 import io
-from typing import Iterable, List, Optional, TYPE_CHECKING, Tuple, TypeVar
+from typing import Dict, List, Optional, TYPE_CHECKING, Tuple, TypeVar
 
 from .utils import find_headers
 from .file import File
@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 T = TypeVar('T')
 
-def _get(iterable: Iterable[T], index: int) -> Optional[T]:
+def _get(iterable: List[T], index: int) -> Optional[T]:
     try:
         return iterable[index]
     except IndexError:
@@ -52,7 +52,7 @@ class FormData:
         if not content_type:
             return form
         
-        ct, boundary = content_type.split('; ')
+        _, boundary = content_type.split('; ')
         boundary = '--' + boundary.strip('boundary=')
 
         data = data.strip(boundary + '--\r\n')
@@ -60,8 +60,8 @@ class FormData:
         
         for part in split:
             if part:
-                headers, body = find_headers(part.encode())
-                headers = dict(headers)
+                hdrs, body = find_headers(part.encode())
+                headers: Dict[str, str] = dict(hdrs)
 
                 disposition = Disposition(headers.get('Content-Disposition'))
 

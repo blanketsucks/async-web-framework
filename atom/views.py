@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Any, Callable, Coroutine, List
 import functools
 import inspect
 
@@ -28,6 +28,9 @@ class ViewMeta(type):
         return self
 
 class HTTPView(metaclass=ViewMeta):
+    __url_route__: str
+    __routes__: List[Callable[..., Coroutine[None, None, Any]]]
+
     def add_route(self, method: str, coro: Callable):
         setattr(self, method, coro)
         return coro

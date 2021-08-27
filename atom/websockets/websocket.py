@@ -1,8 +1,7 @@
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING, Dict, Tuple
 import json
 
 from .frame import WebSocketFrame, WebSocketOpcode, Data, WebSocketCloseCode
-from atom.server import ClientConnection
 from atom.stream import StreamReader, StreamWriter
 
 class Websocket:
@@ -10,7 +9,11 @@ class Websocket:
         self._reader = reader
         self._writer = writer
 
+        self.peername: Tuple[str, int] = self._writer.get_extra_info('peername')
         self._closed = False
+
+    def __repr__(self) -> str:
+        return f'<Websocket peername={self.peername}>'
 
     def is_closed(self):
         return self._closed

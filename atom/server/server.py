@@ -22,6 +22,7 @@ class ServerProtocol(asyncio.Protocol):
 
         self.readers: Dict[Tuple[str, int], StreamReader] = {}
         self.writers: Dict[Tuple[str, int], StreamWriter] = {}
+        self.waiters: Dict[Tuple[str, int], asyncio.Future[None]] = {}
 
         self.pending: asyncio.Queue[asyncio.Transport] = asyncio.Queue(
             maxsize=max_connections
@@ -45,21 +46,29 @@ class ServerProtocol(asyncio.Protocol):
 
         self.readers[peername] = reader
         self.writers[peername] = writer
+        self.waiters[peername] = self.loop.create_future()
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
         if exc:
             raise exc
 
         peername = self.transport.get_extra_info('peername')
+        waiter = self.waiters.pop(peername, None)
+
+        if waiter:
+            waiter.set_result(None)
 
         self.readers.pop(peername, None)
         self.writers.pop(peername, None)
 
-    def get_reader(self, peername: str) -> Optional[StreamReader]:
+    def get_reader(self, peername: Tuple[str, int]) -> Optional[StreamReader]:
         return self.readers.get(peername)
 
-    def get_writer(self, peername: str) -> Optional[StreamWriter]:
+    def get_writer(self, peername: Tuple[str, int]) -> Optional[StreamWriter]:
         return self.writers.get(peername)
+
+    def get_waiter(self, peername: Tuple[str, int]) -> Optional[asyncio.Future[None]]:
+        return self.waiters.get(peername)
 
     def data_received(self, data: bytes) -> None:
         peername = self.transport.get_extra_info('peername')
@@ -106,9 +115,10 @@ class ClientConnection:
         self._writer = writer
         self._protocol = protocol
         self.loop = loop
+        self._closed = False
 
     def __repr__(self) -> str:
-        return '<ClientConnection peername={0.peername}?'.format(self)
+        return '<ClientConnection peername={0.peername}>'.format(self)
 
     @property
     def protocol(self):
@@ -121,6 +131,9 @@ class ClientConnection:
     @property
     def sockname(self):
         return self._writer.get_extra_info('sockname')
+
+    def is_closed(self):
+        return self._closed
 
     async def receive(self, *, timeout: int=None):
         data = await self._reader.read(timeout=timeout)
@@ -160,8 +173,12 @@ class ClientConnection:
             fallback=fallback
         )
 
-    def close(self):
+    async def close(self):
         self._writer.close()
+        waiter = self.protocol.get_waiter(self.peername)
+
+        await waiter
+        self._closed = True
 
     def __aiter__(self):
         return self

@@ -1,5 +1,5 @@
 import ssl
-from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Type, Union
 import pathlib
 import re
 import inspect
@@ -40,16 +40,16 @@ class Application(abc.AbstractApplication):
         suppress_warnings: A bool indicating whether warnings should be surpressed.
     """
     def __init__(self,
-                host: str=None,
-                port: int=None,
-                url_prefix: str=None, 
+                host: Optional[str]=None,
+                port: Optional[int]=None,
+                url_prefix: Optional[str]=None, 
                 *,
-                worker_count: int=None, 
-                settings_file: Union[str, pathlib.Path]=None, 
-                load_settings_from_env: bool=None,
-                suppress_warnings: bool=False,
-                use_ssl: bool=False,
-                ssl_context: ssl.SSLContext=None):
+                worker_count: Optional[int]=None, 
+                settings_file: Optional[Union[str, pathlib.Path]]=None, 
+                load_settings_from_env: Optional[bool]=None,
+                suppress_warnings: Optional[bool]=False,
+                use_ssl: Optional[bool]=False,
+                ssl_context: Optional[ssl.SSLContext]=None):
         """
         Constructor.
 
@@ -63,8 +63,8 @@ class Application(abc.AbstractApplication):
         self.port = port or 8080
 
         self.url_prefix = url_prefix or ''
-        self.router: abc.AbstractRouter = Router()
-        self.websocket_tasks: List[asyncio.Task] = []
+        self.router = Router()
+        self.websocket_tasks: List[asyncio.Task[Any]] = []
         self.settings = Settings()
         self.worker_count = worker_count or (multiprocessing.cpu_count() * 2) + 1
         self.suppress_warnings = suppress_warnings
@@ -80,10 +80,10 @@ class Application(abc.AbstractApplication):
         if load_settings_from_env is True:
             self.settings = Settings.from_env_vars()
 
-        self._listeners: Dict[str, List[Callable]] = {}
+        self._listeners: Dict[str, List[Callable[..., Coroutine[None, None, Any]]]] = {}
         self._views: Dict[str, HTTPView] = {}
-        self._middlewares: List[Callable] = []
-        self._active_listeners: List[asyncio.Task] = []
+        self._middlewares: List[Callable[..., Coroutine[None, None, Any]]] = []
+        self._active_listeners: List[asyncio.Task[Any]] = []
 
         self._loop = None
         self._closed = False
@@ -99,19 +99,19 @@ class Application(abc.AbstractApplication):
         await self.start()
         return self
     
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args: Any):
         await self.close()
         return self
 
     @staticmethod
-    async def _maybe_coroutine(func, *args, **kwargs):
+    async def _maybe_coroutine(func: Callable[..., Union[Coroutine[None, None, Any], Any]], *args: Any, **kwargs: Any) -> Any:
         if asyncio.iscoroutinefunction(func):
             return await func(*args, **kwargs)
 
         return func(*args, **kwargs)
 
     def _add_workers(self):
-        workers = {}
+        workers: Dict[int, Worker] = {}
 
         for i in range(self.worker_count):
             worker = Worker(self, i)
@@ -138,15 +138,15 @@ class Application(abc.AbstractApplication):
             if ws.done():
                 self.websocket_tasks.remove(ws)
 
-    def _convert(self, func: Callable, args: Dict, request: 'Request'):
-        return_args = []
+    def _convert(self, func: Callable[..., Coroutine[None, None, Any]], args: Dict[str, Any], request: 'Request') -> List[Any]:
+        kwargs: Dict[str, Any] = {}
         params = inspect.signature(func)
 
         for key, value in params.parameters.items():
             param = args.get(key)
             if param:
                 if value.annotation is inspect.Signature.empty:
-                    return_args.append(param)
+                    kwargs[key] = param
                 else:
                     try:
                         param = value.annotation(param)
@@ -154,18 +154,24 @@ class Application(abc.AbstractApplication):
                         fut = 'Failed conversion to {0!r} for parameter {1!r}.'.format(value.annotation.__name__, key)
                         raise BadConversion(fut) from None
                     else:
-                        return_args.append(param)
+                        kwargs[key] = param
 
             else:
                 if issubclass(value.annotation, Model):
                     data = request.json()
-                    model = value.annotation.from_json(data.get(key))
+                    data = data.get(key)
 
-                    return_args.append(model)
+                    if data:
+                        model = value.annotation.from_json(data)
 
-        return return_args
+                    else:
+                        raise ValueError
 
-    def _resolve(self, request: 'Request') -> Tuple[Dict, Union[Route, WebsocketRoute]]:
+                    kwargs[key] = model
+
+        return kwargs
+
+    def _resolve(self, request: 'Request') -> Tuple[Dict[str, Any], Union[Route, WebsocketRoute]]:
         for route in self.router:
             match = re.fullmatch(route.path, request.url.path)
 
@@ -180,7 +186,18 @@ class Application(abc.AbstractApplication):
 
         raise NotFound(reason=f'Could not find {request.url.path!r}')
 
-    async def _parse_response(self, response: Union[str, bytes, dict, list, File, Response]) -> Optional[Response]:
+    def _validate_status_code(self, code: int):
+        if 300 <= code <= 399:
+            ret = 'Redirect status codes cannot be returned, use Request.redirect instead'
+            raise ValueError(ret)
+
+        if not (200 <= code <= 599):
+            ret = f'Status code {code} is not valid'
+            raise ValueError(ret)
+
+        return code
+
+    async def parse_response(self, response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, Any], File, Response, Any]) -> Optional[Response]:
         status = 200
 
         if isinstance(response, tuple):
@@ -188,6 +205,8 @@ class Application(abc.AbstractApplication):
 
             if not isinstance(status, int):
                 raise TypeError('Response status must be an integer.')
+
+            status = self._validate_status_code(status)
 
         if isinstance(response, File):
             response = FileResponse(response, status=status)  
@@ -214,17 +233,20 @@ class Application(abc.AbstractApplication):
             resp = JSONResponse(response, status=status)
             return resp
 
-    async def _run_middlewares(self, request: Request, route: Route, args: Tuple[Any]):
+    async def _run_middlewares(self, request: Request, route: Route,  kwargs: Dict[str, Any]):
         middlewares = route.middlewares.copy()
         middlewares.extend(self._middlewares)
 
         await asyncio.gather(
-            *[middleware(route, request, *args) for middleware in middlewares],
+            *[middleware(route, request, **kwargs) for middleware in middlewares],
         )
 
     def _handle_websocket_connection(self, route: WebsocketRoute, request: Request, websocket: Websocket):
+        if not self.loop:
+            return
+
         coro = route(request, websocket)
-        task = self.loop.create_task(coro)
+        task = self.loop.create_task(coro, name=f'Websocket-{request.url.path}')
 
         self.websocket_tasks.append(task)
         self._ensure_websockets()
@@ -235,8 +257,8 @@ class Application(abc.AbstractApplication):
         args, route = self._resolve(request)
         request.route = route
 
-        args = self._convert(route.callback, args, request)
-        return args, route
+        kwargs = self._convert(route.callback, args, request)
+        return kwargs, route
 
     async def _request_handler(self, 
                         request: Request, 
@@ -247,13 +269,17 @@ class Application(abc.AbstractApplication):
         route = None
 
         try:
-            args, route = self._resolve_all(request)
+            kwargs, route = self._resolve_all(request)
     
             await self._run_middlewares(
                 request=request,
                 route=route,
-                args=args,
+                kwargs=kwargs,
             )
+
+            if request.is_closed():
+                return
+
             if isinstance(route, WebsocketRoute):
                 return self._handle_websocket_connection(
                     route=route,
@@ -261,7 +287,7 @@ class Application(abc.AbstractApplication):
                     websocket=websocket,
                 )
 
-            resp = await self._maybe_coroutine(route.callback, request, *args)
+            resp = await self._maybe_coroutine(route.callback, request, **kwargs)
         except Exception as exc:
             if not route:
                 route = PartialRoute(
@@ -272,13 +298,8 @@ class Application(abc.AbstractApplication):
             self.dispatch('error', route, request, worker, exc)
             return
 
-        response = await self._parse_response(resp)
-        if not response:
-            ret = f'No valid response returned by {route.callback.__name__!r}'
-            raise ValueError(ret)
-
-        await worker.write(response, connection)
-        connection.close()
+        await request.send(resp)
+        request.close()
 
     @property
     def workers(self) -> List[Worker]:
@@ -293,7 +314,7 @@ class Application(abc.AbstractApplication):
         return self._socket
 
     @property
-    def listeners(self) -> Dict[str, List[Callable[..., Coroutine]]]:
+    def listeners(self) -> Dict[str, List[Callable[..., Coroutine[None, None, Any]]]]:
         """
         Returns:
             A dictionary of all listeners.
@@ -320,9 +341,9 @@ class Application(abc.AbstractApplication):
     def get_worker(self, id: int) -> Optional[Worker]:
         return self._workers.get(id)
 
-    def add_worker(self, worker: abc.AbstractWorker):
-        if not isinstance(worker, abc.AbstractWorker):
-            raise TypeError('worker must be an instance of AbstractWorker')
+    def add_worker(self, worker: Union[Worker, Any]) -> Worker:
+        if not isinstance(worker, Worker):
+            raise TypeError('worker must be an instance of Worker')
 
         if worker.id in self._workers:
             raise ValueError(f'Worker with id {worker.id} already exists')
@@ -341,7 +362,7 @@ class Application(abc.AbstractApplication):
         self._loop = loop = compat.get_running_loop()
 
         for worker in self.workers:
-            self.loop.create_task(worker.run(loop), name=f'Worker-{worker.id}')
+            loop.create_task(worker.run(loop), name=f'Worker-{worker.id}')
 
         self.dispatch('startup')
 
@@ -357,21 +378,21 @@ class Application(abc.AbstractApplication):
         self.dispatch('shutdown')
         log.info(f'Closed application')
 
-    def websocket(self, path: str):
-        def decorator(coro: Callable[..., Coroutine]) -> WebsocketRoute:
+    def websocket(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], WebsocketRoute]:
+        def decorator(coro: Callable[..., Coroutine[None, None, Any]]) -> WebsocketRoute:
             route = WebsocketRoute(path, 'GET', coro, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def route(self, path: str, method: str=None):
-        method = method or 'GET'
+    def route(self, path: str, method: Optional[str]=None) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
+        actual = method or 'GET'
 
-        def decorator(func: Callable[..., Coroutine]) -> Route:
-            route = Route(path, method, func, router=self.router)
+        def decorator(func: Callable[..., Coroutine[None, None, Any]]) -> Route:
+            route = Route(path, actual, func, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def add_route(self, route: Union[Route, WebsocketRoute]):
+    def add_route(self, route: Union[Route, WebsocketRoute, Any]) -> Union[Route, WebsocketRoute]:
         if not isinstance(route, (Route, WebsocketRoute)):
             fmt = 'Expected Route or WebsocketRoute but got {0!r} instead'
             raise RegistrationError(fmt.format(route.__class__.__name__))
@@ -393,7 +414,7 @@ class Application(abc.AbstractApplication):
 
         return self.router.add_route(route)
 
-    def add_router(self, router: Router):
+    def add_router(self, router: abc.AbstractRouter):
         if not isinstance(router, Router):
             fmt = 'Expected Router but got {0!r} instead'
             raise TypeError(fmt.format(router.__class__.__name__))
@@ -403,50 +424,50 @@ class Application(abc.AbstractApplication):
         
         return router
 
-    def get_route(self, method: str, path: str):
+    def get_route(self, method: str, path: str) -> Optional[Union[Route, WebsocketRoute]]:
         res = (path, method)
         route = self.router.routes.get(res)
 
         return route
 
-    def get(self, path: str):
-        def decorator(func: Callable[..., Coroutine]) -> Route:
+    def get(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
+        def decorator(func: Callable[..., Coroutine[None, None, Any]]) -> Route:
             route = Route(path, 'GET', func, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def put(self, path: str):
-        def decorator(func: Callable[..., Coroutine]):
+    def put(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
+        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
             route = Route(path, 'PUT', func, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def post(self, path: str):
-        def decorator(func: Callable[..., Coroutine]):
+    def post(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
+        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
             route = Route(path, 'POST', func, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def delete(self, path: str):
-        def decorator(func: Callable[..., Coroutine]):
+    def delete(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
+        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
             route = Route(path, 'DELETE', func, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def head(self, path: str):
-        def decorator(func: Callable[..., Coroutine]):
+    def head(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
+        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
             route = Route(path, 'HEAD', func, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def options(self, path: str):
-        def decorator(func: Callable[..., Coroutine]):
+    def options(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
+        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
             route = Route(path, 'OPTIONS', func, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def patch(self, path: str):
-        def decorator(func: Callable[..., Coroutine]):
+    def patch(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
+        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
             route = Route(path, 'PATCH', func, router=self.router)
             return self.add_route(route)
         return decorator
@@ -455,7 +476,7 @@ class Application(abc.AbstractApplication):
         self.router.routes.pop((route.path, route.method))
         return route
 
-    def add_event_listener(self, coro: Callable[..., Coroutine], name: str = None):
+    def add_event_listener(self, coro: Callable[..., Coroutine[None, None, Any]], name: Optional[str]=None):
         if not inspect.iscoroutinefunction(coro):
             raise RegistrationError('Listeners must be coroutines')
 
@@ -468,23 +489,16 @@ class Application(abc.AbstractApplication):
         self._listeners[actual] = [coro]
         return Listener(coro, actual)
 
-    def remove_event_listener(self, func: Callable[..., Coroutine] = None, name: str = None):
-        if not func:
-            if name:
-                self._listeners.pop(name.lower())
-                return
-
-            raise TypeError('Only the function or the name can be None, not both.')
-
-        self._listeners[name].remove(func)
-
-    def event(self, name: str = None):
-        def decorator(func: Callable[..., Coroutine]):
+    def event(self, name: Optional[str]=None) -> Callable[[Callable[..., Coroutine[None, None, Any]]], Listener]:
+        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
             return self.add_event_listener(func, name)
         return decorator
 
-    def dispatch(self, name: str, *args, **kwargs):
+    def dispatch(self, name: str, *args: Any, **kwargs: Any):
         loop = self.loop
+        if not loop:
+            return
+
         log.debug(f'Dispatching event: {name}')
 
         self._ensure_listeners()
@@ -505,17 +519,17 @@ class Application(abc.AbstractApplication):
     def get_view(self, path: str):
         return self._views.get(path)
 
-    def register_view(self, view: HTTPView):
+    def register_view(self, view: Union[HTTPView, Any]):
         if not isinstance(view, HTTPView):
             raise RegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__))
 
-        routes = view.as_routes(router=self.router)
+        view.as_routes(router=self.router)
         self._views[view.__url_route__] = view
 
         return view
 
     def view(self, path: str):
-        def decorator(cls):
+        def decorator(cls: Type[HTTPView]):
             if cls.__url_route__ == '':
                 cls.__url_route__ = path
 
@@ -523,7 +537,7 @@ class Application(abc.AbstractApplication):
             return self.register_view(view)
         return decorator
 
-    def middleware(self, func):
+    def middleware(self, func: Callable[..., Coroutine[None, None, Any]]) -> Callable[..., Coroutine[None, None, Any]]:
         if not inspect.iscoroutinefunction(func):
             raise RegistrationError('Middlewares must be coroutines')
 
@@ -540,7 +554,10 @@ class Application(abc.AbstractApplication):
 async def run(app: Application):
     try:
         await app.start()
-        loop = app._loop
+        loop = app.loop
+
+        if not loop:
+            loop = compat.get_running_loop()
         
         fut = loop.create_future()
         await fut

@@ -1,11 +1,11 @@
-from typing import Union
+from typing import Union, Optional
 import pathlib
 import io
 
 from . import compat
 
 class File:
-    def __init__(self, fp: Union[str, pathlib.Path, io.BytesIO], *, filename: str=None) -> None:
+    def __init__(self, fp: Union[str, pathlib.Path, io.BytesIO], *, filename: Optional[str]=None) -> None:
         if isinstance(fp, io.BytesIO):
             self.fp = fp
 

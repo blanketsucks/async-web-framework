@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .request import Request
@@ -46,7 +46,7 @@ class CookieJar:
 
         return jar
 
-    def add_cookie(self, name: str, value: str, *, domain: str=None, http_only: bool=False, is_secure: bool=False):
+    def add_cookie(self, name: str, value: str, *, domain: Optional[str]=None, http_only: bool=False, is_secure: bool=False):
         cookie = Cookie(
             name=name, 
             value=value, 
@@ -58,11 +58,12 @@ class CookieJar:
 
         return cookie
 
-    def get_cookie(self, name: str) -> Cookie:
+    def get_cookie(self, name: str) -> Optional[Cookie]:
         return self._cookies.get(name)
 
     def encode(self):
-        encoded = []
+        encoded: List[str] = []
+
         for cookie in self._cookies.values():
             encoded.append(str(cookie))
 

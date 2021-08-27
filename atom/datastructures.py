@@ -10,29 +10,29 @@ __all__ = (
 KT = TypeVar('KT')
 VT = TypeVar('VT')
 
-def is_immutable(obj):
+def is_immutable(obj: Any):
     raise TypeError(f'{obj.__class__.__name__!r} is immutable')
 
 class ImmutableMapping(Dict[KT, VT]):
-    def setdefault(self, key, default=None):
+    def setdefault(self, key: Any, default: Any=None):
         is_immutable(self)
 
-    def update(self, *args, **kwargs):
+    def update(self, **kwargs: VT) -> None:
         is_immutable(self)
 
-    def pop(self, key, default=None):
+    def pop(self, key: Any, default: Any=None):
         is_immutable(self)
 
-    def popitem(self):
+    def popitem(self) -> Tuple[KT, VT]:
         is_immutable(self)
 
-    def clear(self):
+    def clear(self) -> None:
         is_immutable(self)
     
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: Any, value: Any) -> None:
         is_immutable(self)
 
-    def __delitem__(self, key):
+    def __delitem__(self, key: Any) -> None:
         is_immutable(self)
 
     def __repr__(self):
@@ -44,10 +44,10 @@ class ImmutableMapping(Dict[KT, VT]):
     def __copy__(self):
         return self
 
-class MultiDict(dict):
-    def __init__(self, *args, **kwargs):
+class MultiDict(dict[Any, Any]):
+    def __init__(self, *args: Any, **kwargs: Any):
         self._dict: Dict[str, List[Any]] = {}
-        self._list: List[Tuple] = []
+        self._list: List[Tuple[str, str]] = []
 
         self.update(*args, **kwargs)
 
@@ -83,7 +83,7 @@ class URL:
         self.value = url
         self.components = urlparse(url)
 
-    def __add__(self, other: Union[str, 'URL']) -> 'URL':
+    def __add__(self, other: Union[str, 'URL', Any]) -> 'URL':
         if isinstance(other, URL):
             return URL(self.value + other.value)
         
@@ -105,11 +105,11 @@ class URL:
         return self.components.path
 
     @property
-    def hostname(self) -> str:
+    def hostname(self) -> Optional[str]:
         return self.components.hostname
 
     @property
-    def query(self) -> ImmutableMapping:
+    def query(self) -> ImmutableMapping[str, str]:
         ret = self.components.query
         query = parse_qsl(ret)
 

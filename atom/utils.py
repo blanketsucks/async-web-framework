@@ -2,7 +2,7 @@ import json
 import warnings
 import functools
 import asyncio
-from typing import Type, Generator, Tuple
+from typing import Any, List, Type, Generator, Tuple
 
 from .response import HTMLResponse, JSONResponse
 
@@ -69,7 +69,7 @@ def jsonify(*, response=True, **kwargs):
 
     return data
 
-def iter_headers(headers: bytes) -> Generator:
+def iter_headers(headers: bytes) -> Generator[None, None, List[Any]]:
     offset = 0
 
     while True:
@@ -78,11 +78,11 @@ def iter_headers(headers: bytes) -> Generator:
         offset = index
 
         if data == b'\r\n':
-            return
+            break
 
         yield [item.strip().decode() for item in data.split(b':', 1)]
 
-def find_headers(data: bytes) -> Tuple[Generator, str]:
+def find_headers(data: bytes) -> Tuple[Generator[None, None, List[Any]], bytes]:
     while True:
         end = data.find(b'\r\n\r\n') + 4
 

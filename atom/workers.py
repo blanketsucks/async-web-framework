@@ -1,7 +1,10 @@
+from __future__ import annotations
 import asyncio
 from typing import Dict, Optional, Tuple, TYPE_CHECKING, Union
 import hashlib
 import base64
+import logging
+import datetime
 
 from .server import Server, ClientConnection
 from .websockets import Websocket
@@ -13,10 +16,12 @@ from .abc import AbstractWorker
 if TYPE_CHECKING:
     from .app import Application
 
+log = logging.getLogger(__name__)
+
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 class Worker(AbstractWorker):
-    def __init__(self, app: 'Application', id: int):
+    def __init__(self, app: Application, id: int):
         self.app = app
         self.id = id
         self.websockets: Dict[Tuple[str, int], Websocket] = {}
@@ -56,6 +61,8 @@ class Worker(AbstractWorker):
         await self.server.serve(sock=self.app._socket)
         self.app.dispatch('worker_startup', self)
 
+        log.debug(f'Started worker {self.id}')
+
     async def run(self, loop: asyncio.AbstractEventLoop):
         await self.start(loop=loop)
 
@@ -78,6 +85,7 @@ class Worker(AbstractWorker):
         await self.server.close()
 
         self.app.dispatch('worker_shutdown', self)
+        log.debug(f'Stopped worker {self.id}')
 
     def get_websocket(self, connection: ClientConnection):
         peer = connection.peername
@@ -91,6 +99,8 @@ class Worker(AbstractWorker):
 
     def feed_into_websocket(self, data: bytes, connection: ClientConnection):
         websocket = self.get_websocket(connection)
+
+        log.debug(f'Feeding {len(data)} bytes into {websocket}')
         websocket.feed_data(data)
 
     def ensure_websockets(self):
@@ -157,23 +167,29 @@ class Worker(AbstractWorker):
 
         await self.write(response, connection)
 
-    async def write(self, data: Union[Response, Request], connection: ClientConnection):
+    async def write(self, data: Response, connection: ClientConnection):
         return await connection.write(data.encode())
 
     async def handler(self, connection: ClientConnection):
         self._working = True
+
         data = await connection.receive()
+        created_at = datetime.datetime.utcnow()
+        
+        log.info(f'Received {len(data)} bytes from {connection.peername}')
 
         try:
-            request = Request.parse(data, self.app, connection.peername)
+            request = Request.parse(data, self.app, connection, self, created_at)
         except ValueError:
             self.app.dispatch('websocket_data_receive', data, self)
             return self.feed_into_websocket(data, connection)
 
         self.app.dispatch('raw_request', data, self)
         self.app.dispatch('request', request, self)
+
+        log.info(f'Received a {request.method} request to {request.url.path} from {connection.peername}')
         
-        websocket = Websocket(connection)
+        websocket = Websocket(connection._reader, connection._writer)
 
         if self.is_websocket_request(request):
             self.store_websocket(websocket, connection)

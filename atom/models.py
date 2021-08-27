@@ -1,15 +1,13 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, Type, Union
 
 __all__ = (
     'Field',
     'Model'
 )
 
-_T = TypeVar('_T')
-
 class IncompatibleType(Exception):
-    def __init__(self, field: Field, argument: Type, data: Dict[str, Any]) -> None:
+    def __init__(self, field: Field, argument: Type[Any], data: Dict[str, Any]) -> None:
         self.field = field
         self.data = data
         self.argument = argument
@@ -25,34 +23,34 @@ class MissingField(Exception):
         message = f'Missing field {field.name!r}'
         super().__init__(message)
 
-def _make_fn(name: str, body: str) -> Callable:
+def _make_fn(name: str, body: str) -> Callable[..., None]:
     txt = f"def __create_fn__():\n {body}\n return {name}"
 
-    ns = {}
+    ns: Dict[str, Any] = {}
     exec(txt, {}, ns)
 
     return ns['__create_fn__']()
 
-def _make_init(annotations: Dict[str, Type]) -> str:
-    names = []
-    args = []
+def _make_init(annotations: Dict[str, Type[Any]]) -> str:
+    names: List[str] = []
+    args: List[str] = []
 
     for name, annotation in annotations.items():
         names.append(name)
         args.append(f'{name}: {annotation}')
 
-    body = []
+    body: List[str] = []
 
     for arg in names:
         body.append(f'self.{arg} = {arg}')
 
-    args = ', '.join(args)
-    body = '\n'.join(f'  {b}' for b in body)
+    actual = ', '.join(args)
+    bdy = '\n'.join(f'  {b}' for b in body)
 
-    return f'def __init__(self, *, {args}) -> None:\n{body}'
+    return f'def __init__(self, *, {actual}) -> None:\n{bdy}'
 
-def _make_fields(annotations: Dict[str, Type]):
-    fields = []
+def _make_fields(annotations: Dict[str, Type[Any]]) -> Tuple[Field, ...]:
+    fields: List[Field] = []
 
     for name, annotation in annotations.items():
         field = Field(name, eval(annotation))
@@ -61,7 +59,7 @@ def _make_fields(annotations: Dict[str, Type]):
     return tuple(fields)
 
 
-def _getattr(obj, name: str):
+def _getattr(obj: Any, name: str):
     attr = getattr(obj, name)
 
     if isinstance(attr, Model):
@@ -69,7 +67,7 @@ def _getattr(obj, name: str):
 
     return attr
 
-def _get_repr(obj, name: str):
+def _get_repr(obj: Any, name: str):
     attr = getattr(obj, name)
     if isinstance(attr, Model):
         return f'{name}={repr(attr)}'
@@ -77,7 +75,7 @@ def _get_repr(obj, name: str):
     return f'{name}={attr!r}'
 
 class Field:
-    def __init__(self, name: str, type: Type):
+    def __init__(self, name: str, type: Type[Any]):
         self.name = name
         self.type = type
 
@@ -88,7 +86,7 @@ class Field:
         return self.name
 
 class ModelMeta(type):
-    def __new__(cls, name: str, bases: Tuple[Type], attrs: Dict[str, Any]):
+    def __new__(cls, name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any]):
         annotations = attrs.get('__annotations__')
 
         if annotations:
@@ -110,7 +108,7 @@ class Model(metaclass=ModelMeta):
     if TYPE_CHECKING:
         __fields__: Tuple[Field]
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         pass
 
     def __repr__(self) -> str:
@@ -121,7 +119,7 @@ class Model(metaclass=ModelMeta):
         return {f.name: _getattr(self, f.name) for f in self.__fields__}
 
     @classmethod
-    def from_json(cls: Type[_T], data: Dict[str, Any]) -> _T:
+    def from_json(cls, data: Union[Dict[str, Any], Any]):
         if not isinstance(data, dict):
             ret = f"Invalid argument type for 'data'. Expected {dict!r} got {data.__class__!r} instead"
             raise TypeError(ret)
@@ -143,7 +141,6 @@ class Model(metaclass=ModelMeta):
                     raise IncompatibleType(field, type, data) from None
 
             else:
-                name = field.name
-                raise MissingField(name, data)
+                raise MissingField(field, data)
 
         return cls(**kwargs)

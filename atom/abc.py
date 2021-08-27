@@ -21,8 +21,7 @@ __all__ = (
 # WebsocketRoute = Callable[[Callable[[Request], Coroutine[Any, Any, Any]]], _WebsocketRoute]
 # Middleware = Callable[[Request, Callable[[Request], Coroutine[Any, Any, Any]]], Coroutine[Any, Any, Any]]
 
-Route = Callable
-WebsocketRoute = Callable
+Route = Callable[[Callable[..., Coroutine[None, None, Any]]], '_Route']
 Middleware = Callable
 
 
@@ -33,7 +32,7 @@ class AbstractRouter:
     def remove_route(self, route: Union[_Route, _WebsocketRoute]) -> Union[_Route, _WebsocketRoute]:
         raise NotImplementedError
 
-    def websocket(self, path: str) -> WebsocketRoute:
+    def websocket(self, path: str) -> Route:
         raise NotImplementedError
 
     def route(self, path: str, method: str) -> Route:
@@ -67,7 +66,6 @@ class AbstractRouter:
         raise NotImplementedError
 
 class AbstractApplication:
-    loop: Optional[asyncio.AbstractEventLoop]
     settings: Settings
     url_prefix: str
     surpress_warnings: bool
@@ -94,16 +92,16 @@ class AbstractApplication:
     def add_route(self, route: Union[_Route, _WebsocketRoute]) -> Union[_Route, _WebsocketRoute]:
         raise NotImplementedError
 
-    def get_route(self, method: str, path: str) -> Union[_Route, _WebsocketRoute]:
+    def get_route(self, method: str, path: str) -> Optional[Union[_Route, _WebsocketRoute]]:
         raise NotImplementedError
 
-    def remove_route(self, route: Union[_Route, _WebsocketRoute]) -> Union[_Route, _WebsocketRoute]:
+    def remove_route(self, route: Union[_Route, _WebsocketRoute]) -> Optional[Union[_Route, _WebsocketRoute]]:
         raise NotImplementedError
 
     def add_router(self, router: AbstractRouter) -> AbstractRouter:
         raise NotImplementedError
 
-    def websocket(self, path: str) -> WebsocketRoute:
+    def websocket(self, path: str) -> Route:
         raise NotImplementedError
 
     def route(self, path: str, method: str) -> Route:
@@ -130,30 +128,34 @@ class AbstractApplication:
     def head(self, path: str) -> Route:
         raise NotImplementedError
 
-    def add_event_listener(self, coro: Callable[..., Coroutine], name: str=None) -> Listener:
+    def add_event_listener(self, 
+                        coro: Callable[..., Coroutine[None, None, Any]], 
+                        name: Optional[str]=None) -> Listener:
         raise NotImplementedError
 
-    def remove_event_listener(self, func: Callable[..., Coroutine]=None, name: str=None) -> None:
+    def remove_event_listener(self, 
+                func: Optional[Callable[..., Coroutine[None, None, Any]]]=None, 
+                name: Optional[str]=None) -> None:
         raise NotImplementedError
 
-    def event(self, name: str=None) -> Callable[[Callable[..., Coroutine]], Listener]:
+    def event(self, name: Optional[str]=None) -> Callable[[Callable[..., Coroutine[None, None, Any]]], Listener]:
         raise NotImplementedError
     
 
 class AbstractWorker:
     id: int
 
-    async def start(self, loop: asyncio.AbstractEventLoop):
+    async def start(self, loop: asyncio.AbstractEventLoop) -> None:
         raise NotImplementedError
 
-    async def run(self, loop: asyncio.AbstractEventLoop):
+    async def run(self, loop: asyncio.AbstractEventLoop) -> None:
         raise NotImplementedError
 
     async def write(self, data: Union[Response, Request], connection: ClientConnection) -> int:
         raise NotImplementedError
 
-    async def stop(self):
+    async def stop(self) -> None:
         raise NotImplementedError
 
-    async def handler(self):
+    async def handler(self) -> None:
         raise NotImplementedError
