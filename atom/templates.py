@@ -1,9 +1,10 @@
-from typing import Any, Dict, List, Union, overload, Tuple
+from typing import Any, Dict, List, Union, overload, Tuple, Optional
 import asyncio
 import pathlib
 import re
 import ast
 
+from . import compat
 from .response import HTMLResponse
 
 __all__ = ('Template', 'render')
@@ -23,11 +24,11 @@ def _include(fn: str):
         return f.read()
 
 @overload
-def _iterate(iterable: Union[List, Tuple], *, key: str, sep: str='\n') -> str: ...
+def _iterate(iterable: Union[List[Any], Tuple[Any]], *, key: str, sep: str='\n') -> str: ...
 @overload
-def _iterate(iterable: Dict, *, key: str, value: str, sep: str='\n') -> str: ...
-def _iterate(iterable: Union[List, Dict], **kwargs: str) -> str:
-    items = []
+def _iterate(iterable: Dict[str, Any], *, key: str, value: str, sep: str='\n') -> str: ...
+def _iterate(iterable: Union[List[Any], Tuple[Any], Dict[str, Any], Any], **kwargs: str) -> str:
+    items: List[str] = []
     sep = kwargs.get('sep', '\n')
 
     if isinstance(iterable, dict):
@@ -52,7 +53,7 @@ def _iterate(iterable: Union[List, Dict], **kwargs: str) -> str:
 class Context:
     regex = re.compile(r'(?<={{).+?(?=}})', re.MULTILINE)
 
-    def __init__(self, template: 'Template', kwargs) -> None:
+    def __init__(self, template: 'Template', kwargs: Dict[str, Any]) -> None:
         self.template = template
 
         self.variables = {
@@ -87,7 +88,7 @@ class Context:
         return source
 
 class Template:
-    def __init__(self, path: Union[str, pathlib.Path], loop: asyncio.AbstractEventLoop=None) -> None:
+    def __init__(self, path: Union[str, pathlib.Path, Any], loop: Optional[asyncio.AbstractEventLoop]=None) -> None:
         if isinstance(path, str):
             self.path = path
         elif isinstance(path, pathlib.Path):
@@ -96,7 +97,7 @@ class Template:
             raise TypeError('path must be a string or pathlib.Path')
 
         self.fp = open(self.path, 'r')
-        self.loop = loop or asyncio.get_event_loop()
+        self.loop = loop or compat.get_event_loop()
 
     async def read(self) -> str:
         if self.fp.closed:
@@ -105,7 +106,12 @@ class Template:
         source = await self.loop.run_in_executor(None, self.fp.read)
         return source
 
-async def render(path: str, __globals: Dict[str, Any]=None, __locals: Dict[str, Any]=None, **kwargs):
+async def render(
+    path: str,
+    __globals: Optional[Dict[str, Any]]=None, 
+    __locals: Optional[Dict[str, Any]]=None, 
+    **kwargs: Any
+):
     if not __globals:
         __globals = {}
 

@@ -1,4 +1,4 @@
-from typing import Dict, List, Union
+from typing import Any, Dict, List, Union, Optional
 import json
 import enum
 import mimetypes
@@ -16,6 +16,7 @@ __all__ = (
 )
 
 class HTTPStatus(enum.IntEnum):
+    _description_: str
     def __new__(cls, value: int, description: str):
         self = int.__new__(cls, value)
 
@@ -98,22 +99,22 @@ class HTTPStatus(enum.IntEnum):
 
 class Response:
     def __init__(self, 
-                body: str=None,
-                status: int=None,
-                content_type: str=None,
-                headers: Dict[str, str]=None,
-                version: str=None):
+                body: Optional[str]=None,
+                status: Optional[int]=None,
+                content_type: Optional[str]=None,
+                headers: Optional[Dict[str, Any]]=None,
+                version: Optional[str]=None):
 
         self.version = version or '1.1'
-        self._status = HTTPStatus(status or 200)
+        self._status = HTTPStatus(status or 200) # type: ignore
         self._body = body or ''
         self._content_type = content_type or 'text/html'
         self._encoding = "utf-8"
 
-        if headers is None:
+        if not headers:
             headers = {}
 
-        self._headers = MultiDict(headers)
+        self._headers: MultiDict[str, Any] = MultiDict(headers)
 
         if body:
             self._headers['Content-Type'] = content_type
@@ -147,7 +148,7 @@ class Response:
                 name: str, 
                 value: str, 
                 *, 
-                domain: str=None, 
+                domain: Optional[str]=None, 
                 http_only: bool=False, 
                 is_secure: bool=False):
         return self.cookies.add_cookie(
@@ -179,10 +180,10 @@ class Response:
 
 class HTMLResponse(Response):
     def __init__(self, 
-                body: str=None,
-                status: int=None,
-                headers: Dict[str, str]=None,
-                version: str=None):
+                body: Optional[str]=None,
+                status: Optional[int]=None,
+                headers: Optional[Dict[str, Any]]=None,
+                version: Optional[str]=None):
 
         super().__init__(
             body=body, 
@@ -195,10 +196,10 @@ class HTMLResponse(Response):
 
 class JSONResponse(Response):
     def __init__(self, 
-                body: Union[Dict, List]=None, 
-                status: int=None, 
-                headers: Dict[str, str]=None, 
-                version: str=None):
+                body: Optional[Union[Dict[str, Any], List[Any]]]=None, 
+                status: Optional[int]=None, 
+                headers: Optional[Dict[str, Any]]=None, 
+                version: Optional[str]=None):
 
         body = body or {}
         super().__init__(
@@ -212,9 +213,9 @@ class JSONResponse(Response):
 class FileResponse(Response):
     def __init__(self, 
                 file: File,
-                status: int=None, 
-                headers: Dict[str, str]=None, 
-                version: str=None):
+                status: Optional[int]=None, 
+                headers: Optional[Dict[str, str]]=None, 
+                version: Optional[str]=None):
         self.file = file
 
         super().__init__(
@@ -226,7 +227,10 @@ class FileResponse(Response):
 
     def get_content_type(self):
         filename = self.file.filename
-        content_type, encoding = mimetypes.guess_type(filename)
+        content_type = None
+
+        if filename:
+            content_type, _ = mimetypes.guess_type(filename)
 
         if not content_type:
             content_type = 'application/octet-stream'

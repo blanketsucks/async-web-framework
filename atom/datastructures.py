@@ -44,22 +44,22 @@ class ImmutableMapping(Dict[KT, VT]):
     def __copy__(self):
         return self
 
-class MultiDict(dict[Any, Any]):
+class MultiDict(dict[KT, VT]):
     def __init__(self, *args: Any, **kwargs: Any):
-        self._dict: Dict[str, List[Any]] = {}
-        self._list: List[Tuple[str, str]] = []
+        self._dict: Dict[KT, List[VT]] = {}
+        self._list: List[Tuple[KT, VT]] = []
 
         self.update(*args, **kwargs)
 
-    def __getitem__(self, key: str) -> str:
+    def __getitem__(self, key: KT) -> VT:
         value = self._dict[key]
         return value[0]
 
-    def __setitem__(self, key: str, value: str) -> None:
+    def __setitem__(self, key: KT, value: VT) -> None:
         self._dict.setdefault(key, []).append(value)
         self._list.append((key, value))
 
-    def __delitem__(self, key: str) -> None:
+    def __delitem__(self, key: KT) -> None:
         self._dict.__delitem__(key)
         
         self._list = [(k, v) for k, v in self._list if k != key]
@@ -68,12 +68,11 @@ class MultiDict(dict[Any, Any]):
         self._dict = {}
         self._list = []
 
-    def getall(self, key: str) -> List[str]:
+    def getall(self, key: KT) -> List[VT]:
         return self._dict.get(key, [])
 
-class Headers(MultiDict):
-    def __iter__(self):
-        return self._list.__iter__()
+class Headers(MultiDict[str, str]):
+    pass
 
 class URL:
     def __init__(self, url: Union[str, bytes]) -> None:

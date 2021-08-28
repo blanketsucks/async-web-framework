@@ -1,6 +1,6 @@
 from __future__ import annotations
 import json
-from typing import TYPE_CHECKING, Union, Dict, Any, Optional, Tuple, List
+from typing import TYPE_CHECKING, Union, Dict, Any, Optional, Tuple, List, Type
 import urllib.parse
 import datetime
 
@@ -10,8 +10,7 @@ from .utils import find_headers
 from .cookies import CookieJar
 from .datastructures import URL
 from .sessions import CookieSession
-from .abc import AbstractApplication
-from .responses import redirects
+from .responses import Redirection, redirects
 from .formdata import FormData
 from .server import ClientConnection
 from .file import File
@@ -26,7 +25,7 @@ __all__ = (
 
 class Request:
     __slots__ = (
-        '_encoding', 'version', 'method', 'worker', 'connection'
+        '_encoding', 'version', 'method', 'worker', 'connection',
         '_url', 'headers', '_body', 'protocol', 'connection_info',
         '_cookies', 'route', '_app', 'peername', 'created_at'
     )
@@ -63,6 +62,8 @@ class Request:
             data=data,
             connection=self.connection
         )
+
+        await self.close()
 
     async def close(self):
         if not self.connection.is_closed():
@@ -137,13 +138,13 @@ class Request:
                 body: Any=None, 
                 headers: Optional[Dict[str, Any]]=None, 
                 status: Optional[int]=None, 
-                content_type: Optional[str]=None):
+                content_type: Optional[str]=None) -> Redirection:
         headers = headers or {}
         status = status or 302
         content_type = content_type or 'text/plain'
 
         url = urllib.parse.quote_plus(to, ":/%#?&=@[]!$&'()*+,;")
-        cls = redirects.get(status)
+        cls: Optional[Type[Redirection]] = redirects.get(status) # type: ignore
 
         if not cls:
             ret = f'{status} is not a valid redirect status code'
@@ -155,17 +156,17 @@ class Request:
     @classmethod
     def parse(cls, 
             data: bytes, 
-            app: AbstractApplication, 
+            app: Application, 
             connection: ClientConnection, 
             worker: Worker, 
             created_at: datetime.datetime) -> Request:
         line: str
 
-        headers, body = find_headers(data)
-        line, = next(headers)
+        hdrs, body = find_headers(data)
+        line, = next(hdrs)
 
         parts = line.split(' ')
-        headers = dict(headers)
+        headers: Dict[str, Any] = dict(headers) # type: ignore
         
         method = parts[0]
         version = parts[2]
@@ -182,7 +183,7 @@ class Request:
             worker=worker,
             created_at=created_at
         )
-
+        
         return self
 
     def __repr__(self) -> str:

@@ -1,5 +1,5 @@
 import ssl
-from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import pathlib
 import re
 import inspect
@@ -7,8 +7,11 @@ import logging
 import multiprocessing
 import socket
 import asyncio
+import traceback
 
-from . import compat, utils, abc
+from ._types import CoroFunc, MaybeCoroFunc
+
+from . import compat, utils
 from .server import ClientConnection
 from .request import Request
 from .responses import NotFound, MethodNotAllowed
@@ -30,7 +33,8 @@ __all__ = (
     'run'
 )
 
-class Application(abc.AbstractApplication):
+
+class Application:
     """
     A class respreseting an ASGI application.
 
@@ -80,9 +84,9 @@ class Application(abc.AbstractApplication):
         if load_settings_from_env is True:
             self.settings = Settings.from_env_vars()
 
-        self._listeners: Dict[str, List[Callable[..., Coroutine[None, None, Any]]]] = {}
+        self._listeners: Dict[str, List[CoroFunc]] = {}
         self._views: Dict[str, HTTPView] = {}
-        self._middlewares: List[Callable[..., Coroutine[None, None, Any]]] = []
+        self._middlewares: List[CoroFunc] = []
         self._active_listeners: List[asyncio.Task[Any]] = []
 
         self._loop = None
@@ -104,7 +108,7 @@ class Application(abc.AbstractApplication):
         return self
 
     @staticmethod
-    async def _maybe_coroutine(func: Callable[..., Union[Coroutine[None, None, Any], Any]], *args: Any, **kwargs: Any) -> Any:
+    async def _maybe_coroutine(func: MaybeCoroFunc[Any], *args: Any, **kwargs: Any) -> Any:
         if asyncio.iscoroutinefunction(func):
             return await func(*args, **kwargs)
 
@@ -138,7 +142,7 @@ class Application(abc.AbstractApplication):
             if ws.done():
                 self.websocket_tasks.remove(ws)
 
-    def _convert(self, func: Callable[..., Coroutine[None, None, Any]], args: Dict[str, Any], request: 'Request') -> List[Any]:
+    def _convert(self, func: CoroFunc, args: Dict[str, Any], request: 'Request') -> Dict[str, Any]:
         kwargs: Dict[str, Any] = {}
         params = inspect.signature(func)
 
@@ -264,13 +268,13 @@ class Application(abc.AbstractApplication):
                         request: Request, 
                         connection: ClientConnection, 
                         websocket: Websocket,
-                        worker: abc.AbstractWorker):
+                        worker: Worker):
         resp = None
         route = None
 
         try:
             kwargs, route = self._resolve_all(request)
-    
+
             await self._run_middlewares(
                 request=request,
                 route=route,
@@ -299,7 +303,7 @@ class Application(abc.AbstractApplication):
             return
 
         await request.send(resp)
-        request.close()
+        await request.close()
 
     @property
     def workers(self) -> List[Worker]:
@@ -314,7 +318,7 @@ class Application(abc.AbstractApplication):
         return self._socket
 
     @property
-    def listeners(self) -> Dict[str, List[Callable[..., Coroutine[None, None, Any]]]]:
+    def listeners(self) -> Dict[str, List[CoroFunc]]:
         """
         Returns:
             A dictionary of all listeners.
@@ -378,16 +382,18 @@ class Application(abc.AbstractApplication):
         self.dispatch('shutdown')
         log.info(f'Closed application')
 
-    def websocket(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], WebsocketRoute]:
-        def decorator(coro: Callable[..., Coroutine[None, None, Any]]) -> WebsocketRoute:
+    def websocket(self, path: str) -> Callable[[CoroFunc], WebsocketRoute]:
+        def decorator(coro: CoroFunc) -> WebsocketRoute:
             route = WebsocketRoute(path, 'GET', coro, router=self.router)
-            return self.add_route(route)
+            self.add_route(route)
+
+            return route
         return decorator
 
-    def route(self, path: str, method: Optional[str]=None) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
+    def route(self, path: str, method: Optional[str]=None) -> Callable[[CoroFunc], Route]:
         actual = method or 'GET'
 
-        def decorator(func: Callable[..., Coroutine[None, None, Any]]) -> Route:
+        def decorator(func: CoroFunc) -> Route:
             route = Route(path, actual, func, router=self.router)
             return self.add_route(route)
         return decorator
@@ -414,7 +420,7 @@ class Application(abc.AbstractApplication):
 
         return self.router.add_route(route)
 
-    def add_router(self, router: abc.AbstractRouter):
+    def add_router(self, router: Union[Router, Any]):
         if not isinstance(router, Router):
             fmt = 'Expected Router but got {0!r} instead'
             raise TypeError(fmt.format(router.__class__.__name__))
@@ -430,44 +436,44 @@ class Application(abc.AbstractApplication):
 
         return route
 
-    def get(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
-        def decorator(func: Callable[..., Coroutine[None, None, Any]]) -> Route:
+    def get(self, path: str) -> Callable[[CoroFunc], Route]:
+        def decorator(func: CoroFunc) -> Route:
             route = Route(path, 'GET', func, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def put(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
-        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
+    def put(self, path: str) -> Callable[[CoroFunc], Route]:
+        def decorator(func: CoroFunc):
             route = Route(path, 'PUT', func, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def post(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
-        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
+    def post(self, path: str) -> Callable[[CoroFunc], Route]:
+        def decorator(func: CoroFunc):
             route = Route(path, 'POST', func, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def delete(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
-        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
+    def delete(self, path: str) -> Callable[[CoroFunc], Route]:
+        def decorator(func: CoroFunc):
             route = Route(path, 'DELETE', func, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def head(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
-        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
+    def head(self, path: str) -> Callable[[CoroFunc], Route]:
+        def decorator(func: CoroFunc):
             route = Route(path, 'HEAD', func, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def options(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
-        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
+    def options(self, path: str) -> Callable[[CoroFunc], Route]:
+        def decorator(func: CoroFunc):
             route = Route(path, 'OPTIONS', func, router=self.router)
             return self.add_route(route)
         return decorator
 
-    def patch(self, path: str) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Route]:
-        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
+    def patch(self, path: str) -> Callable[[CoroFunc], Route]:
+        def decorator(func: CoroFunc):
             route = Route(path, 'PATCH', func, router=self.router)
             return self.add_route(route)
         return decorator
@@ -476,7 +482,7 @@ class Application(abc.AbstractApplication):
         self.router.routes.pop((route.path, route.method))
         return route
 
-    def add_event_listener(self, coro: Callable[..., Coroutine[None, None, Any]], name: Optional[str]=None):
+    def add_event_listener(self, coro: CoroFunc, name: Optional[str]=None):
         if not inspect.iscoroutinefunction(coro):
             raise RegistrationError('Listeners must be coroutines')
 
@@ -489,8 +495,8 @@ class Application(abc.AbstractApplication):
         self._listeners[actual] = [coro]
         return Listener(coro, actual)
 
-    def event(self, name: Optional[str]=None) -> Callable[[Callable[..., Coroutine[None, None, Any]]], Listener]:
-        def decorator(func: Callable[..., Coroutine[None, None, Any]]):
+    def event(self, name: Optional[str]=None) -> Callable[[CoroFunc], Listener]:
+        def decorator(func: CoroFunc):
             return self.add_event_listener(func, name)
         return decorator
 
@@ -537,7 +543,7 @@ class Application(abc.AbstractApplication):
             return self.register_view(view)
         return decorator
 
-    def middleware(self, func: Callable[..., Coroutine[None, None, Any]]) -> Callable[..., Coroutine[None, None, Any]]:
+    def middleware(self, func: CoroFunc) -> CoroFunc:
         if not inspect.iscoroutinefunction(func):
             raise RegistrationError('Middlewares must be coroutines')
 
@@ -547,9 +553,9 @@ class Application(abc.AbstractApplication):
     async def on_error(self, 
                     route: Union[Route, PartialRoute], 
                     request: Request,
-                    worker: abc.AbstractWorker, 
+                    worker: Worker, 
                     exception: Exception):
-        raise exception
+        traceback.print_exception(type(exception), exception, exception.__traceback__)
 
 async def run(app: Application):
     try:

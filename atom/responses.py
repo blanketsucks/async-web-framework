@@ -4,7 +4,7 @@ All the responses were taken from:
 
 """
 
-from typing import Any, Dict, Type, Union
+from typing import Any, Dict, Type, Optional, TypeVar
 from .response import Response, HTTPStatus
 
 __all__ = (
@@ -77,18 +77,19 @@ __all__ = (
     'server_errors',
 )
 
-responses: Dict[int, Union[Type['HTTPResponse'], Type['Redirection']]] = {}
+T = TypeVar('T')
+responses: Dict[int, Type[Any]] = {}
 
 def get(status: int):
     return responses.get(status)
 
 def status(code: int):
-    def decorator(cls):
+    def decorator(cls: Type[T]) -> Type[T]:
         status = getattr(cls, '_status', None)
 
         if not status:
             status = code
-            cls._status = status
+            cls._status = status # type: ignore
 
         responses[status] = cls
         return cls
@@ -96,13 +97,19 @@ def status(code: int):
     return decorator
 
 class HTTPResponse(Response):
-    _status: int = None
+    _status: Optional[int] = None
 
-    def __init__(self, body: Any=None, content_type: str=None, headers: dict=None):
+    def __init__(self, 
+                body: Any=None, 
+                content_type: Optional[str]=None, 
+                headers: Optional[Dict[str, Any]]=None):
         Response.__init__(self, body, self._status, content_type, headers)
 
 class HTTPException(HTTPResponse, Exception):
-    def __init__(self, reason: str=None, content_type: str=None, headers: dict=None):
+    def __init__(self, 
+                reason: Optional[str]=None, 
+                content_type: Optional[str]=None,
+                headers: Optional[Dict[str, Any]]=None):
         self._reason = reason
         self._content_type = content_type
 
@@ -211,8 +218,8 @@ class IMUsed(HTTPResponse):
     """
 
 class Redirection(HTTPResponse):
-    def __init__(self, location, body: Any=None, content_type: str=None):
-        super().__init__(body=body, content_type=content_type)
+    def __init__(self, location: str, body: Any=None, content_type: Optional[str]=None, headers: Optional[Dict[str, Any]]=None):
+        super().__init__(body=body, content_type=content_type, headers=headers)
         self.add_header("Location", location)
 
 @status(300)
@@ -530,9 +537,9 @@ class NetworkAuthenticationRequired(HTTPException):
     Further extensions to the request are required for the server to fulfill it.
     """
 
-def abort(_status: int, *, message: str=None, content_type: str='text/html'):
+def abort(_status: int, *, message: Optional[str]=None, content_type: str='text/html'):
     if not message:
-        _status = HTTPStatus(_status)
+        _status = HTTPStatus(_status) # type: ignore
         message = _status.description
 
         _status = _status.value
@@ -554,7 +561,7 @@ successful_responses = {
     for code, cls in responses.items() if 200 <= code <= 299
 }
 
-redirects: Dict[int, Redirection] = {
+redirects = {
     code: cls
     for code, cls in responses.items() if 300 <= code <= 399
 }

@@ -6,7 +6,7 @@ from . import compat
 class StreamWriter:
     def __init__(self, transport: asyncio.Transport) -> None:
         self._transport = transport
-        self._waiter: 'Optional[asyncio.Future]' = None
+        self._waiter: 'Optional[asyncio.Future[None]]' = None
 
     async def _wait_for_drain(self):
         if self._waiter is None:
@@ -25,7 +25,7 @@ class StreamWriter:
         self._transport.writelines(data)
         await self._wait_for_drain()
 
-    def get_extra_info(self, name: str, default: Optional[Any]=None) -> Any:
+    def get_extra_info(self, name: str, default: Any=None) -> Any:
         return self._transport.get_extra_info(name, default)
 
     def close(self):
@@ -38,7 +38,7 @@ class StreamReader:
 
         self._waiter = None
 
-    async def _wait_for_data(self, timeout: float=None):
+    async def _wait_for_data(self, timeout: Optional[float]=None):
         self._waiter = self.loop.create_future()
 
         try:
@@ -55,7 +55,7 @@ class StreamReader:
     def feed_eof(self):
         return
 
-    async def read(self, nbytes: int=None, *, timeout: float=None):
+    async def read(self, nbytes: Optional[int]=None, *, timeout: Optional[float]=None):
         if not self.buffer:
             await self._wait_for_data(timeout=timeout)
 

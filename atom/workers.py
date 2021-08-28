@@ -1,6 +1,6 @@
 from __future__ import annotations
 import asyncio
-from typing import Dict, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Dict, Optional, Tuple, TYPE_CHECKING
 import hashlib
 import base64
 import logging
@@ -11,7 +11,6 @@ from .websockets import Websocket
 from .request import Request
 from .response import Response
 from .responses import SwitchingProtocols
-from .abc import AbstractWorker
 
 if TYPE_CHECKING:
     from .app import Application
@@ -20,7 +19,7 @@ log = logging.getLogger(__name__)
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-class Worker(AbstractWorker):
+class Worker:
     def __init__(self, app: Application, id: int):
         self.app = app
         self.id = id
@@ -58,13 +57,16 @@ class Worker(AbstractWorker):
     async def start(self, loop: asyncio.AbstractEventLoop):
         self.server = Server(self.host, self.port, loop=loop)
 
-        await self.server.serve(sock=self.app._socket)
+        await self.server.serve(sock=self.app._socket) # type: ignore
         self.app.dispatch('worker_startup', self)
 
         log.debug(f'Started worker {self.id}')
 
     async def run(self, loop: asyncio.AbstractEventLoop):
         await self.start(loop=loop)
+
+        if not self.server or not self.loop:
+            return
 
         while True:
             connection = await self.server.accept()
@@ -77,6 +79,9 @@ class Worker(AbstractWorker):
             )
 
     async def stop(self):
+        if not self.server:
+            return
+
         if self.current_task:
             await self.current_task
             self.current_task = None
@@ -104,7 +109,7 @@ class Worker(AbstractWorker):
         websocket.feed_data(data)
 
     def ensure_websockets(self):
-        self.app._ensure_websockets()
+        self.app._ensure_websockets() # type: ignore
         
         for peer, websocket in self.websockets.items():
             if websocket.is_closed():
@@ -189,13 +194,13 @@ class Worker(AbstractWorker):
 
         log.info(f'Received a {request.method} request to {request.url.path} from {connection.peername}')
         
-        websocket = Websocket(connection._reader, connection._writer)
+        websocket = Websocket(connection._reader, connection._writer) # type: ignore
 
         if self.is_websocket_request(request):
             self.store_websocket(websocket, connection)
-            await self.handshake(request)
+            await self.handshake(request, connection)
 
-        await self.app._request_handler(
+        await self.app._request_handler( # type: ignore
             request=request,
             websocket=websocket,
             connection=connection,

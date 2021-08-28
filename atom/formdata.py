@@ -35,12 +35,12 @@ class Disposition:
 
 class FormData:
     def __init__(self) -> None:
-        self.files: List[Tuple[File, Disposition]] = []
+        self.files: List[Tuple[File, Optional[Disposition]]] = []
 
     def __iter__(self):
         return iter(self.files)
 
-    def add_file(self, file: File, disposition: Disposition) -> None:
+    def add_file(self, file: File, disposition: Optional[Disposition]) -> None:
         self.files.append((file, disposition))
 
     @classmethod
@@ -61,12 +61,18 @@ class FormData:
         for part in split:
             if part:
                 hdrs, body = find_headers(part.encode())
-                headers: Dict[str, str] = dict(hdrs)
+                headers: Dict[str, str] = dict(hdrs) # type: ignore
 
-                disposition = Disposition(headers.get('Content-Disposition'))
+
+                if (content := headers.get('Content-Disposition')):
+                    disposition = Disposition(content)
+                    filename = disposition.filename
+                else:
+                    disposition = None
+                    filename = None
 
                 data = io.BytesIO(body)
-                file = File(data, filename=disposition.filename)
+                file = File(data, filename=filename)
 
                 form.add_file(file, disposition)
 

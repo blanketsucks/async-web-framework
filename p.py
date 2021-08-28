@@ -1,5 +1,7 @@
 import requests
 
-for i in range(10000):
-    r = requests.get('http://127.0.0.1:8080/')
-    print(r.text)
+r = requests.get('http://127.0.0.1:8080/', data='yes')
+print(r.text)
+
+r = requests.get('http://127.0.0.1:8080/', data='ok')
+print(r.text)

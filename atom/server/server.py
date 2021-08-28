@@ -1,8 +1,10 @@
 import asyncio
 import pathlib
+import io
 import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
 import ssl
+import socket
 
 from atom.stream import StreamWriter, StreamReader
 from atom import compat
@@ -31,7 +33,7 @@ class ServerProtocol(asyncio.Protocol):
     def __call__(self):
         return self
 
-    def connection_made(self, transport: asyncio.BaseTransport) -> None:
+    def connection_made(self, transport: asyncio.Transport) -> None: # type: ignore
         self.transport = transport
         peername = transport.get_extra_info('peername')
 
@@ -86,7 +88,7 @@ class ServerProtocol(asyncio.Protocol):
         if not writer:
             return
 
-        writer._waiter = self.loop.create_future()
+        writer._waiter = self.loop.create_future() # type: ignore
     
     def resume_writing(self) -> None:
         peername = self.transport.get_extra_info('peername')
@@ -94,8 +96,8 @@ class ServerProtocol(asyncio.Protocol):
 
         if not writer:
             return
-
-        writer._waiter.set_result(None)
+ 
+        writer._waiter.set_result(None) # type: ignore
 
     def eof_received(self) -> None:
         peername = self.transport.get_extra_info('peername')
@@ -135,11 +137,11 @@ class ClientConnection:
     def is_closed(self):
         return self._closed
 
-    async def receive(self, *, timeout: int=None):
+    async def receive(self, *, timeout: Optional[int]=None):
         data = await self._reader.read(timeout=timeout)
         return data
 
-    async def read(self, nbytes: int, *, timeout: int=None):
+    async def read(self, nbytes: int, *, timeout: Optional[int]=None):
         data = await self._reader.read(nbytes=nbytes, timeout=timeout)
         return data
     
@@ -155,7 +157,7 @@ class ClientConnection:
                     path: Union[str, pathlib.Path], 
                     *, 
                     offset: int=0,
-                    count: int=None, 
+                    count: Optional[int]=None, 
                     fallback: bool=True) -> int:
         if isinstance(path, pathlib.Path):
             path = path.name
@@ -166,8 +168,8 @@ class ClientConnection:
 
         data = await self.loop.run_in_executor(None, read, path)
         return await self.loop.sendfile(
-            transport=self._writer._transport,
-            file=data,
+            transport=self._writer._transport, # type: ignore
+            file=io.BytesIO(data),
             offset=offset,
             count=count,
             fallback=fallback
@@ -176,8 +178,9 @@ class ClientConnection:
     async def close(self):
         self._writer.close()
         waiter = self.protocol.get_waiter(self.peername)
+        if waiter:
+            await waiter
 
-        await waiter
         self._closed = True
 
     def __aiter__(self):
@@ -189,7 +192,7 @@ class ClientConnection:
         except asyncio.TimeoutError:
             raise StopAsyncIteration
 
-def _get_event_loop(loop):
+def _get_event_loop(loop: Union[asyncio.AbstractEventLoop, Any]):
     if loop:
         if not isinstance(loop, asyncio.AbstractEventLoop):
             raise TypeError('Invalid argument type for loop argument')
@@ -204,10 +207,10 @@ def _get_event_loop(loop):
 class BaseServer:
     def __init__(self,
                 *,                 
-                max_connections: int=None, 
-                loop: asyncio.AbstractEventLoop=None, 
+                max_connections: Optional[int]=None, 
+                loop: Optional[asyncio.AbstractEventLoop]=None, 
                 is_ssl: bool=False,
-                ssl_context: ssl.SSLContext=None) -> None:
+                ssl_context: Optional[ssl.SSLContext]=None) -> None:
         self.loop = _get_event_loop(loop)
         self.max_connections = max_connections or 254
 
@@ -217,7 +220,7 @@ class BaseServer:
         if self._is_ssl and not self._ssl_context:
             self._ssl_context = self.create_ssl_context()
 
-        self._waiter = None
+        self._waiter: Optional['asyncio.Future[None]'] = None
         self._closed = False
         self._server: Optional[asyncio.AbstractServer] = None
         self._protocol = ServerProtocol(loop=self.loop, max_connections=self.max_connections)
@@ -230,7 +233,7 @@ class BaseServer:
         return self._is_ssl and isinstance(self._ssl_context, ssl.SSLContext)
 
     def is_serving(self):
-        return self._server is not None and isinstance(self._server, asyncio.AbstractServer)
+        return self._server is not None
 
     def is_closed(self):
         return self._closed
@@ -239,10 +242,10 @@ class BaseServer:
         await self.serve()
         return self
 
-    async def __aexit__(self, *exc):
+    async def __aexit__(self, *exc: Any):
         await self.close()
 
-    async def serve(self):
+    async def serve(self) -> 'asyncio.Future[None]':
         raise NotImplementedError
 
     async def close(self):
@@ -255,7 +258,7 @@ class BaseServer:
 
         self._closed = True
 
-    async def accept(self, *, timeout: int=None) -> Optional[ClientConnection]:
+    async def accept(self, *, timeout: Optional[int]=None) -> Optional[ClientConnection]:
         protocol = self._protocol
 
         if self._server is None:
@@ -277,7 +280,7 @@ class BaseServer:
         if not writer:
             return
 
-        if self.is_ssl():
+        if self.is_ssl() and self._ssl_context is not None:
             transport = await self.loop.start_tls(
                 transport=transport,
                 protocol=protocol,
@@ -294,13 +297,13 @@ class BaseServer:
 
 class Server(BaseServer):
     def __init__(self, 
-                host: str=None, 
-                port: int=None, 
+                host: Optional[str]=None, 
+                port: Optional[int]=None, 
                 *,
-                max_connections: int=None, 
-                loop: asyncio.AbstractEventLoop=None, 
+                max_connections: Optional[int]=None, 
+                loop: Optional[asyncio.AbstractEventLoop]=None, 
                 is_ssl: bool=False,
-                ssl_context: ssl.SSLContext=None) -> None:
+                ssl_context: Optional[ssl.SSLContext]=None) -> None:
         self.host = host or '127.0.0.1'
         self.port = port or 8888
 
@@ -323,19 +326,19 @@ class Server(BaseServer):
 
         return ' '.join(repr) + '>'
 
-    async def serve(self, sock=None):
+    async def serve(self, sock: Optional[socket.socket]=None):
         if sock:
-            self._server = await self.loop.create_server(
+            self._server = server = await self.loop.create_server(
                 self._protocol,
                 sock=sock,
             )
         else:
-            self._server = await self.loop.create_server(self._protocol, host=self.host, port=self.port)
+            self._server = server = await self.loop.create_server(self._protocol, host=self.host, port=self.port)
 
-        await self._server.start_serving()
+        await server.start_serving()
 
-        self._waiter = self.loop.create_future()
-        return self._waiter
+        self._waiter = waiter = self.loop.create_future()
+        return waiter
 
 if sys.platform != 'win32':
 
@@ -343,10 +346,10 @@ if sys.platform != 'win32':
         def __init__(self, 
                     path: str,
                     *,
-                    max_connections: int=None, 
-                    loop: asyncio.AbstractEventLoop=None, 
+                    max_connections: Optional[int]=None, 
+                    loop: Optional[asyncio.AbstractEventLoop]=None, 
                     is_ssl: bool=None, 
-                    ssl_context: ssl.SSLContext=None) -> None:
+                    ssl_context: Optional[ssl.SSLContext]=None) -> None:
             self.path = path
 
             super().__init__(
@@ -369,8 +372,8 @@ if sys.platform != 'win32':
             return ' '.join(repr) + '>'
 
         async def serve(self):
-            self._server = await self.loop.create_unix_server(self._protocol, self.path)
-            await self._server.start_serving()
+            self._server = server = await self.loop.create_unix_server(self._protocol, self.path)
+            await server.start_serving()
 
             self._waiter = self.loop.create_future()
             return self._waiter

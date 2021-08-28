@@ -25,7 +25,7 @@ class Authentication:
                             *, 
                             client_id: str, 
                             client_secret: str, 
-                            redirect_uri: str) -> None:
+                            redirect_uri: str):
         credentials = Crendentials(
             client_id=client_id,
             client_secret=client_secret,
@@ -41,7 +41,7 @@ class Authentication:
         yield from self._creditials.items()
 
 class Settings(ImmutableMapping[str, Union[str, int, bool]]):
-    def __init__(self, defaults: Dict[str, Union[str, int, bool]] = None) -> None:
+    def __init__(self, defaults: Optional[Dict[str, Union[str, int, bool]]]=None) -> None:
         self.authentication = Authentication()
         if not defaults:
             defaults = {}
@@ -49,7 +49,7 @@ class Settings(ImmutableMapping[str, Union[str, int, bool]]):
         super().__init__(**defaults)
 
     def __getitem__(self, k: str):
-        return self.get(k.upper())
+        return super().__getitem__(k.upper())
 
     @classmethod
     def from_file(cls, fp: Union[str, pathlib.Path]):
@@ -57,10 +57,7 @@ class Settings(ImmutableMapping[str, Union[str, int, bool]]):
         if isinstance(fp, pathlib.Path):
             fp = fp.name
 
-        module = importlib.import_module(fp)
-        for name, value in module.__dict__.items():
-            pass
-                
+        importlib.import_module(fp)      
         return self
 
     @classmethod
@@ -68,9 +65,9 @@ class Settings(ImmutableMapping[str, Union[str, int, bool]]):
         self = cls()
         envs = os.environ
 
-        for name, value in envs.items():
+        for name, _ in envs.items():
             if name.startswith(SETTING_ENV_PREFIX):
-                prefix, key = name.split(SETTING_ENV_PREFIX, maxsplit=1)
+                _, _ = name.split(SETTING_ENV_PREFIX, maxsplit=1)
 
         return self
 
