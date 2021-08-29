@@ -8,6 +8,12 @@ from .utils import AsyncContextManager
 
 from atom import compat
 
+__all__ = (
+    'HTTPSession',
+    'request',
+    'ws_connect',
+)
+
 class HTTPSession:
     def __init__(self, loop: Optional[asyncio.AbstractEventLoop]=None) -> None:
         self.loop = loop or compat.get_running_loop()
@@ -21,7 +27,7 @@ class HTTPSession:
     async def __aenter__(self):
         return self
 
-    async def __aexit__(self, *exc):
+    async def __aexit__(self, *exc: Any):
         await self.close()
         return self
 
@@ -30,30 +36,30 @@ class HTTPSession:
             if not hooker.closed:
                 await hooker.close()
 
-    def request(self, method: str, url: str, **kwargs):
+    def request(self, method: str, url: str, **kwargs: Any):
         return AsyncContextManager(self._request(url, method, **kwargs))
 
-    def ws_connect(self, url: str, **kwargs) -> AsyncContextManager[Websocket]:
+    def ws_connect(self, url: str, **kwargs: Any) -> AsyncContextManager[Optional[Websocket]]:
         return AsyncContextManager(self._connect(url))
 
-    def get(self, url: str, **kwargs):
+    def get(self, url: str, **kwargs: Any):
         return self.request('GET', url, **kwargs)
 
-    def post(self, url: str, **kwargs):
+    def post(self, url: str, **kwargs: Any):
         return self.request('POST', url, **kwargs)
 
-    def put(self, url: str, **kwargs) -> Response:
+    def put(self, url: str, **kwargs: Any):
         return self.request('PUT', url, **kwargs)
 
-    def delete(self, url: str, **kwargs) -> Response:
+    def delete(self, url: str, **kwargs: Any):
         return self.request('DELETE', url, **kwargs)
 
-    def head(self, url: str, **kwargs) -> Response:
+    def head(self, url: str, **kwargs: Any) :
         return self.request('HEAD', url, **kwargs)
 
     async def redirect(self, hooker: TCPHooker, response: Response, method: str) -> Response:
         copy = hooker.copy()
-        hooker.close()
+        await hooker.close()
 
         copy.connected = False
         location = response.headers['Location']
@@ -64,11 +70,11 @@ class HTTPSession:
                     url: str, 
                     method: str, 
                     *,
-                    headers: Dict[str, Any]=None,
-                    body: str=None,
-                    json: Dict[str, Any]=None,
+                    headers: Optional[Dict[str, Any]]=None,
+                    body: Any=None,
+                    json: Optional[Dict[str, Any]]=None,
                     ignore_redirects: bool=False, 
-                    hooker: TCPHooker=None):
+                    hooker: Optional[TCPHooker]=None):
         self._ensure_hookers()
 
         if not hooker:
@@ -121,22 +127,22 @@ class HTTPSession:
         self._hookers.append(hooker)
         return response
 
-    async def _connect(self, url: str):
+    async def _connect(self, url: str) -> Optional[Websocket]:
         hooker = WebsocketHooker(self)
         is_ssl, host, path = hooker.parse_host(url)
 
         if is_ssl:
-            websocket = await hooker.create_ssl_connection(host)
+            websocket = await hooker.create_ssl_connection(host, path)
         else:
-            websocket = await hooker.create_connection(host)
+            websocket = await hooker.create_connection(host, path)
 
         self._hookers.append(hooker)
         return websocket
 
-def request(url: str, method: str, **kwargs):
+def request(url: str, method: str, **kwargs: Any):
     client = HTTPSession(kwargs.pop('loop', None))
     return client.request(url, method)
 
-def ws_connect(url: str, **kwargs):
+def ws_connect(url: str, **kwargs: Any):
     client = HTTPSession(kwargs.pop('loop', None))
     return client.ws_connect(url, **kwargs)

@@ -3,6 +3,11 @@ import asyncio
 
 from . import compat
 
+__all__ = (
+    'StreamWriter',
+    'StreamReader'
+)
+
 class StreamWriter:
     def __init__(self, transport: asyncio.Transport) -> None:
         self._transport = transport
@@ -32,9 +37,9 @@ class StreamWriter:
         self._transport.close()
 
 class StreamReader:
-    def __init__(self) -> None:
+    def __init__(self, loop: Optional[asyncio.AbstractEventLoop]=None) -> None:
         self.buffer = bytearray()
-        self.loop = compat.get_running_loop()
+        self.loop = loop or compat.get_running_loop()
 
         self._waiter = None
 

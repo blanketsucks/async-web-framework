@@ -1,5 +1,10 @@
+from typing import Any
 from . import http
 from .app import Application
+
+__all__ = (
+    'TestClient',
+)
 
 class TestClient:
     def __init__(self, app: Application) -> None:
@@ -18,20 +23,20 @@ class TestClient:
         url = f'ws://{self.host}:{self.port}{path}'
         return self.session.ws_connect(url)
 
-    def request(self, path: str, method: str, **kwargs):
+    def request(self, path: str, method: str, **kwargs: Any):
         url = f'http://{self.host}:{self.port}{path}'
         return self.session.request(url=url, method=method, **kwargs)
 
-    def get(self, path: str, **kwargs):
+    def get(self, path: str, **kwargs: Any):
         return self.request(path, 'GET', **kwargs)
 
-    def post(self, path: str, **kwargs):
+    def post(self, path: str, **kwargs: Any):
         return self.request(path, 'POST', **kwargs)
 
-    def put(self, path: str, **kwargs):
+    def put(self, path: str, **kwargs: Any):
         return self.request(path, 'PUT', **kwargs)
 
-    def delete(self, path: str, **kwargs):
+    def delete(self, path: str, **kwargs: Any):
         return self.request(path, 'DELETE', **kwargs)
 
 

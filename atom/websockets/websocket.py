@@ -1,8 +1,12 @@
-from typing import TYPE_CHECKING, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional
 import json
 
 from .frame import WebSocketFrame, WebSocketOpcode, Data, WebSocketCloseCode
 from atom.stream import StreamReader, StreamWriter
+
+__all__ = (
+    'Websocket',
+)
 
 class Websocket:
     def __init__(self, reader: StreamReader, writer: StreamWriter) -> None:
@@ -27,17 +31,17 @@ class Websocket:
 
         return len(data)
 
-    async def send_bytes(self, data: bytes, *, opcode: WebSocketOpcode=None):
+    async def send_bytes(self, data: bytes, *, opcode: Optional[WebSocketOpcode]=None):
         if not opcode:
             opcode = WebSocketOpcode.TEXT
 
         frame = WebSocketFrame(opcode=opcode, data=data)
         return await self.send_frame(frame)
 
-    async def send_str(self, data: str, *, opcode: WebSocketOpcode=None):
+    async def send_str(self, data: str, *, opcode: Optional[WebSocketOpcode]=None):
         return await self.send_bytes(data.encode(), opcode=opcode)
 
-    async def send_json(self, data: Dict, *, opcode: WebSocketOpcode=None):
+    async def send_json(self, data: Dict[str, Any], *, opcode: Optional[WebSocketOpcode]=None):
         return await self.send_str(json.dumps(data), opcode=opcode)
 
     async def ping(self, data: bytes):
@@ -52,18 +56,17 @@ class Websocket:
     async def binary(self, data: bytes):
         return await self.send_bytes(data, opcode=WebSocketOpcode.BINARY)
 
-    async def close(self, data: bytes, code: WebSocketCloseCode=None):
+    async def close(self, data: bytes, code: Optional[WebSocketCloseCode]=None) -> None:
         if not code:
             code = WebSocketCloseCode.NORMAL
 
-        code = code.to_bytes(2, 'big', signed=False)
-        frame = WebSocketFrame(opcode=WebSocketOpcode.CLOSE, data=code + data)
+        close = code.to_bytes(2, 'big', signed=False) # type: ignore
+        frame = WebSocketFrame(opcode=WebSocketOpcode.CLOSE, data=close + data)
 
         self._closed = True
-        len = await self.send_frame(frame)
+        await self.send_frame(frame)
 
-        self._writer.close()
-        return len
+        self._writer.close()     
 
     async def receive(self):
         opcode, raw, data = await WebSocketFrame.decode(self._reader.read)

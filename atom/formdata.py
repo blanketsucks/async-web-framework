@@ -10,6 +10,11 @@ if TYPE_CHECKING:
 
 T = TypeVar('T')
 
+__all__ = (
+    'Disposition',
+    'FormData'
+)
+
 def _get(iterable: List[T], index: int) -> Optional[T]:
     try:
         return iterable[index]

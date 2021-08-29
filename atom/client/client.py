@@ -1,9 +1,15 @@
 import asyncio
 import ssl
-from typing import Union, List
+from typing import Any, Union, List, Optional
 
 from atom.stream import StreamWriter, StreamReader
 from atom import compat
+
+__all__ = (
+    'ClientProtocol', 
+    'Client', 
+    'create_connection'
+)
 
 class ClientProtocol(asyncio.Protocol):
     def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -17,39 +23,55 @@ class ClientProtocol(asyncio.Protocol):
     def __call__(self):
         return self
 
-    def connection_made(self, transport: asyncio.Transport) -> None:
+    def connection_made(self, transport: asyncio.Transport) -> None: # type: ignore
         self.reader = StreamReader()
         self.writer = StreamWriter(transport)
 
         self.waiter = self.loop.create_future()
 
     def data_received(self, data: bytes) -> None:
+        if not self.reader:
+            return
+
         self.reader.feed_data(data)
 
     def pause_writing(self) -> None:
+        if not self.writer:
+            return
+
         writer = self.writer
-        writer._waiter = self.loop.create_future()
+        writer._waiter = self.loop.create_future() # type: ignore
     
     def resume_writing(self) -> None:
+        if not self.writer:
+            return
+
         writer = self.writer
 
-        if writer._waiter:
-            writer._waiter.set_result(None)
+        if writer._waiter: # type: ignore
+            writer._waiter.set_result(None) # type: ignore
 
-    def connection_lost(self, exc: Exception) -> None:
+    def connection_lost(self, exc: Optional[Exception]) -> None:
         if exc:
             raise exc
 
+        if not self.waiter:
+            return
+
         self.waiter.set_result(None)
         self.waiter = None
+
+    async def wait_for_close(self):
+        if self.waiter:
+            await self.waiter
 
 class Client:
     def __init__(self, 
                 host: str, 
                 port: int, 
                 *, 
-                ssl_context: ssl.SSLContext=None,
-                loop: asyncio.AbstractEventLoop=None) -> None:
+                ssl_context: Optional[Union[ssl.SSLContext, Any]]=None,
+                loop: Optional[asyncio.AbstractEventLoop]=None) -> None:
         self.host = host
         self.port = port
 
@@ -57,26 +79,51 @@ class Client:
         self.loop = loop or compat.get_running_loop()
 
         self._protocol = None
+
+        self._closed = False
         self._connected = False
 
     def __repr__(self) -> str:
-        return f'<Client host={self.host!r} port={self.port}>'
+        reprs: List[str] = ['<Client']
+
+        for attr in ('host', 'port', 'is_ssl', 'is_connected', 'is_closed'):
+            value = getattr(self, attr)
+
+            if callable(value):
+                value = value()
+
+            reprs.append(f'{attr}={value!r}')
+
+        return ' '.join(reprs) + '>'
 
     async def __aenter__(self):
         return await self.connect()
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args: Any):
         return await self.close()
+
+    def __await__(self):
+        return self.connect().__await__()
+
+    def _ensure_connection(self):
+        if not self.is_connected():
+            raise RuntimeError('Client not connected')
+
+        if self.is_closed():
+            raise RuntimeError('Client is closed')
 
     def is_connected(self):
         return self._connected and self._protocol is not None
+
+    def is_closed(self):
+        return self._closed
 
     def is_ssl(self):
         return self.ssl_context is not None and isinstance(self.ssl_context, ssl.SSLContext)
 
     async def connect(self):
         self._protocol = protocol = ClientProtocol(self.loop)
-        pair = await self.loop.create_connection(
+        await self.loop.create_connection(
             protocol, self.host, self.port, ssl=self.ssl_context
         )
 
@@ -84,28 +131,32 @@ class Client:
         return self
 
     async def write(self, data: Union[bytearray, bytes]):
-        if not self.is_connected():
-            raise RuntimeError('Not connected')
-
-        await self._protocol.writer.write(data)
+        self._ensure_connection()
+        await self._protocol.writer.write(data) # type: ignore
     
     async def writelines(self, data: List[Union[bytearray, bytes]]):
-        if not self.is_connected():
-            raise RuntimeError('Not connected')
+        self._ensure_connection()
+        await self._protocol.writer.writelines(data) # type: ignore
 
-        await self._protocol.writer.writelines(data)
-
-    async def receive(self, nbytes: int=None):
-        if not self.is_connected():
-            raise RuntimeError('Not connected')
-        
-        return await self._protocol.reader.read(nbytes)
+    async def receive(self, nbytes: Optional[int]=None):
+        self._ensure_connection()
+        return await self._protocol.reader.read(nbytes) # type: ignore
 
     async def close(self):
-        if not self.is_connected():
-            raise RuntimeError('Not connected')
+        self._ensure_connection()
 
-        self._protocol.writer.close()
-        await self._protocol.waiter
+        self._protocol.writer.close() # type: ignore
+        await self._protocol.wait_for_close() # type: ignore
 
+        self._closed = True
         return self
+
+def create_connection(
+    host: str, 
+    port: int, 
+    *, 
+    ssl_context: Optional[Union[ssl.SSLContext, Any]]=None, 
+    loop: Optional[asyncio.AbstractEventLoop]=None
+):
+    client = Client(host, port, ssl_context=ssl_context, loop=loop)
+    return client

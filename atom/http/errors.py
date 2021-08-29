@@ -1,17 +1,17 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from .client import HTTPSession
+    from .sessions import HTTPSession
     from .abc import Hooker
 
 class InvalidHost(TypeError):
-    def __init__(self, host: str) -> None:
+    def __init__(self, host: Optional[str]) -> None:
         message = f'{host!r} is an invalid host'
         super().__init__(message)
 
 class HookerError(Exception):
-    def __init__(self, message: str=None, *, hooker: Hooker, client: HTTPSession) -> None:
+    def __init__(self, message: Optional[str]=None, *, hooker: Hooker, client: HTTPSession) -> None:
         self.hooker = hooker
         self.client = client
 

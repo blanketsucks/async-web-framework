@@ -1,4 +1,4 @@
-from typing import Any, Tuple, Dict, Coroutine, Callable
+from typing import Any, Tuple, Dict, Coroutine, Callable, Optional
 import struct
 import os
 import json
@@ -31,9 +31,10 @@ class WebSocketCloseCode(enum.IntEnum):
     TLS_HANDSHAKE = 1015
 
 __all__ = (
-    'mask',
     'Data',
-    'WebSocketFrame'
+    'WebSocketFrame',
+    'WebSocketCloseCode',
+    'WebSocketOpcode',
 )
 
 class Data:
@@ -49,7 +50,7 @@ class Data:
     def data(self):
         return self.frame.data
 
-    def encode(self, opcode: WebSocketOpcode=None, *, masked: bool=False):
+    def encode(self, opcode: Optional[WebSocketOpcode]=None, *, masked: bool=False):
         frame = WebSocketFrame(
             opcode=WebSocketOpcode.TEXT if opcode is None else opcode,
             data=self.data
@@ -60,7 +61,7 @@ class Data:
     def as_string(self):
         return self.data.decode()
 
-    def as_json(self) -> Dict:
+    def as_json(self) -> Dict[str, Any]:
         string = self.as_string()
         return json.loads(string)
 
@@ -89,7 +90,7 @@ class WebSocketFrame:
         return f'<{self.__class__.__name__} {s}>'
 
     @staticmethod
-    def mask(data: bytes, mask: bytes) -> bytearray:
+    def mask(data: bytes, mask: bytes) -> bytes:
         data = bytearray(data)
 
         for i in range(len(data)):
@@ -166,7 +167,7 @@ class WebSocketFrame:
         raw += data
 
         if mask:
-            data = cls.mask(data, mask_bits)
+            data = cls.mask(data, mask_bits) # type: ignore
 
         frame = cls(
             opcode=opcode,

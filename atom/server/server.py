@@ -12,11 +12,13 @@ from atom import compat
 __all__ = [
     'ClientConnection',
     'BaseServer',
-    'Server'
+    'Server',
+    'create_server'
 ]
 
 if sys.platform != 'win32':
     __all__.append('UnixServer')
+    __all__.append('create_unix_server')
 
 class ServerProtocol(asyncio.Protocol):
     def __init__(self, loop: asyncio.AbstractEventLoop, max_connections: int) -> None:
@@ -122,6 +124,12 @@ class ClientConnection:
     def __repr__(self) -> str:
         return '<ClientConnection peername={0.peername}>'.format(self)
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        await self.close()
+
     @property
     def protocol(self):
         return self._protocol
@@ -137,11 +145,7 @@ class ClientConnection:
     def is_closed(self):
         return self._closed
 
-    async def receive(self, *, timeout: Optional[int]=None):
-        data = await self._reader.read(timeout=timeout)
-        return data
-
-    async def read(self, nbytes: int, *, timeout: Optional[int]=None):
+    async def receive(self, nbytes: Optional[int]=None, *, timeout: Optional[int]=None):
         data = await self._reader.read(nbytes=nbytes, timeout=timeout)
         return data
     
@@ -302,7 +306,7 @@ class Server(BaseServer):
                 *,
                 max_connections: Optional[int]=None, 
                 loop: Optional[asyncio.AbstractEventLoop]=None, 
-                is_ssl: bool=False,
+                is_ssl: Optional[bool]=False,
                 ssl_context: Optional[ssl.SSLContext]=None) -> None:
         self.host = host or '127.0.0.1'
         self.port = port or 8888
@@ -339,6 +343,24 @@ class Server(BaseServer):
 
         self._waiter = waiter = self.loop.create_future()
         return waiter
+
+def create_server(
+    host: Optional[str]=None, 
+    port: Optional[int]=None, 
+    *,
+    max_connections: Optional[int]=None, 
+    loop: Optional[asyncio.AbstractEventLoop]=None, 
+    is_ssl: bool=False,
+    ssl_context: Optional[ssl.SSLContext]=None
+):
+    return Server(
+        host=host,
+        port=port,
+        max_connections=max_connections,
+        loop=loop,
+        is_ssl=is_ssl,
+        ssl_context=ssl_context
+    )
 
 if sys.platform != 'win32':
 
@@ -377,3 +399,19 @@ if sys.platform != 'win32':
 
             self._waiter = self.loop.create_future()
             return self._waiter
+
+    def create_unix_server(
+        path: str,
+        *,
+        max_connections: Optional[int]=None, 
+        loop: Optional[asyncio.AbstractEventLoop]=None, 
+        is_ssl: bool=None, 
+        ssl_context: Optional[ssl.SSLContext]=None
+    ):
+        return UnixServer(
+            path=path,
+            max_connections=max_connections,
+            loop=loop,
+            is_ssl=is_ssl,
+            ssl_context=ssl_context
+        )

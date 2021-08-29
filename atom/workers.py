@@ -15,6 +15,11 @@ from .responses import SwitchingProtocols
 if TYPE_CHECKING:
     from .app import Application
 
+__all__ = (
+    'GUID',
+    'Worker'
+)
+
 log = logging.getLogger(__name__)
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -55,7 +60,7 @@ class Worker:
         return self.server is not None and self.server.is_serving()
 
     async def start(self, loop: asyncio.AbstractEventLoop):
-        self.server = Server(self.host, self.port, loop=loop)
+        self.server = Server(self.host, self.port, loop=loop, is_ssl=self.app.is_ssl, ssl_context=self.app.ssl_context)
 
         await self.server.serve(sock=self.app._socket) # type: ignore
         self.app.dispatch('worker_startup', self)

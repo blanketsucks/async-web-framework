@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import ssl
-from typing import Any, Coroutine, Tuple, Type, Union, Dict, TypeVar, TYPE_CHECKING
+from typing import Any, Tuple, Optional, Union, Dict, TYPE_CHECKING
 from urllib.parse import urlparse
 import copy
 from socket import SocketKind, AddressFamily, gethostname
@@ -12,51 +12,16 @@ from .response import Response, HTTPStatus
 from .request import Request
 from atom.utils import find_headers
 from atom.http.utils import AsyncIterator
-from atom.client import Client
 
 if TYPE_CHECKING:
     from .sessions import HTTPSession
 
-_T = TypeVar('_T')
 SSL_SCHEMES = ('https', 'wss')
 
-class Protocol(asyncio.Protocol):
-    def __init__(self, client: HTTPSession) -> None:
-        self.client = client
-
-    def __call__(self):
-        return self
-
-    @property
-    def loop(self):
-        return self.client.loop
-
-    def create_task(self, ret: Union[Coroutine[Any, Any, _T], _T]) -> 'Union[asyncio.Task[_T], _T]':
-        if asyncio.iscoroutine(ret):
-            return self.loop.create_task(ret)
-
-        return ret
-
-    async def push(self, data: bytes):
-        raise NotImplementedError
-
-    async def read(self):
-        raise NotImplementedError
-
-    async def wait(self):
-        raise NotImplementedError
-
-    def connection_made(self, transport: asyncio.Transport) -> None:
-        self.transport = transport
-
-    def connection_lost(self, exc) -> None:
-        if exc:
-            raise exc
-        
-        self.transport = None
-
-    def data_received(self, data: bytes) -> None:
-        raise NotImplementedError
+__all__ = (
+    'SSL_SCHEMES',
+    'Hooker'
+)
 
 class Hooker:
     def __init__(self, session: HTTPSession) -> None:
@@ -92,6 +57,9 @@ class Hooker:
         parsed = urlparse(url)
         hostname = parsed.hostname
 
+        if not hostname:
+            hostname = ''
+
         if parsed.port:
             hostname = f'{parsed.hostname}:{parsed.port}'
 
@@ -103,38 +71,32 @@ class Hooker:
 
         return is_ssl, hostname, parsed.path or '/'
 
-    async def create_connection(self, host: str):
+    async def read(self) -> bytes:
         raise NotImplementedError
 
-    async def create_ssl_connection(self, host: str):
-        raise NotImplementedError
-
-    async def read(self):
-        raise NotImplementedError
-
-    async def write(self, data: bytes):
+    async def write(self, data: Any) -> None:
         raise NotImplementedError
 
     def build_request(self, 
                     method: str, 
                     host: str, 
                     path: str, 
-                    headers: Dict,
-                    body: str):
+                    headers: Dict[str, Any],
+                    body: Optional[str]):
         headers.setdefault('Connection', 'close')
         return Request(method, path, host, headers, body)
 
-    async def build_response(self, data: bytes=None):
+    async def build_response(self, data: Optional[bytes]=None):
         if not data:
             data = await self.read()
         
-        headers, body = find_headers(data)
-        header = next(headers)[0]
+        hdrs, body = find_headers(data)
+        header = next(hdrs)[0]
 
-        version, status, description = header.split(' ', 2)
+        version, status, _ = header.split(' ', 2)
 
-        status = HTTPStatus(int(status))
-        headers = dict(headers)
+        status = HTTPStatus(int(status)) # type: ignore
+        headers: Dict[str, Any] = dict(hdrs) # type: ignore
 
         return Response(
             hooker=self,
@@ -145,11 +107,11 @@ class Hooker:
         )
 
     def getaddrinfo(self, 
-                    host: str=None, 
-                    port: int=None
+                    host: Optional[str]=None, 
+                    port: Optional[int]=None
                     ) -> AsyncIterator[Tuple[AddressFamily, SocketKind, int, str, Union[Tuple[str, int], Tuple[str, int, int, int]]]]:
         
-        async def actual(host: str, port: int, loop: asyncio.AbstractEventLoop):
+        async def actual(host: Optional[str], port: Optional[int], loop: asyncio.AbstractEventLoop):
             if not host:
                 host = gethostname()
 
@@ -158,5 +120,5 @@ class Hooker:
             
         return AsyncIterator(actual(host, port, self.loop), host)
 
-    def close(self):
+    async def close(self) -> None:
         raise NotImplementedError

@@ -1,5 +1,3 @@
-__version__ = '0.0.1'
-__author__ = 'blanketsucks'
 
 from .responses import *
 from .response import *
@@ -10,14 +8,13 @@ from .request import *
 from .router import *
 from .settings import *
 from .views import *
-from .websockets import Websocket
-from .abc import *
+from .websockets import *
 from .datastructures import *
-from .file import File
-from .formdata import FormData
+from .file import *
+from .formdata import *
 from .templates import *
-from .models import Model
-from .workers import Worker
-from .testclient import TestClient
-from . import stream
-from .ratelimits import *
+from .models import *
+from .workers import *
+from .testclient import *
+from .stream import *
+from .ratelimits import * 

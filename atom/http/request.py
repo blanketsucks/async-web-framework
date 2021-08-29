@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 class Request:
     def __init__(self, 
@@ -6,7 +6,7 @@ class Request:
                 path: str, 
                 host: str, 
                 headers: Dict[str, Any],
-                body: str) -> None:
+                body: Optional[str]) -> None:
         self.method = method
         self.path = path
         self.host = host

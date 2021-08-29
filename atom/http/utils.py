@@ -1,5 +1,5 @@
 import socket
-from typing import Generic, Any, Coroutine, Tuple, TypeVar
+from typing import Generic, Any, Coroutine, Tuple, TypeVar, Optional
 import asyncio
 
 from .errors import InvalidHost
@@ -17,13 +17,13 @@ class AsyncContextManager(Generic[T]):
         self._resp = await self.coro
         return self._resp
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args: Any):
         from .hooker import Websocket
 
         if isinstance(self._resp, Websocket):
-            await self._resp.close()
+            await self._resp.close(b'')
         else:
-            await self._resp._hooker.close()
+            await self._resp._hooker.close() # type: ignore
             
         return self
 
@@ -34,7 +34,7 @@ class _AsyncIterator(Generic[T]):
 
         self.index = 0
 
-    def __await__(self) -> Tuple[T]:
+    def __await__(self):
         return self.future.__await__()
 
     def __aiter__(self):
@@ -53,7 +53,7 @@ class _AsyncIterator(Generic[T]):
             self.index += 1
 
 class AsyncIterator(_AsyncIterator[T]):
-    def __init__(self, coroutine: Coroutine[Any, Any, Any], host: str) -> None:
+    def __init__(self, coroutine: Coroutine[Any, Any, Any], host: Optional[str]) -> None:
         super().__init__(coroutine)
         self.host = host
 

@@ -4,6 +4,10 @@ import io
 
 from . import compat
 
+__all__ = (
+    'File',
+)
+
 class File:
     def __init__(self, fp: Union[str, pathlib.Path, io.BytesIO], *, filename: Optional[str]=None) -> None:
         if isinstance(fp, io.BytesIO):

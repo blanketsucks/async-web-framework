@@ -166,7 +166,7 @@ class Request:
         line, = next(hdrs)
 
         parts = line.split(' ')
-        headers: Dict[str, Any] = dict(headers) # type: ignore
+        headers: Dict[str, Any] = dict(hdrs) # type: ignore
         
         method = parts[0]
         version = parts[2]

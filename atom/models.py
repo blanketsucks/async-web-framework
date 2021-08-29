@@ -3,7 +3,10 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, Type, Union
 
 __all__ = (
     'Field',
-    'Model'
+    'Model',
+    'IncompatibleType',
+    'MissingField',
+    'ModelMeta'
 )
 
 class IncompatibleType(Exception):
