@@ -1,17 +1,55 @@
 import json
 import warnings
 import functools
+import socket
 from typing import Any, Callable, Iterator, List, Optional, Type, Tuple
 
-from .response import  Response
+from .response import Response
 
 __all__ = (
+    'is_ipv6',
+    'is_ipv4',
+    'validate_ip',
     'jsonify',
     'deprecated',
     'Deprecated',
     'SETTING_ENV_PREFIX',
     'VALID_METHODS'
 )
+
+def is_ipv6(ip: str) -> bool:
+    try:
+        socket.inet_pton(socket.AF_INET6, ip)
+        return True
+    except socket.error:
+        return False
+
+def is_ipv4(ip: str) -> bool:
+    try:
+        socket.inet_aton(ip)
+        return True
+    except socket.error:
+        return False
+
+def validate_ip(ip: str=None, *, ipv6: bool=False) -> str:
+    if not ip:
+        if ipv6:
+            return '::'
+
+        return '127.0.0.1'
+
+    if ipv6:
+        if not is_ipv6(ip):
+            ret = f'{ip!r} is a valid IPv6 address'
+            raise ValueError(ret)
+
+        return ip
+    else:
+        if not is_ipv4(ip):
+            ret = f'{ip!r} is a valid IPv4 address'
+            raise ValueError(ret)
+
+        return ip
 
 class Deprecated:
     def __init__(self, func: Callable[..., Any]) -> None:

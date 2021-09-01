@@ -33,7 +33,6 @@ __all__ = (
     'run'
 )
 
-
 class Application:
     """
     A class respreseting an ASGI application.
@@ -48,6 +47,7 @@ class Application:
                 port: Optional[int]=None,
                 url_prefix: Optional[str]=None, 
                 *,
+                ipv6: bool=False,
                 worker_count: Optional[int]=None, 
                 settings_file: Optional[Union[str, pathlib.Path]]=None, 
                 load_settings_from_env: Optional[bool]=None,
@@ -63,9 +63,9 @@ class Application:
             load_settings_from_env: A bool indicating whether to load settings from the environment.
             suppress_warnings: A bool indicating whether to surpress warnings.
         """
-        self.host = host or '127.0.0.1'
+        self.host = utils.validate_ip(host, ipv6=ipv6)
         self.port = port or 8080
-
+        self.ivp6 = ipv6
         self.url_prefix = url_prefix or ''
         self.router = Router()
         self.websocket_tasks: List[asyncio.Task[Any]] = []
@@ -124,12 +124,16 @@ class Application:
         return workers
 
     def _make_socket(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        family = socket.AF_INET6 if self.ivp6 else socket.AF_INET
+
+        sock = socket.socket(family, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         addr = (self.host, self.port)
+        print(addr)
         sock.bind(addr)
         
+        self.host = sock.getsockname()[0]
         return sock
 
     def _ensure_listeners(self):

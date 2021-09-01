@@ -1,7 +1,6 @@
-import requests
+import asyncio
+import atom
 
-r = requests.get('http://127.0.0.1:8080/', data='yes')
-print(r.text)
-
-r = requests.get('http://127.0.0.1:8080/', data='ok')
-print(r.text)
+app = atom.Application(host="::1", ipv6=True)
+print(app.socket.getsockname())
+asyncio.run(atom.run(app))

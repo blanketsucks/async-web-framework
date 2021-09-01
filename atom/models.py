@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, Type, Union, Optional
+from types import NoneType
 
 __all__ = (
     'Field',
@@ -8,6 +9,12 @@ __all__ = (
     'MissingField',
     'ModelMeta'
 )
+
+class _Default:
+    def __repr__(self):
+        return '<Default>'
+
+_default = _Default()
 
 class IncompatibleType(Exception):
     def __init__(self, field: Field, argument: Type[Any], data: Dict[str, Any]) -> None:
@@ -34,13 +41,18 @@ def _make_fn(name: str, body: str) -> Callable[..., None]:
 
     return ns['__create_fn__']()
 
-def _make_init(annotations: Dict[str, Type[Any]]) -> str:
+def _make_init(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) -> str:
     names: List[str] = []
     args: List[str] = []
 
     for name, annotation in annotations.items():
+        default = defaults.get(name, _default)
         names.append(name)
-        args.append(f'{name}: {annotation}')
+
+        if isinstance(default, _Default):
+            args.append(f'{name}: {annotation}')
+        else:
+            args.append(f'{name}: {annotation}={default}')
 
     body: List[str] = []
 
@@ -52,11 +64,22 @@ def _make_init(annotations: Dict[str, Type[Any]]) -> str:
 
     return f'def __init__(self, *, {actual}) -> None:\n{bdy}'
 
-def _make_fields(annotations: Dict[str, Type[Any]]) -> Tuple[Field, ...]:
+def _make_fields(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) -> Tuple[Field, ...]:
     fields: List[Field] = []
 
     for name, annotation in annotations.items():
-        field = Field(name, eval(annotation))
+        annotation = eval(annotation)
+
+        if origin := getattr(annotation, '__origin__', None):
+            if origin is Union:
+                types = annotation.__args__
+
+                if type(None) in types:
+                    defaults[name] = None
+
+        default = defaults.get(name, _default)
+
+        field = Field(name, annotation, default)
         fields.append(field)
 
     return tuple(fields)
@@ -78,9 +101,10 @@ def _get_repr(obj: Any, name: str):
     return f'{name}={attr!r}'
 
 class Field:
-    def __init__(self, name: str, type: Type[Any]):
+    def __init__(self, name: str, type: Type[Any], default: Any):
         self.name = name
         self.type = type
+        self.default = default
 
     def __repr__(self) -> str:
         return '<Field type={0.type} name={0.name!r}>'.format(self)
@@ -91,10 +115,18 @@ class Field:
 class ModelMeta(type):
     def __new__(cls, name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any]):
         annotations = attrs.get('__annotations__')
+        defaults: Dict[str, Any] = {}
 
         if annotations:
-            body = _make_init(annotations)
-            fields = _make_fields(annotations)
+            
+            for key, _ in annotations.items():
+                value = attrs.get(key, _default)
+
+                if not isinstance(value, _Default):
+                    defaults[key] = value
+
+            fields = _make_fields(annotations, defaults)
+            body = _make_init(annotations, defaults)
 
             fn = _make_fn('__init__', body)
             fn.__qualname__ = f'{name}.__init__'
@@ -144,6 +176,9 @@ class Model(metaclass=ModelMeta):
                     raise IncompatibleType(field, type, data) from None
 
             else:
-                raise MissingField(field, data)
+                if isinstance(field.default, _Default):
+                    raise MissingField(field, data)
+
+                kwargs[field.name] = field.default
 
         return cls(**kwargs)

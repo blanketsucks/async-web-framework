@@ -1,6 +1,7 @@
 import asyncio
 import ssl
 from typing import Any, Union, List, Optional
+import socket
 
 from atom.stream import StreamWriter, StreamReader
 from atom import compat
@@ -67,13 +68,20 @@ class ClientProtocol(asyncio.Protocol):
 
 class Client:
     def __init__(self, 
-                host: str, 
-                port: int, 
-                *, 
+                host: Optional[str]=None, 
+                port: Optional[int]=None, 
+                *,
+                sock: Optional[socket.socket]=None, 
                 ssl_context: Optional[Union[ssl.SSLContext, Any]]=None,
                 loop: Optional[asyncio.AbstractEventLoop]=None) -> None:
         self.host = host
         self.port = port
+
+        if sock:
+            if host or port:
+                raise ValueError('Both host and port must be None if sock is specified')
+
+        self.sock = sock
 
         self.ssl_context = ssl_context
         self.loop = loop or compat.get_running_loop()
@@ -124,7 +132,7 @@ class Client:
     async def connect(self):
         self._protocol = protocol = ClientProtocol(self.loop)
         await self.loop.create_connection(
-            protocol, self.host, self.port, ssl=self.ssl_context
+            protocol, self.host, self.port, sock=self.sock, ssl=self.ssl_context
         )
 
         self._connected = True

@@ -1,10 +1,4 @@
-import asyncio
-import atom
+import socket
 
-app = atom.Application(port=4443, use_ssl=True)
-
-@app.get('/')
-async def index(request):
-    return 'ok'
-
-asyncio.run(atom.run(app))
+addrs = socket.getaddrinfo(socket.gethostname(), None, type=socket.SOCK_STREAM)
+print(addrs)
