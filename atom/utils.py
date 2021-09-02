@@ -2,11 +2,14 @@ import json
 import warnings
 import functools
 import socket
+import asyncio
 from typing import Any, Callable, Iterator, List, Optional, Type, Tuple
 
 from .response import Response
+from ._types import MaybeCoroFunc
 
 __all__ = (
+    'maybe_coroutine',
     'LOCALHOST',
     'LOCALHOST_V6',
     'has_ipv6',
@@ -23,6 +26,12 @@ __all__ = (
 
 LOCALHOST = '127.0.0.1'
 LOCALHOST_V6 = '::1'
+
+async def maybe_coroutine(func: MaybeCoroFunc[Any], *args: Any, **kwargs: Any) -> Any:
+    if asyncio.iscoroutinefunction(func):
+        return await func(*args, **kwargs)
+
+    return func(*args, **kwargs)
 
 def has_ipv6():
     return socket.has_ipv6

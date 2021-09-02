@@ -2,14 +2,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, Any, Optional, Union
 import inspect
 
-from ._types import CoroFunc, Func
-
+from ._types import CoroFunc, Func, MaybeCoroFunc
+from .utils import maybe_coroutine
 from .errors import RegistrationError
 
 if TYPE_CHECKING:
     from .router import Router
 
 __all__ = (
+    'Object',
     'Route',
     'PartialRoute',
     'WebsocketRoute',
@@ -18,10 +19,13 @@ __all__ = (
 )
 
 class Object:
-    callback: CoroFunc
+    callback: MaybeCoroFunc
+
+    def __init__(self, callback: MaybeCoroFunc) -> None:
+        self.callback = callback
 
     async def __call__(self, *args: Any, **kwds: Any) -> Any:
-        return await self.callback(*args, **kwds)
+        return await maybe_coroutine(self.callback, *args, **kwds)
 
 class PartialRoute:
     def __init__(self, path: str, method: str) -> None:
@@ -32,7 +36,7 @@ class PartialRoute:
         return f'<PartialRoute path={self.path!r} method={self.method!r}>'
 
 class Route(Object):
-    def __init__(self, path: str, method: str, callback: CoroFunc, *, router: Router) -> None:
+    def __init__(self, path: str, method: str, callback: MaybeCoroFunc, *, router: Router) -> None:
         self._router = router
 
         self.path = path
@@ -53,8 +57,10 @@ class Route(Object):
         if not inspect.iscoroutinefunction(callback):
             raise RegistrationError('All middlewares must be async')
 
-        self._middlewares.append(callback)
-        return Middleware(callback, route=self)
+        middleware = Middleware(callback, route=self)
+        self._middlewares.append(middleware)
+
+        return middleware
 
     def remove_middleware(self, middleware: Middleware) -> Middleware:
         self._middlewares.remove(middleware)
@@ -147,6 +153,3 @@ class Listener(Object):
 
     def __repr__(self) -> str:
         return '<Listener event={0.event!r}>'.format(self)
-
-    async def __call__(self, *args: Any, **kwargs: Any):
-        return await self.callback(*args, **kwargs)

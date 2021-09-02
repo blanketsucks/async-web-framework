@@ -1,4 +1,4 @@
-from typing import Coroutine, Any, Callable, TypeVar, Union
+from typing import Coroutine, Any, Callable, TypeVar, Union, ParamSpec
 
 T = TypeVar('T')
 

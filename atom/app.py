@@ -91,7 +91,7 @@ class Application:
         if load_settings_from_env is True:
             self.settings = Settings.from_env_vars()
 
-        self._listeners: Dict[str, List[CoroFunc]] = {}
+        self._listeners: Dict[str, List[Listener]] = {}
         self._views: Dict[str, HTTPView] = {}
         self._middlewares: List[Middleware] = []
         self._active_listeners: List[asyncio.Task[Any]] = []
@@ -118,13 +118,6 @@ class Application:
     async def __aexit__(self, *args: Any):
         await self.close()
         return self
-
-    @staticmethod
-    async def _maybe_coroutine(func: MaybeCoroFunc[Any], *args: Any, **kwargs: Any) -> Any:
-        if asyncio.iscoroutinefunction(func):
-            return await func(*args, **kwargs)
-
-        return func(*args, **kwargs)
 
     def _add_workers(self):
         workers: Dict[int, Worker] = {}
@@ -303,7 +296,7 @@ class Application:
                     websocket=websocket,
                 )
 
-            resp = await self._maybe_coroutine(route.callback, request, **kwargs)
+            resp = await utils.maybe_coroutine(route.callback, request, **kwargs)
         except Exception as exc:
             if not route:
                 route = PartialRoute(
@@ -317,7 +310,7 @@ class Application:
         resp = await request.send(resp)
 
         if route._after_request:
-            await self._maybe_coroutine(route._after_request, request, resp, **kwargs)
+            await utils.maybe_coroutine(route._after_request, request, resp, **kwargs)
 
     @property
     def workers(self) -> List[Worker]:
@@ -332,16 +325,12 @@ class Application:
         return self._socket
 
     @property
-    def middlewares(self) -> List[CoroFunc]:
+    def middlewares(self) -> List[Middleware]:
         return self._middlewares
 
     @property
-    def listeners(self) -> Dict[str, List[CoroFunc]]:
-        """
-        Returns:
-            A dictionary of all listeners.
-        """
-        return self._listeners
+    def listeners(self) -> List[Listener]:
+        return list(*self._listeners.values())
 
     @property
     def loop(self) -> Optional[asyncio.AbstractEventLoop]:
@@ -351,6 +340,10 @@ class Application:
     def urls(self) -> Set[str]:
         return {self._build_url(route.path) for route in self.router}
 
+    @property
+    def paths(self) -> Set[str]:
+        return {route.path for route in self.router}
+
     @loop.setter
     def setter(self, value):
         if not isinstance(value, asyncio.AbstractEventLoop):
@@ -359,6 +352,9 @@ class Application:
         self._loop = value
 
     def _build_url(self, path: str):
+        if path not in self.paths:
+            raise ValueError(f'Path {path!r} does not exist')
+
         if self.is_ipv6():
             return path
 
@@ -535,13 +531,14 @@ class Application:
             raise RegistrationError('Listeners must be coroutines')
 
         actual = name if name else coro.__name__
+        listener = Listener(coro, actual)
 
         if actual in self._listeners.keys():
-            self._listeners[actual].append(coro)
-            return Listener(coro, actual)
+            self._listeners[actual].append(listener)
+            return listener
 
-        self._listeners[actual] = [coro]
-        return Listener(coro, actual)
+        self._listeners[actual] = [listener]
+        return listener
 
     def event(self, name: Optional[str]=None) -> Callable[[CoroFunc], Listener]:
         def decorator(func: CoroFunc):
@@ -595,8 +592,8 @@ class Application:
         if not inspect.iscoroutinefunction(func):
             raise RegistrationError('Middlewares must be coroutines')
 
-        self._middlewares.append(func)
         middleware = Middleware(func, router=self.router)
+        self._middlewares.append(middleware)
 
         middleware._is_global = True
         return middleware

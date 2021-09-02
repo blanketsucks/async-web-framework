@@ -1,6 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, Type, Union, Optional
-from types import NoneType
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, Type, Union
 
 __all__ = (
     'Field',
@@ -9,6 +8,7 @@ __all__ = (
     'MissingField',
     'ModelMeta'
 )
+
 
 class _Default:
     def __repr__(self):
@@ -118,7 +118,6 @@ class ModelMeta(type):
         defaults: Dict[str, Any] = {}
 
         if annotations:
-            
             for key, _ in annotations.items():
                 value = attrs.get(key, _default)
 
@@ -182,3 +181,4 @@ class Model(metaclass=ModelMeta):
                 kwargs[field.name] = field.default
 
         return cls(**kwargs)
+

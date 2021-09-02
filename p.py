@@ -12,5 +12,5 @@ async def middleware(request, handler):
     print(request.path)
     return await handler(request)
 
-
-print(app.urls)
+@app.event('123213')
+async def pa(): return '123'
