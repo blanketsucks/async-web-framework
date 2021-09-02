@@ -14,7 +14,8 @@ __all__ = (
 
 class Router:
     _param_regex = r"{(?P<param>\w+)}"
-    def __init__(self) -> None:
+    def __init__(self, url_prefix: str) -> None:
+        self.url_prefix = url_prefix
         self.routes: Dict[Tuple[str, str], Union[Route, WebsocketRoute]] = {}
         self.middlewares: List[CoroFunc] = []
 
@@ -34,11 +35,13 @@ class Router:
         return regex
 
     def add_route(self, route: Union[Route, WebsocketRoute]):
+        path = self.url_prefix + route.path
+
         if isinstance(route, WebsocketRoute):
-            self.routes[(route.path, route.method)] = route
+            self.routes[(path, route.method)] = route
             return route
 
-        pattern = self._format_pattern(route.path)
+        pattern = self._format_pattern(path)
         route.path = pattern
 
         self.routes[(route.path, route.method)] = route

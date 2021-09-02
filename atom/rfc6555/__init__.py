@@ -72,7 +72,7 @@ class HappyEyeballs:
             sock.close()
             return False
 
-    def _create_socket(self, family: socket.AddressFamily) -> socket.socket:
+    def _create_socket(self, family: socket.AddressFamily, type: socket.SocketKind) -> socket.socket:
         return socket.socket(family, type)
 
     def _connect_from_cache(self, host: str, port: int):

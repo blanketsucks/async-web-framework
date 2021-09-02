@@ -7,7 +7,7 @@ import ssl
 import socket
 
 from atom.stream import StreamWriter, StreamReader
-from atom import compat
+from atom import compat, utils
 
 __all__ = [
     'ClientConnection',
@@ -213,7 +213,7 @@ class BaseServer:
                 *,                 
                 max_connections: Optional[int]=None, 
                 loop: Optional[asyncio.AbstractEventLoop]=None, 
-                is_ssl: bool=False,
+                is_ssl: Optional[bool]=False,
                 ssl_context: Optional[ssl.SSLContext]=None) -> None:
         self.loop = _get_event_loop(loop)
         self.max_connections = max_connections or 254
@@ -304,12 +304,18 @@ class Server(BaseServer):
                 host: Optional[str]=None, 
                 port: Optional[int]=None, 
                 *,
+                ipv6: bool=False,
                 max_connections: Optional[int]=None, 
                 loop: Optional[asyncio.AbstractEventLoop]=None, 
                 is_ssl: Optional[bool]=False,
                 ssl_context: Optional[ssl.SSLContext]=None) -> None:
-        self.host = host or '127.0.0.1'
+        if ipv6:
+            if not utils.has_ipv6():
+                raise RuntimeError('IPv6 is not supported')
+
+        self.host = utils.validate_ip(host, ipv6=ipv6)
         self.port = port or 8888
+        self.ipv6 = ipv6
 
         super().__init__(
             max_connections=max_connections,
@@ -337,7 +343,12 @@ class Server(BaseServer):
                 sock=sock,
             )
         else:
-            self._server = server = await self.loop.create_server(self._protocol, host=self.host, port=self.port)
+            self._server = server = await self.loop.create_server(
+                self._protocol, 
+                host=self.host, 
+                port=self.port,
+                family=socket.AF_INET6 if self.ipv6 else socket.AF_INET,
+            )
 
         await server.start_serving()
 
@@ -415,3 +426,4 @@ if sys.platform != 'win32':
             is_ssl=is_ssl,
             ssl_context=ssl_context
         )
+

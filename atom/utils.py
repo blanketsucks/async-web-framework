@@ -7,6 +7,10 @@ from typing import Any, Callable, Iterator, List, Optional, Type, Tuple
 from .response import Response
 
 __all__ = (
+    'LOCALHOST',
+    'LOCALHOST_V6',
+    'has_ipv6',
+    'has_dualstack_ipv6',
     'is_ipv6',
     'is_ipv4',
     'validate_ip',
@@ -16,6 +20,15 @@ __all__ = (
     'SETTING_ENV_PREFIX',
     'VALID_METHODS'
 )
+
+LOCALHOST = '127.0.0.1'
+LOCALHOST_V6 = '::1'
+
+def has_ipv6():
+    return socket.has_ipv6
+
+def has_dualstack_ipv6():
+    return socket.has_dualstack_ipv6()
 
 def is_ipv6(ip: str) -> bool:
     try:
@@ -31,22 +44,22 @@ def is_ipv4(ip: str) -> bool:
     except socket.error:
         return False
 
-def validate_ip(ip: str=None, *, ipv6: bool=False) -> str:
+def validate_ip(ip: str=None, *, ipv6: bool=False) :
     if not ip:
         if ipv6:
-            return '::'
+            return LOCALHOST_V6
 
-        return '127.0.0.1'
+        return LOCALHOST
 
     if ipv6:
         if not is_ipv6(ip):
-            ret = f'{ip!r} is a valid IPv6 address'
+            ret = f'{ip!r} is not a valid IPv6 address'
             raise ValueError(ret)
 
         return ip
     else:
         if not is_ipv4(ip):
-            ret = f'{ip!r} is a valid IPv4 address'
+            ret = f'{ip!r} is not a valid IPv4 address'
             raise ValueError(ret)
 
         return ip

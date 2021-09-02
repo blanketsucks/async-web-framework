@@ -1,6 +1,16 @@
-import asyncio
 import atom
+import asyncio
 
-app = atom.Application(host="::1", ipv6=True)
-print(app.socket.getsockname())
-asyncio.run(atom.run(app))
+app = atom.Application(use_ssl=True)
+    
+@app.route('/')
+async def requ(wwfw):
+    return '<h1>Hello, World!</h1>'
+
+@requ.middleware
+async def middleware(request, handler):
+    print(request.path)
+    return await handler(request)
+
+
+print(app.urls)

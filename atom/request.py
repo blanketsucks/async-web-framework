@@ -64,6 +64,7 @@ class Request:
         )
 
         await self.close()
+        return data
 
     async def close(self):
         if not self.connection.is_closed():

@@ -44,7 +44,7 @@ class ImmutableMapping(Dict[KT, VT]):
     def __copy__(self):
         return self
 
-class MultiDict(dict[KT, VT]):
+class MultiDict(Dict[KT, VT]):
     def __init__(self, *args: Any, **kwargs: Any):
         self._dict: Dict[KT, List[VT]] = {}
         self._list: List[Tuple[KT, VT]] = []

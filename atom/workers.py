@@ -60,9 +60,16 @@ class Worker:
         return self.server is not None and self.server.is_serving()
 
     async def start(self, loop: asyncio.AbstractEventLoop):
-        self.server = Server(self.host, self.port, loop=loop, is_ssl=self.app.is_ssl, ssl_context=self.app.ssl_context)
+        self.server = Server(
+            host=self.host, 
+            port=self.port,
+            ipv6=self.app.is_ipv6(), 
+            loop=loop, 
+            is_ssl=self.app.is_ssl, 
+            ssl_context=self.app.ssl_context
+        )
 
-        await self.server.serve(sock=self.app._socket) # type: ignore
+        await self.server.serve(sock=self.socket) # type: ignore
         self.app.dispatch('worker_startup', self)
 
         log.debug(f'Started worker {self.id}')

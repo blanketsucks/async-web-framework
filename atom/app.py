@@ -1,5 +1,5 @@
 import ssl
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 import pathlib
 import re
 import inspect
@@ -18,7 +18,7 @@ from .responses import NotFound, MethodNotAllowed
 from .errors import *
 from .router import Router
 from .settings import Settings
-from .objects import PartialRoute, Route, Listener, WebsocketRoute
+from .objects import PartialRoute, Route, Listener, WebsocketRoute, Middleware
 from .views import HTTPView
 from .response import Response, JSONResponse, FileResponse, HTMLResponse
 from .file import File
@@ -32,6 +32,7 @@ __all__ = (
     'Application',
     'run'
 )
+
 
 class Application:
     """
@@ -48,6 +49,7 @@ class Application:
                 url_prefix: Optional[str]=None, 
                 *,
                 ipv6: bool=False,
+                sock: Optional[socket.socket]=None,
                 worker_count: Optional[int]=None, 
                 settings_file: Optional[Union[str, pathlib.Path]]=None, 
                 load_settings_from_env: Optional[bool]=None,
@@ -63,20 +65,25 @@ class Application:
             load_settings_from_env: A bool indicating whether to load settings from the environment.
             suppress_warnings: A bool indicating whether to surpress warnings.
         """
+        if ipv6:
+            has_ipv6 = utils.has_ipv6()
+            if not has_ipv6:
+                raise RuntimeError('IPv6 is not supported')
+
         self.host = utils.validate_ip(host, ipv6=ipv6)
         self.port = port or 8080
-        self.ivp6 = ipv6
+        self._ipv6 = ipv6
         self.url_prefix = url_prefix or ''
-        self.router = Router()
-        self.websocket_tasks: List[asyncio.Task[Any]] = []
+        self.router = Router(self.url_prefix)
         self.settings = Settings()
         self.worker_count = worker_count or (multiprocessing.cpu_count() * 2) + 1
         self.suppress_warnings = suppress_warnings
-        self.is_ssl = use_ssl
+        self._use_ssl = use_ssl
         self.ssl_context = ssl_context
 
-        if self.is_ssl and self.ssl_context is None:
+        if self._use_ssl and self.ssl_context is None:
             self.ssl_context = ssl.create_default_context()
+            self.ssl_context.check_hostname = False
 
         if settings_file is not None:
             self.settings = Settings.from_file(settings_file)
@@ -86,13 +93,18 @@ class Application:
 
         self._listeners: Dict[str, List[CoroFunc]] = {}
         self._views: Dict[str, HTTPView] = {}
-        self._middlewares: List[CoroFunc] = []
+        self._middlewares: List[Middleware] = []
         self._active_listeners: List[asyncio.Task[Any]] = []
+        self._websocket_tasks: List[asyncio.Task[Any]] = []
 
         self._loop = None
         self._closed = False
 
-        self._socket = self._make_socket()
+        if sock:
+            if not isinstance(sock, socket.socket):
+                raise TypeError('sock must be a socket.socket instance')
+
+        self._socket = sock or self._make_socket()
         self._workers = self._add_workers()
 
     def __repr__(self) -> str:
@@ -124,16 +136,14 @@ class Application:
         return workers
 
     def _make_socket(self):
-        family = socket.AF_INET6 if self.ivp6 else socket.AF_INET
+        family = socket.AF_INET6 if self.is_ipv6() else socket.AF_INET
 
         sock = socket.socket(family, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-        addr = (self.host, self.port)
-        print(addr)
+        addr = (str(self.host), self.port)
         sock.bind(addr)
         
-        self.host = sock.getsockname()[0]
         return sock
 
     def _ensure_listeners(self):
@@ -142,9 +152,9 @@ class Application:
                 self._active_listeners.remove(task)
 
     def _ensure_websockets(self):
-        for ws in self.websocket_tasks:
+        for ws in self._websocket_tasks:
             if ws.done():
-                self.websocket_tasks.remove(ws)
+                self._websocket_tasks.remove(ws)
 
     def _convert(self, func: CoroFunc, args: Dict[str, Any], request: 'Request') -> Dict[str, Any]:
         kwargs: Dict[str, Any] = {}
@@ -256,10 +266,8 @@ class Application:
         coro = route(request, websocket)
         task = self.loop.create_task(coro, name=f'Websocket-{request.url.path}')
 
-        self.websocket_tasks.append(task)
+        self._websocket_tasks.append(task)
         self._ensure_websockets()
-
-        return task
 
     def _resolve_all(self, request: Request):
         args, route = self._resolve(request)
@@ -306,8 +314,10 @@ class Application:
             self.dispatch('error', route, request, worker, exc)
             return
 
-        await request.send(resp)
-        await request.close()
+        resp = await request.send(resp)
+
+        if route._after_request:
+            await self._maybe_coroutine(route._after_request, request, resp, **kwargs)
 
     @property
     def workers(self) -> List[Worker]:
@@ -322,6 +332,10 @@ class Application:
         return self._socket
 
     @property
+    def middlewares(self) -> List[CoroFunc]:
+        return self._middlewares
+
+    @property
     def listeners(self) -> Dict[str, List[CoroFunc]]:
         """
         Returns:
@@ -332,6 +346,27 @@ class Application:
     @property
     def loop(self) -> Optional[asyncio.AbstractEventLoop]:
         return self._loop
+
+    @property
+    def urls(self) -> Set[str]:
+        return {self._build_url(route.path) for route in self.router}
+
+    @loop.setter
+    def setter(self, value):
+        if not isinstance(value, asyncio.AbstractEventLoop):
+            raise TypeError('loop must be an instance of asyncio.AbstractEventLoop')
+
+        self._loop = value
+
+    def _build_url(self, path: str):
+        if self.is_ipv6():
+            return path
+
+        base = f'http://{self.host}:{self.port}'
+        return base + path
+
+    def url_for(self, path: str, **kwargs) -> str:
+        return self._build_url(path.format(**kwargs))
     
     def is_closed(self) -> bool:
         """
@@ -346,6 +381,12 @@ class Application:
     def is_serving(self):
         return all([worker.is_serving() for worker in self.workers])
 
+    def is_ipv6(self):
+        return self._ipv6 and utils.is_ipv6(self.host)
+
+    def is_ssl(self):
+        return self._use_ssl and isinstance(self.ssl_context, ssl.SSLContext)
+
     def get_worker(self, id: int) -> Optional[Worker]:
         return self._workers.get(id)
 
@@ -359,7 +400,7 @@ class Application:
         self._workers[worker.id] = worker
         return worker
 
-    async def start(self):
+    async def start(self, *, loop: asyncio.AbstractEventLoop=None):
         """
         Starts the application.
 
@@ -367,10 +408,10 @@ class Application:
             host: The host to listen on.
             port: The port to listen on.
         """
-        self._loop = loop = compat.get_running_loop()
+        self._loop = loop or compat.get_running_loop()
 
         for worker in self.workers:
-            loop.create_task(worker.run(loop), name=f'Worker-{worker.id}')
+            self.loop.create_task(worker.run(loop), name=f'Worker-{worker.id}')
 
         self.dispatch('startup')
 
@@ -431,6 +472,9 @@ class Application:
 
         for route in router:
             self.add_route(route)
+
+        for middleware in router.middlewares:
+            self.middleware(middleware)
         
         return router
 
@@ -547,12 +591,19 @@ class Application:
             return self.register_view(view)
         return decorator
 
-    def middleware(self, func: CoroFunc) -> CoroFunc:
+    def middleware(self, func: CoroFunc) -> Middleware:
         if not inspect.iscoroutinefunction(func):
             raise RegistrationError('Middlewares must be coroutines')
 
         self._middlewares.append(func)
-        return func
+        middleware = Middleware(func, router=self.router)
+
+        middleware._is_global = True
+        return middleware
+
+    def remove_middleware(self, middleware: Middleware):
+        self._middlewares.remove(middleware)
+        return middleware
 
     async def on_error(self, 
                     route: Union[Route, PartialRoute], 
@@ -571,6 +622,8 @@ async def run(app: Application):
         
         fut = loop.create_future()
         await fut
+    except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
+        pass
     finally:
         await app.close()
 
