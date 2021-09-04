@@ -136,8 +136,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         return self
 
     def _log(self, message: str):
-        time = datetime.datetime.now().strftime('%Y-%m-%d | %H:%M:%S')
-        log.info(f'{time} | {message}')
+        log.info(message)
 
     def _build_url(self, path: str, is_websocket: bool=False) -> str:
         if path not in self.paths:
