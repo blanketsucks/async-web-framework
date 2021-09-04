@@ -65,20 +65,23 @@ class FormData:
         
         for part in split:
             if part:
-                hdrs, body = find_headers(part.encode())
-                headers: Dict[str, str] = dict(hdrs) # type: ignore
+                try:
+                    hdrs, body = find_headers(part.encode())
+                    headers: Dict[str, str] = dict(hdrs) # type: ignore
 
+                    content = headers.get('Content-Disposition')
+                    if content:
+                        disposition = Disposition(content)
+                        filename = disposition.filename
+                    else:
+                        disposition = None
+                        filename = None
 
-                if (content := headers.get('Content-Disposition')):
-                    disposition = Disposition(content)
-                    filename = disposition.filename
-                else:
-                    disposition = None
-                    filename = None
+                    data = io.BytesIO(body)
+                    file = File(data, filename=filename)
 
-                data = io.BytesIO(body)
-                file = File(data, filename=filename)
-
-                form.add_file(file, disposition)
+                    form.add_file(file, disposition)
+                except ValueError:
+                    continue
 
         return form

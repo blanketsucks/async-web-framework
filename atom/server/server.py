@@ -45,7 +45,7 @@ class ServerProtocol(asyncio.Protocol):
             self.transport.close()
             raise ConnectionAbortedError('Too many connections')
 
-        reader = StreamReader()
+        reader = StreamReader(self.loop)
         writer = StreamWriter(transport)
 
         self.readers[peername] = reader
@@ -79,7 +79,8 @@ class ServerProtocol(asyncio.Protocol):
         reader = self.get_reader(peername)
 
         if not reader:
-            return
+            reader = StreamReader(self.loop)
+            self.readers[peername] = reader
 
         reader.feed_data(data)
 
@@ -97,13 +98,15 @@ class ServerProtocol(asyncio.Protocol):
         writer = self.get_writer(peername)
 
         if not writer:
-            return
+            writer = StreamWriter(self.transport)
+            self.writers[peername] = writer
  
         writer._waiter.set_result(None) # type: ignore
 
     def eof_received(self) -> None:
         peername = self.transport.get_extra_info('peername')
         reader = self.get_reader(peername)
+
         if not reader:
             return
 
@@ -272,7 +275,6 @@ class BaseServer:
             fut=protocol.pending.get(),
             timeout=timeout,
         )
-
         peername = transport.get_extra_info('peername')
 
         reader = protocol.get_reader(peername)
@@ -284,14 +286,15 @@ class BaseServer:
         if not writer:
             return
 
-        if self.is_ssl() and self._ssl_context is not None:
-            transport = await self.loop.start_tls(
-                transport=transport,
-                protocol=protocol,
-                sslcontext=self._ssl_context,
-                server_side=True
-            )
+        # if self.is_ssl() and self._ssl_context is not None:
+        #     transport = await self.loop.start_tls(
+        #         transport=transport,
+        #         protocol=protocol,
+        #         sslcontext=self._ssl_context,
+        #         server_side=True
+        #     )
 
+        # print('?')
         return ClientConnection(
             writer=writer,
             protocol=protocol, 
@@ -313,8 +316,8 @@ class Server(BaseServer):
             if not utils.has_ipv6():
                 raise RuntimeError('IPv6 is not supported')
 
-        self.host = utils.validate_ip(host, ipv6=ipv6)
-        self.port = port or 8888
+        self.host = host
+        self.port = port or 8080
         self.ipv6 = ipv6
 
         super().__init__(

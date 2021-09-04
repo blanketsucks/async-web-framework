@@ -34,13 +34,11 @@ class Worker:
         self._working = False
         self.server = None
 
+        self.socket = app.socket
+
     def __repr__(self) -> str:
         return '<Worker id={0.id}>'.format(self)
 
-    @property
-    def socket(self):
-        return self.app.socket
-    
     @property
     def port(self):
         return self.app.port
@@ -72,19 +70,16 @@ class Worker:
         await self.server.serve(sock=self.socket) # type: ignore
         self.app.dispatch('worker_startup', self)
 
-        log.debug(f'Started worker {self.id}')
-
     async def run(self, loop: asyncio.AbstractEventLoop):
         await self.start(loop=loop)
 
         if not self.server or not self.loop:
             return
 
+        log.info(f'[Worker-{self.id}] Started serving.')
+
         while True:
             connection = await self.server.accept()
-            if not connection:
-                continue
-
             self.current_task = self.loop.create_task(
                 coro=self.handler(connection),
                 name=f'Worker-{self.id}-{connection.peername}'
@@ -102,11 +97,11 @@ class Worker:
         await self.server.close()
 
         self.app.dispatch('worker_shutdown', self)
-        log.debug(f'Stopped worker {self.id}')
+        log.info(f'[Worker-{self.id}] Stopped serving.')
 
     def get_websocket(self, connection: ClientConnection):
         peer = connection.peername
-        websocket = self.websockets[peer]
+        websocket = self.websockets.get(peer)
 
         return websocket
 
@@ -116,9 +111,13 @@ class Worker:
 
     def feed_into_websocket(self, data: bytes, connection: ClientConnection):
         websocket = self.get_websocket(connection)
+        if not websocket:
+            return None
 
-        log.debug(f'Feeding {len(data)} bytes into {websocket}')
+        log.debug(f'[Worker-{self.id}] Feeding {len(data)} bytes into {websocket}')
         websocket.feed_data(data)
+
+        return data
 
     def ensure_websockets(self):
         self.app._ensure_websockets() # type: ignore
@@ -189,22 +188,27 @@ class Worker:
 
     async def handler(self, connection: ClientConnection):
         self._working = True
-
+        
         data = await connection.receive()
         created_at = datetime.datetime.utcnow()
         
-        log.info(f'Received {len(data)} bytes from {connection.peername}')
+        log.info(f'[Worker-{self.id}] Received {len(data)} bytes from {connection.peername}')
 
         try:
             request = Request.parse(data, self.app, connection, self, created_at)
         except ValueError:
+            data = self.feed_into_websocket(data, connection)
+
+            if not data:
+                await connection.close()
+                return
+
             self.app.dispatch('websocket_data_receive', data, self)
-            return self.feed_into_websocket(data, connection)
 
         self.app.dispatch('raw_request', data, self)
         self.app.dispatch('request', request, self)
 
-        log.info(f'Received a {request.method} request to {request.url.path} from {connection.peername}')
+        log.info(f'[Worker-{self.id}] Received a {request.method!r} request to {request.url.path!r} from {connection.peername}')
         
         websocket = Websocket(connection._reader, connection._writer) # type: ignore
 

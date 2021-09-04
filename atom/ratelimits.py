@@ -79,7 +79,7 @@ class Bucket:
     def update_ratelimit(self, request: Request, value: Any) -> None:
         key = self.get_key(value)
         if not key:
-            return
+            key = self.add_key(value)
 
         after = key.update(current=request.created_at.timestamp())
         if after:

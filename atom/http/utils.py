@@ -1,5 +1,5 @@
 import socket
-from typing import Generic, Any, Coroutine, Tuple, TypeVar, Optional
+from typing import Generic, Any, Coroutine, TypeVar, Optional
 import asyncio
 
 from .errors import InvalidHost

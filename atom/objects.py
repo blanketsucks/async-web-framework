@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, List, Any, Optional, Union
+import functools
+from typing import TYPE_CHECKING, Callable, List, Any, Optional, Union
 import inspect
 
 from ._types import CoroFunc, Func, MaybeCoroFunc
@@ -15,7 +16,11 @@ __all__ = (
     'PartialRoute',
     'WebsocketRoute',
     'Middleware',
-    'Listener'
+    'Listener',
+    'route',
+    'websocket_route',
+    'listener',
+    'middleware',
 )
 
 class Object:
@@ -36,7 +41,7 @@ class PartialRoute:
         return f'<PartialRoute path={self.path!r} method={self.method!r}>'
 
 class Route(Object):
-    def __init__(self, path: str, method: str, callback: MaybeCoroFunc, *, router: Router) -> None:
+    def __init__(self, path: str, method: str, callback: MaybeCoroFunc, *, router: Optional[Router]) -> None:
         self._router = router
 
         self.path = path
@@ -49,6 +54,10 @@ class Route(Object):
     @property
     def middlewares(self):
         return self._middlewares
+
+    @property
+    def router(self):
+        return self._router
 
     def cleanup_middlewares(self):
         self._middlewares.clear()
@@ -74,6 +83,9 @@ class Route(Object):
         return callback
 
     def destroy(self):
+        if not self._router:
+            return
+
         self._router.remove_route(self)
         return self
 
@@ -153,3 +165,28 @@ class Listener(Object):
 
     def __repr__(self) -> str:
         return '<Listener event={0.event!r}>'.format(self)
+
+def route(path: str, method: str) -> Callable[[CoroFunc], Route]:
+    def decorator(func: CoroFunc) -> Route:
+        
+        if getattr(func, '__self__', None):
+            func = functools.partial(func, func.__self__)
+
+        return Route(path, method, func, router=None)
+    return decorator
+
+def websocket_route(path: str, method: str) -> Callable[[CoroFunc], WebsocketRoute]:
+    def decorator(func: CoroFunc) -> WebsocketRoute:
+        return WebsocketRoute(path, method, func)
+    return decorator
+
+def listener(event: str=None) -> Callable[[CoroFunc], Listener]:
+    def decorator(func: CoroFunc) -> Listener:
+        return Listener(func, event or func.__name__)
+    return decorator
+
+def middleware(callback: CoroFunc) -> Middleware:
+    middleware = Middleware(callback)
+    middleware._is_global = True
+
+    return middleware

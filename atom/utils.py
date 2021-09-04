@@ -3,7 +3,7 @@ import warnings
 import functools
 import socket
 import asyncio
-from typing import Any, Callable, Iterator, List, Optional, Type, Tuple
+from typing import Any, Callable, Iterator, List, Optional, Type, Tuple, ParamSpec
 
 from .response import Response
 from ._types import MaybeCoroFunc
@@ -23,6 +23,8 @@ __all__ = (
     'SETTING_ENV_PREFIX',
     'VALID_METHODS'
 )
+
+P = ParamSpec('P')
 
 LOCALHOST = '127.0.0.1'
 LOCALHOST_V6 = '::1'
@@ -103,9 +105,9 @@ def warn(message: str, category: Type[Warning]):
     warnings.simplefilter('default', category)
 
 def deprecated(other: Optional[str]=None):
-    def decorator(func: Callable[..., Any]):
+    def decorator(func: Callable[P, Any]):
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Deprecated:
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> Deprecated:
             if other:
                 warning = f'{func.__name__} is deprecated, use {other} instead.'
             else:

@@ -1,4 +1,4 @@
-from typing import Union, Optional
+from typing import Any, Union, Optional
 import pathlib
 import io
 
@@ -26,6 +26,15 @@ class File:
             self.fp = open(fp, 'rb')
 
         self.filename = filename
+    
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args: Any):
+        await self.close()
+
+    def __aiter__(self):
+        return self.stream()
 
     async def save_as(self, name: str):
         loop = compat.get_running_loop()
@@ -43,5 +52,18 @@ class File:
 
         return data
 
-    def close(self):
-        self.fp.close()
+    async def readlines(self):
+        loop = compat.get_running_loop()
+        data = await loop.run_in_executor(None, self.fp.readlines)
+
+        return data
+
+    async def stream(self):
+        lines = await self.readlines()
+        
+        for line in lines:
+            yield line
+
+    async def close(self):
+        loop = compat.get_running_loop()
+        await loop.run_in_executor(None, self.fp.close())

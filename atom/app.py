@@ -1,3 +1,5 @@
+import datetime
+import functools
 import ssl
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 import pathlib
@@ -9,8 +11,8 @@ import socket
 import asyncio
 import traceback
 
-from ._types import CoroFunc, MaybeCoroFunc
-
+from ._types import CoroFunc
+from .resources import Resource
 from . import compat, utils
 from .server import ClientConnection
 from .request import Request
@@ -19,6 +21,7 @@ from .errors import *
 from .router import Router
 from .settings import Settings
 from .objects import PartialRoute, Route, Listener, WebsocketRoute, Middleware
+from .injectables import Injectable, InjectableMeta
 from .views import HTTPView
 from .response import Response, JSONResponse, FileResponse, HTMLResponse
 from .file import File
@@ -29,12 +32,12 @@ from .models import Model
 log = logging.getLogger(__name__)
 
 __all__ = (
+    'dualstack_ipv6',
     'Application',
-    'run'
 )
 
 
-class Application:
+class Application(Injectable, metaclass=InjectableMeta):
     """
     A class respreseting an ASGI application.
 
@@ -76,7 +79,10 @@ class Application:
         self.url_prefix = url_prefix or ''
         self.router = Router(self.url_prefix)
         self.settings = Settings()
-        self.worker_count = worker_count or (multiprocessing.cpu_count() * 2) + 1
+        if worker_count is None:
+            worker_count = (multiprocessing.cpu_count() * 2) + 1
+
+        self.worker_count = worker_count
         self.suppress_warnings = suppress_warnings
         self._use_ssl = use_ssl
         self.ssl_context = ssl_context
@@ -92,11 +98,12 @@ class Application:
             self.settings = Settings.from_env_vars()
 
         self._listeners: Dict[str, List[Listener]] = {}
+        self._resources: Dict[str, Resource] = {}
         self._views: Dict[str, HTTPView] = {}
         self._middlewares: List[Middleware] = []
         self._active_listeners: List[asyncio.Task[Any]] = []
         self._websocket_tasks: List[asyncio.Task[Any]] = []
-
+        self._worker_tasks: List[asyncio.Task[None]] = []
         self._loop = None
         self._closed = False
 
@@ -104,8 +111,17 @@ class Application:
             if not isinstance(sock, socket.socket):
                 raise TypeError('sock must be a socket.socket instance')
 
-        self._socket = sock or self._make_socket()
+            val = sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR)
+            if not val:
+                raise RuntimeError('socket does not have SO_REUSEADDR enabled')
+
+        self._socket = sock or (
+            self._make_ipv6_socket(self.host, self.port) if self._ipv6 
+            else self._make_ipv4_socket(self.host, self.port)
+        )
         self._workers = self._add_workers()
+
+        self.inject(self)
 
     def __repr__(self) -> str:
         prefix = self.url_prefix or '/'
@@ -119,6 +135,22 @@ class Application:
         await self.close()
         return self
 
+    def _log(self, message: str):
+        time = datetime.datetime.now().strftime('%Y-%m-%d | %H:%M:%S')
+        log.info(f'{time} | {message}')
+
+    def _build_url(self, path: str, is_websocket: bool=False) -> str:
+        if path not in self.paths:
+            raise ValueError(f'Path {path!r} does not exist')
+
+        if self.is_ipv6():
+            return path
+
+        scheme = 'ws' if is_websocket else 'http'
+
+        base = f'{scheme}://{self.host}:{self.port}'
+        return base + path
+
     def _add_workers(self):
         workers: Dict[int, Worker] = {}
 
@@ -128,15 +160,18 @@ class Application:
         
         return workers
 
-    def _make_socket(self):
-        family = socket.AF_INET6 if self.is_ipv6() else socket.AF_INET
-
-        sock = socket.socket(family, socket.SOCK_STREAM)
+    def _make_ipv6_socket(self, host: str, port: int):
+        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-        addr = (str(self.host), self.port)
-        sock.bind(addr)
-        
+        sock.bind((host, port))
+        return sock
+
+    def _make_ipv4_socket(self, host: str, port: int):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        sock.bind((host, port))
         return sock
 
     def _ensure_listeners(self):
@@ -222,7 +257,7 @@ class Application:
         if isinstance(response, File):
             response = FileResponse(response, status=status)  
 
-        if isinstance(response, Response):
+        elif isinstance(response, Response):
             if isinstance(response, FileResponse):
                 await response.read()
                 response.file.close()
@@ -232,9 +267,6 @@ class Application:
         if isinstance(response, Model):
             resp = JSONResponse(response.json(), status=status)
             return resp
-
-        if isinstance(response, bytes):
-            response = response.decode()
 
         if isinstance(response, str):
             resp = HTMLResponse(response, status=status)
@@ -330,7 +362,11 @@ class Application:
 
     @property
     def listeners(self) -> List[Listener]:
-        return list(*self._listeners.values())
+        return list(self._listeners.values())
+
+    @property
+    def resources(self) -> List[Resource]:
+        return list(self._resources.values())
 
     @property
     def loop(self) -> Optional[asyncio.AbstractEventLoop]:
@@ -338,7 +374,10 @@ class Application:
 
     @property
     def urls(self) -> Set[str]:
-        return {self._build_url(route.path) for route in self.router}
+        return {
+            self._build_url(route.path, is_websocket=isinstance(route, WebsocketRoute)) 
+            for route in self.router
+        }
 
     @property
     def paths(self) -> Set[str]:
@@ -351,18 +390,48 @@ class Application:
 
         self._loop = value
 
-    def _build_url(self, path: str):
-        if path not in self.paths:
-            raise ValueError(f'Path {path!r} does not exist')
+    def url_for(self, path: str, *, is_websocket: bool=False, **kwargs) -> str:
+        return self._build_url(path.format(**kwargs), is_websocket=is_websocket)
 
-        if self.is_ipv6():
-            return path
+    def inject(self, obj: Injectable):
+        if not isinstance(obj, Injectable):
+            raise TypeError('obj must be an Injectable')
 
-        base = f'http://{self.host}:{self.port}'
-        return base + path
+        for route in obj.__routes__:
+            route.callback = functools.partial(route.callback, obj)
 
-    def url_for(self, path: str, **kwargs) -> str:
-        return self._build_url(path.format(**kwargs))
+            if route._after_request:
+                route._after_request = functools.partial(route._after_request, obj)
+
+            for middleware in route.middlewares:
+                middleware.callback = functools.partial(middleware.callback, obj)
+
+            self.add_route(route)
+
+        for listener in obj.__listeners__:
+            listener.callback = functools.partial(listener.callback, obj)
+            self.add_event_listener(listener.callback, listener.event)
+        
+        for middleware in obj.__middlewares__:
+            middleware.callback = functools.partial(middleware.callback, obj)
+            self.add_middleware(middleware.callback)
+
+        return self
+
+    def eject(self, obj: Injectable):
+        if not isinstance(obj, Injectable):
+            raise TypeError('obj must be an Injectable')
+
+        for route in obj.__routes__:
+            self.remove_route(route)
+
+        for listener in obj.__listeners__:
+            self.remove_event_listener(listener)
+
+        for middleware in obj.__middlewares__:
+            self.remove_middleware(middleware)
+
+        return self
     
     def is_closed(self) -> bool:
         """
@@ -404,24 +473,40 @@ class Application:
             host: The host to listen on.
             port: The port to listen on.
         """
-        self._loop = loop or compat.get_running_loop()
+        self._loop = loop or compat.get_event_loop()
 
         for worker in self.workers:
-            self.loop.create_task(worker.run(loop), name=f'Worker-{worker.id}')
+            task = self.loop.create_task(worker.run(loop), name=f'Worker-{worker.id}')
+            self._worker_tasks.append(task)
 
         self.dispatch('startup')
+
+    def run(self):
+        loop = compat.get_event_loop()
+        loop.run_until_complete(self.start(loop=loop))
+
+        try:
+            loop.run_forever()
+        except KeyboardInterrupt:
+            loop.run_until_complete(self.close())
+            loop.stop()
+
+        return self
 
     async def close(self):
         """
         Closes the application.
         """
+        for task in self._worker_tasks:
+            task.cancel()
+
         for worker in self.workers:
             await worker.stop()
 
         self._closed = True
 
         self.dispatch('shutdown')
-        log.info(f'Closed application')
+        log.info(f'[Application] Closed application.')
 
     def websocket(self, path: str) -> Callable[[CoroFunc], WebsocketRoute]:
         def decorator(coro: CoroFunc) -> WebsocketRoute:
@@ -470,7 +555,7 @@ class Application:
             self.add_route(route)
 
         for middleware in router.middlewares:
-            self.middleware(middleware)
+            self.add_middleware(middleware)
         
         return router
 
@@ -540,6 +625,10 @@ class Application:
         self._listeners[actual] = [listener]
         return listener
 
+    def remove_event_listener(self, listener: Listener):
+        self._listeners[listener.event].remove(listener)
+        return listener
+
     def event(self, name: Optional[str]=None) -> Callable[[CoroFunc], Listener]:
         def decorator(func: CoroFunc):
             return self.add_event_listener(func, name)
@@ -550,7 +639,7 @@ class Application:
         if not loop:
             return
 
-        log.debug(f'Dispatching event: {name}')
+        log.debug(f'[Application] Dispatching event: {name!r}.')
 
         self._ensure_listeners()
         name = 'on_' + name
@@ -567,10 +656,7 @@ class Application:
         tasks = [loop.create_task(listener(*args, **kwargs), name=f'Event-{name}') for listener in listeners]
         self._active_listeners.extend(tasks)
 
-    def get_view(self, path: str):
-        return self._views.get(path)
-
-    def register_view(self, view: Union[HTTPView, Any]):
+    def add_view(self, view: Union[HTTPView, Any]):
         if not isinstance(view, HTTPView):
             raise RegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__))
 
@@ -579,24 +665,67 @@ class Application:
 
         return view
 
+    def remove_view(self, path: str) -> Optional[HTTPView]:
+        view = self._views.pop(path, None)
+        if not view:
+            return None
+
+        view.as_routes(router=self.router, remove_routes=True)
+        return view
+
+    def get_view(self, path: str):
+        return self._views.get(path)
+
     def view(self, path: str):
         def decorator(cls: Type[HTTPView]):
-            if cls.__url_route__ == '':
+            if not cls.__url_route__:
                 cls.__url_route__ = path
 
             view = cls()
-            return self.register_view(view)
+            return self.add_view(view)
         return decorator
 
-    def middleware(self, func: CoroFunc) -> Middleware:
-        if not inspect.iscoroutinefunction(func):
+    def add_resource(self, resource: Union[Resource, Any]) -> Resource:
+        if not isinstance(resource, Resource):
+            raise RegistrationError('Expected Resource but got {0!r} instead.'.format(resource.__class__.__name__))
+
+        self.inject(resource)
+        self._resources[resource.name] = resource
+
+        return resource
+
+    def remove_resource(self, name: str) -> Optional[Resource]:
+        resource = self._resources.pop(name, None)
+        if not resource:
+            return None
+
+        self.eject(resource)
+        return resource
+
+    def get_resource(self, name: str) -> Optional[Resource]:
+        return self._resources.get(name)
+
+    def resource(self, name: str=None) -> Callable[[Type[Resource]], Resource]:
+        def decorator(cls: Type[Resource]):
+            resource = cls()
+            if name:
+                resource.name = name
+
+            return self.add_resource(resource)
+        return decorator
+
+    def add_middleware(self, callback: CoroFunc) -> Middleware:
+        middleware = Middleware(callback, router=self)
+        middleware._is_global = True
+
+        self._middlewares.append(middleware)
+        return middleware
+    
+    def middleware(self, callback: CoroFunc) -> Middleware:
+        if not inspect.iscoroutinefunction(callback):
             raise RegistrationError('Middlewares must be coroutines')
 
-        middleware = Middleware(func, router=self.router)
-        self._middlewares.append(middleware)
-
-        middleware._is_global = True
-        return middleware
+        return self.add_middleware(callback)
 
     def remove_middleware(self, middleware: Middleware):
         self._middlewares.remove(middleware)
@@ -608,20 +737,41 @@ class Application:
                     worker: Worker, 
                     exception: Exception):
         traceback.print_exception(type(exception), exception, exception.__traceback__)
+    
+def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs):
+    if not utils.has_dualstack_ipv6():
+        raise RuntimeError('Dualstack support is not available')
 
-async def run(app: Application):
-    try:
-        await app.start()
-        loop = app.loop
+    app = Application(worker_count=0, port=port)
+    worker_count = kwargs.pop('worker_count', multiprocessing.cpu_count() + 1)
 
-        if not loop:
-            loop = compat.get_running_loop()
-        
-        fut = loop.create_future()
-        await fut
-    except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
-        pass
-    finally:
-        await app.close()
+    ipv4 = utils.validate_ip(ipv4)
+    ipv6 = utils.validate_ip(ipv6, ipv6=True)
 
+    ipv4_socket = app._make_ipv4_socket(ipv4, app.port)
+    ipv6_socket = app._make_ipv6_socket(ipv6, app.port)
+
+    workers = []
+    id: int = 0
+
+    for i in range(worker_count):
+        worker = Worker(app, id)
+        worker.socket = ipv4_socket
+
+        workers.append(worker)
+        id += 1
+
+    for i in range(worker_count):
+        id += 1
+
+        worker = Worker(app, id)
+        worker.socket = ipv6_socket
+
+        workers.append(worker)
+
+    for worker in workers:
+        app.add_worker(worker)
+
+    app.worker_count = len(workers)
     return app
+

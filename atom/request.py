@@ -114,6 +114,10 @@ class Request:
     def query(self):
         return self.url.query
 
+    @property
+    def client_ip(self) -> str:
+        return self.connection.peername[0]
+
     def text(self) -> str:
         return self._body.decode() if isinstance(self._body, (bytes, bytearray)) else self._body
 
@@ -122,16 +126,6 @@ class Request:
 
     def form(self):
         return FormData.from_request(self)
-
-    def graphql(self) -> Optional[str]:
-        if self.content_type == 'application/json':
-            data = self.json()
-            query = data.get('query')
-
-        else:
-            query = self.text()
-
-        return query
 
     def redirect(self, 
                 to: str, 

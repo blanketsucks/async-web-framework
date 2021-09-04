@@ -20,11 +20,11 @@ class TestClient:
         return self.app.port
 
     def ws_connect(self, path: str):
-        url = f'ws://{self.host}:{self.port}{path}'
+        url = self.app.url_for(path, is_websocket=True)
         return self.session.ws_connect(url)
 
     def request(self, path: str, method: str, **kwargs: Any):
-        url = f'http://{self.host}:{self.port}{path}'
+        url = self.app.url_for(path)
         return self.session.request(url=url, method=method, **kwargs)
 
     def get(self, path: str, **kwargs: Any):

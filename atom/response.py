@@ -1,3 +1,4 @@
+import pathlib
 from typing import Any, Dict, List, Union, Optional
 import json
 import enum
@@ -125,6 +126,13 @@ class Response:
     @property
     def body(self):
         return self._body
+
+    @body.setter
+    def body(self, value):
+        self._body = value
+
+        self._headers['Content-Type'] = self.content_type
+        self._headers['Content-Length'] = len(value)
 
     @property
     def status(self):

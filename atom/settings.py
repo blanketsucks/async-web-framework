@@ -10,39 +10,8 @@ __all__ = (
     'Settings',
 )
 
-class Crendentials:
-    def __init__(self, client_id: str, client_secret: str, redirect_uri: str) -> None:
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.redirect_uri = redirect_uri
-
-class Authentication:
-    def __init__(self):
-        self._creditials: Dict[str, Crendentials] = {}
-
-    def set_credentials_for(self, 
-                            service: str, 
-                            *, 
-                            client_id: str, 
-                            client_secret: str, 
-                            redirect_uri: str):
-        credentials = Crendentials(
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_uri=redirect_uri
-        )
-        self._creditials[service] = credentials
-        return credentials
-
-    def get_credentials_for(self, service: str) -> Optional[Crendentials]:
-        return self._creditials.get(service)
-
-    def __iter__(self):
-        yield from self._creditials.items()
-
 class Settings(ImmutableMapping[str, Union[str, int, bool]]):
     def __init__(self, defaults: Optional[Dict[str, Union[str, int, bool]]]=None) -> None:
-        self.authentication = Authentication()
         if not defaults:
             defaults = {}
 
