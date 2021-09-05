@@ -15,8 +15,15 @@ theme:
 nav:
   - Getting Started: getting-started.md
   - API Reference:
+    - Data Structures: API-Reference/datastructures.md
+    - Objects: API-Reference/objects.md
     - Application: API-Reference/application.md
     - Responses: API-Reference/responses.md
+    - Response: API-Reference/response.md
+    - FormData: API-Reference/formdata.md
+    - File: API-Reference/file.md
+    - Cookies: API-Reference/cookies.md
+    - Models: API-Reference/models.md
 
 plugins:
 - search

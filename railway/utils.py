@@ -3,7 +3,7 @@ import warnings
 import functools
 import socket
 import asyncio
-from typing import Any, Callable, Iterator, List, Optional, Type, Tuple, ParamSpec
+from typing import Any, Callable, Iterator, List, Optional, Type, Tuple
 
 from .response import Response
 from ._types import MaybeCoroFunc
@@ -24,8 +24,6 @@ __all__ = (
     'VALID_METHODS'
 )
 
-P = ParamSpec('P')
-
 LOCALHOST = '127.0.0.1'
 LOCALHOST_V6 = '::1'
 
@@ -35,13 +33,28 @@ async def maybe_coroutine(func: MaybeCoroFunc[Any], *args: Any, **kwargs: Any) -
 
     return func(*args, **kwargs)
 
-def has_ipv6():
+def has_ipv6() -> bool:
+    """
+    Returns: 
+        True if the system can bind an IPv6 address.
+    """
     return socket.has_ipv6
 
-def has_dualstack_ipv6():
+def has_dualstack_ipv6() -> bool:
+    """
+    Returns:
+        True if the system has dualstack IPv6 support.
+    """
     return socket.has_dualstack_ipv6()
 
 def is_ipv6(ip: str) -> bool:
+    """
+    Args:
+        ip: A string representing an address.
+    
+    Returns:
+        True if the given IP is an IPv6 address.
+    """
     try:
         socket.inet_pton(socket.AF_INET6, ip)
         return True
@@ -86,7 +99,7 @@ class Deprecated:
         return self.__repr
 
 
-SETTING_ENV_PREFIX = 'ATOM_'
+SETTING_ENV_PREFIX = 'railway_'
 
 VALID_METHODS = (
     "GET",
@@ -105,9 +118,9 @@ def warn(message: str, category: Type[Warning]):
     warnings.simplefilter('default', category)
 
 def deprecated(other: Optional[str]=None):
-    def decorator(func: Callable[P, Any]):
+    def decorator(func: Callable[..., Any]):
         @functools.wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> Deprecated:
+        def wrapper(*args, **kwargs) -> Deprecated:
             if other:
                 warning = f'{func.__name__} is deprecated, use {other} instead.'
             else:

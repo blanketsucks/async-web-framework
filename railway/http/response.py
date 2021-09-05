@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Union, TYPE_CHECKING
 import json
 
-from atom.response import HTTPStatus
+from railway.response import HTTPStatus
 
 if TYPE_CHECKING:
     from .abc import Hooker

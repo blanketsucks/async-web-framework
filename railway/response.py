@@ -4,7 +4,7 @@ import json
 import enum
 import mimetypes
 
-from .cookies import CookieJar
+from .cookies import Cookie, CookieJar
 from .file import File
 from .datastructures import MultiDict
 
@@ -99,14 +99,30 @@ class HTTPStatus(enum.IntEnum):
 
 
 class Response:
+    """
+    A class that is used to build a response that is later sent to the client.
+
+    Attributes:
+        version: The HTTP version of the response.
+        cookies: A [CookieJar](./cookies.md) that contains all the cookies that should be set on the response.
+    """
     def __init__(self, 
                 body: Optional[str]=None,
                 status: Optional[int]=None,
                 content_type: Optional[str]=None,
                 headers: Optional[Dict[str, Any]]=None,
                 version: Optional[str]=None):
+        """
+        The constructor of the Response class.
 
-        self.version = version or '1.1'
+        Args:
+            body: The body of the response.
+            status: The status code of the response.
+            content_type: The content type of the response.
+            headers: The headers of the response.
+            version: The HTTP version of the response.
+        """
+        self.version: str = version or '1.1'
         self._status = HTTPStatus(status or 200) # type: ignore
         self._body = body or ''
         self._content_type = content_type or 'text/html'
@@ -121,10 +137,14 @@ class Response:
             self._headers['Content-Type'] = content_type
             self._headers['Content-Lenght'] = len(body)
 
-        self.cookies = CookieJar()
+        self.cookies: CookieJar = CookieJar()
 
     @property
-    def body(self):
+    def body(self) -> Any:
+        """
+        Returns:
+            The body of the response.
+        """
         return self._body
 
     @body.setter
@@ -135,21 +155,46 @@ class Response:
         self._headers['Content-Length'] = len(value)
 
     @property
-    def status(self):
+    def status(self) -> HTTPStatus:
+        """
+        Returns:
+            The status code of the response.
+        """
         return self._status
 
     @property
-    def content_type(self):
+    def content_type(self) -> str:
+        """
+        Returns:
+            The content type of the response.
+        """
         return self._content_type
 
     @property
-    def headers(self):
+    def headers(self) -> Dict[str, Any]:
+        """
+        Returns:
+            The headers of the response.
+        """
         return self._headers
 
-    def add_body(self, data: str):
+    def add_body(self, data: str) -> None:
+        """
+        Adds a body to the response.
+
+        Args:
+            data: The body of the response.
+        """
         self._body += data
 
     def add_header(self, key: str, value: str):
+        """
+        Adds a header to the response.
+
+        Args:
+            key: The key of the header.
+            value: The value of the header.
+        """
         self._headers[key] = value
 
     def add_cookie(self, 
@@ -159,6 +204,16 @@ class Response:
                 domain: Optional[str]=None, 
                 http_only: bool=False, 
                 is_secure: bool=False):
+        """
+        Adds a cookie to the response.
+
+        Args:
+            name: The name of the cookie.
+            value: The value of the cookie.
+            domain: The domain of the cookie.
+            http_only: If the cookie should be set as HTTP only.
+            is_secure: If the cookie should be set as secure.
+        """
         return self.cookies.add_cookie(
             name=name,
             value=value,
@@ -172,6 +227,9 @@ class Response:
         return f'<{name} status={self.status} content_type={self.content_type!r} version={self.version!r}>'
 
     def encode(self):
+        """
+        Encodes the response into a sendable bytes object.
+        """
         response = [f'HTTP/{self.version} {self.status} {self.status.description}']
 
         response.extend(f'{k}: {v}' for k, v in self.headers.items())
@@ -187,6 +245,9 @@ class Response:
         return response
 
 class HTMLResponse(Response):
+    """
+    A class used to build an HTML response
+    """
     def __init__(self, 
                 body: Optional[str]=None,
                 status: Optional[int]=None,
@@ -203,6 +264,9 @@ class HTMLResponse(Response):
 
 
 class JSONResponse(Response):
+    """
+    A class used to build a JSON response
+    """
     def __init__(self, 
                 body: Optional[Union[Dict[str, Any], List[Any]]]=None, 
                 status: Optional[int]=None, 
@@ -219,11 +283,21 @@ class JSONResponse(Response):
         )
 
 class FileResponse(Response):
+    """
+    A class used to build a file response
+    """
     def __init__(self, 
                 file: File,
                 status: Optional[int]=None, 
                 headers: Optional[Dict[str, str]]=None, 
                 version: Optional[str]=None):
+        """
+        Args:
+            file: The [File](./file.md) to send.
+            status: The status code of the response.
+            headers: The headers of the response.
+            version: The HTTP version of the response.
+        """
         self.file = file
 
         super().__init__(
@@ -233,7 +307,13 @@ class FileResponse(Response):
             version=version
         )
 
-    def get_content_type(self):
+    def get_content_type(self) -> str:
+        """
+        Gets the content type of the response.
+
+        Returns:
+            The content type of the response.
+        """
         filename = self.file.filename
         content_type = None
 
@@ -245,7 +325,14 @@ class FileResponse(Response):
 
         return content_type
 
-    async def read(self):
+    async def read(self) -> bytes:
+        """
+        Reads the file, sets the body and returns it as bytes.
+
+        Returns:
+            The contents of the file.
+        """
+
         data = await self.file.read()
         self._body = data.decode()
 

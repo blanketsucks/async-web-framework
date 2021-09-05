@@ -139,6 +139,23 @@ class ModelMeta(type):
         return super().__new__(cls, name, bases, attrs)
 
 class Model(metaclass=ModelMeta):
+    """
+    A model that contains fields and methods to serialize and deserialize.
+
+    Example:
+        ```py
+        class Person(Model):
+            name: str
+            age: int
+
+        jim = Person(name='Jim', age=18)
+        print(jim)
+        print(jim.json())
+
+        alex = Person.from_json({'name': 'Alex', 'age': 20})
+        print(alex)
+        ```
+    """
     if TYPE_CHECKING:
         __fields__: Tuple[Field]
 
@@ -150,10 +167,26 @@ class Model(metaclass=ModelMeta):
         return f'<{self.__class__.__name__} {" ".join(attrs)}>'
 
     def json(self) -> Dict[str, Any]:
+        """
+        Returns:
+            The JSON representation of the model.
+        """
         return {f.name: _getattr(self, f.name) for f in self.__fields__}
 
     @classmethod
-    def from_json(cls, data: Union[Dict[str, Any], Any]):
+    def from_json(cls, data: Union[Dict[str, Any], Any]) -> 'Model':
+        """
+        Makes the model from a JSON object.
+
+        Args:
+            data: The JSON object.
+
+        Returns:
+            The model.
+
+        Raises:
+            TypeError: If the JSON object is not a dict.
+        """
         if not isinstance(data, dict):
             ret = f"Invalid argument type for 'data'. Expected {dict!r} got {data.__class__!r} instead"
             raise TypeError(ret)

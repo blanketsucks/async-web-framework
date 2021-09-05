@@ -1,1 +1,1 @@
-::: atom.app.Application
+::: railway.app

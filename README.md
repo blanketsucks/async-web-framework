@@ -5,12 +5,12 @@
 ### Basic Example
 
 ```py
-import atom
+import railway
 
-app = atom.Application()
+app = railway.Application()
 
 @app.route('/hello/{name}', 'GET')
-async def get_name(request: atom.Request, name: str):
+async def get_name(request: railway.Request, name: str):
     if len(name) > 25:
         error = {
             'message': 'name too long.',
@@ -28,17 +28,18 @@ if __name__ == '__main__':
 
 ### Websocket Example
 ```py
-import atom
+import railway
 
-app = atom.Application()
+app = railway.Application()
 
 @app.websocket('/ws')
-async def ws(request: atom.Request, ws: atom.Websocket):
+async def ws(request: railway.Request, ws: railway.Websocket):
     while True:
-        message = await ws.receive_str()
-        print(message)
+        await ws.send(b'Hello!')
 
-        await ws.send_str(message)
+        data = await ws.receive()
+        print(data.data)
+
 
 if __name__ == '__main__':
     app.run()
@@ -47,14 +48,14 @@ if __name__ == '__main__':
 ### Views Example
 
 ```py
-import atom
+import railway
 
-app = atom.Application()
+app = railway.Application()
 app.users = {}
 
-@app.view('/users') # Either this or class UsersView(atom.HTTPView, path='/users'), both work
-class UsersView(atom.HTTPView):
-    async def get(self, request: atom.Request):
+@app.view('/users') # Either this or class UsersView(railway.HTTPView, path='/users'), both work
+class UsersView(railway.HTTPView):
+    async def get(self, request: railway.Request):
         return request.app.users
 
 if __name__ == '__main__':
@@ -64,19 +65,19 @@ if __name__ == '__main__':
 ### Resource Example with ratelimits
 ```py
 from typing import Dict
-import atom
+import railway
 
-app = atom.Application()
+app = railway.Application()
 
-class User(atom.Model):
+class User(railway.Model):
     name: str
     id: int
 
 @app.resource()
-class Users(atom.Resource):
+class Users(railway.Resource):
     def __init__(self) -> None:
         self.users: Dict[int, User] = {}
-        self.ratelimiter = atom.RatelimiteHandler()
+        self.ratelimiter = railway.RatelimiteHandler()
 
         self.ratelimiter.add_bucket(
             path='/users',
@@ -84,25 +85,25 @@ class Users(atom.Resource):
             per=1
         )
 
-    def update_ratelimiter(self, path: str, request: atom.Request):
+    def update_ratelimiter(self, path: str, request: railway.Request):
         bucket = self.ratelimiter.get_bucket(path)
 
         try:
             bucket.update_ratelimit(request, request.client_ip)
-        except atom.Ratelimited as e:
+        except railway.Ratelimited as e:
             message = {
                 'message': 'Ratelimit exceeded. Please try again later.'
             }
 
-            response = atom.JSONResponse(body=message, status=427)
+            response = railway.JSONResponse(body=message, status=427)
             response.add_header('Retry-After', e.retry_after)
 
             return response
 
         return None
 
-    @atom.route('/users', 'GET')
-    async def get_all_users(self, request: atom.Request):
+    @railway.route('/users', 'GET')
+    async def get_all_users(self, request: railway.Request):
         resp = self.update_ratelimiter('/users', request)
         if resp:
             return resp
@@ -110,8 +111,8 @@ class Users(atom.Resource):
         users = [user.json() for user in self.users.values()]
         return users
 
-    @atom.route('/users', 'POST')
-    async def create_user(self, request: atom.Request, user: User):
+    @railway.route('/users', 'POST')
+    async def create_user(self, request: railway.Request, user: User):
         resp = self.update_ratelimiter('/users', request)
         if resp:
             return resp
@@ -124,8 +125,8 @@ class Users(atom.Resource):
         self.users[user.id] = user
         return user, 201
 
-    @atom.route('/users/{id}', 'DELETE')
-    async def delete_user(self, request: atom.Request, id: int):
+    @railway.route('/users/{id}', 'DELETE')
+    async def delete_user(self, request: railway.Request, id: int):
         user = self.users.pop(id, None)
         if not user:
             return {
@@ -134,8 +135,8 @@ class Users(atom.Resource):
 
         return user, 204
 
-    @atom.route('/users/{id}', 'GET')
-    async def get_user(self, request: atom.Request, id: int):
+    @railway.route('/users/{id}', 'GET')
+    async def get_user(self, request: railway.Request, id: int):
         user = self.users.get(id)
         if not user:
             return {

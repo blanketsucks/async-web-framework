@@ -10,8 +10,8 @@ from socket import SocketKind, AddressFamily, gethostname
 from .errors import HookerAlreadyConnected, HookerClosed
 from .response import Response, HTTPStatus
 from .request import Request
-from atom.utils import find_headers
-from atom.http.utils import AsyncIterator
+from railway.utils import find_headers
+from railway.http.utils import AsyncIterator
 
 if TYPE_CHECKING:
     from .sessions import HTTPSession

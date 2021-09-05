@@ -7,7 +7,7 @@ import logging
 import datetime
 
 from .server import Server, ClientConnection
-from .websockets import Websocket
+from .websockets import ServerWebsocket as Websocket
 from .request import Request
 from .response import Response
 from .responses import SwitchingProtocols
@@ -80,7 +80,7 @@ class Worker:
 
         while True:
             connection = await self.server.accept()
-            self.current_task = self.loop.create_task(
+            self.loop.create_task(
                 coro=self.handler(connection),
                 name=f'Worker-{self.id}-{connection.peername}'
             )
@@ -88,10 +88,6 @@ class Worker:
     async def stop(self):
         if not self.server:
             return
-
-        if self.current_task:
-            await self.current_task
-            self.current_task = None
 
         self.ensure_websockets()
         await self.server.close()

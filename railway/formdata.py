@@ -22,23 +22,44 @@ def _get(iterable: List[T], index: int) -> Optional[T]:
         return None
 
 class Disposition:
+    """
+    A content disposition header.
+    """
     def __init__(self, header: str) -> None:
         self.header = header
         self._parts = self.header.split('; ')
 
     @property
-    def content_type(self):
+    def content_type(self) -> str:
+        """
+        Returns:
+            The content type.
+        """
         return self._parts[0]
 
     @property
-    def name(self):
+    def name(self) -> Optional[str]:
+        """
+        Returns:
+            The name of the disposition.
+        """
         return _get(self._parts, 1)
 
     @property
-    def filename(self):
+    def filename(self) -> Optional[str]:
+        """
+        Returns:
+            The filename of the disposition.
+        """
         return _get(self._parts, 2)
 
 class FormData:
+    """
+    A form data object.
+
+    Attributes:
+        files: A list of tuples containing a [File](./file.md) and [Disposition](./formdata.md) objects.
+    """
     def __init__(self) -> None:
         self.files: List[Tuple[File, Optional[Disposition]]] = []
 
@@ -46,10 +67,26 @@ class FormData:
         return iter(self.files)
 
     def add_file(self, file: File, disposition: Optional[Disposition]) -> None:
+        """
+        Add a file to the form data.
+
+        Args:
+            file: A [File](./file.md) object.
+            disposition: A [Disposition](./formdata.md) object.
+        """
         self.files.append((file, disposition))
 
     @classmethod
     def from_request(cls, request: Request) -> FormData:
+        """
+        Creates a form data object from a request.
+
+        Args:
+            request: A [Request](./request.md) object.
+        
+        Returns:
+            A [FormData](./formdata.md) object.
+        """
         form = cls()
         data = request.text()
 

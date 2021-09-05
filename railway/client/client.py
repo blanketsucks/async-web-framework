@@ -3,8 +3,8 @@ import ssl
 from typing import Any, Union, List, Optional
 import socket
 
-from atom.stream import StreamWriter, StreamReader
-from atom import compat
+from railway.stream import StreamWriter, StreamReader
+from railway import compat
 
 __all__ = (
     'ClientProtocol', 

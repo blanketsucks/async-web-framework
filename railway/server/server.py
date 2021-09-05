@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import ssl
 import socket
 
-from atom.stream import StreamWriter, StreamReader
-from atom import compat, utils
+from railway.stream import StreamWriter, StreamReader
+from railway import compat, utils
 
 __all__ = [
     'ClientConnection',
@@ -71,7 +71,7 @@ class ServerProtocol(asyncio.Protocol):
     def get_writer(self, peername: Tuple[str, int]) -> Optional[StreamWriter]:
         return self.writers.get(peername)
 
-    def get_waiter(self, peername: Tuple[str, int]) -> Optional[asyncio.Future[None]]:
+    def get_waiter(self, peername: Tuple[str, int]) -> Optional['asyncio.Future[None]']:
         return self.waiters.get(peername)
 
     def data_received(self, data: bytes) -> None:

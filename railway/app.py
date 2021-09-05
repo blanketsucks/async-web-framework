@@ -25,7 +25,7 @@ from .injectables import Injectable, InjectableMeta
 from .views import HTTPView
 from .response import Response, JSONResponse, FileResponse, HTMLResponse
 from .file import File
-from .websockets import Websocket
+from .websockets import ServerWebsocket as Websocket
 from .workers import Worker
 from .models import Model
 
@@ -42,15 +42,21 @@ class Application(Injectable, metaclass=InjectableMeta):
     A class respreseting an ASGI application.
 
     Attributes:
+        host: A string representing the host to listen on.
+        port: An integer representing the port to listen on.
+        url_prefix: A string representing the url prefix.
         router: A [Router](./router.md) instance.
         settings: A [Settings](./settings.md) instance.
+        worker_count: An integer representing the number of workers to spawn.
         suppress_warnings: A bool indicating whether warnings should be surpressed.
+        ssl_context: A `ssl.SSLContext` instance.
     """
     def __init__(self,
                 host: Optional[str]=None,
                 port: Optional[int]=None,
                 url_prefix: Optional[str]=None, 
                 *,
+                loop: Optional[asyncio.AbstractEventLoop]=None,
                 ipv6: bool=False,
                 sock: Optional[socket.socket]=None,
                 worker_count: Optional[int]=None, 
@@ -63,29 +69,36 @@ class Application(Injectable, metaclass=InjectableMeta):
         Constructor.
 
         Args:
-            url_prefix: A string to prefix all routes with.
-            settings_file: A string or pathlib.Path instance to a settings file to load.
+            host: A string representing the host to listen on.
+            port: An integer representing the port to listen on.
+            url_prefix: A string representing the url prefix.
+            ipv6: A bool indicating whether to use ipv6.
+            sock: A `socket.socket` instance to use instead of creating a new one.
+            worker_count: An integer representing the number of workers to spawn.
+            settings_file: A string representing the path to a settings file.
             load_settings_from_env: A bool indicating whether to load settings from the environment.
-            suppress_warnings: A bool indicating whether to surpress warnings.
+            suppress_warnings: A bool indicating whether to suppress warnings.
+            use_ssl: A bool indicating whether to use ssl.
+            ssl_context: A `ssl.SSLContext` instance.
         """
         if ipv6:
             has_ipv6 = utils.has_ipv6()
             if not has_ipv6:
                 raise RuntimeError('IPv6 is not supported')
 
-        self.host = utils.validate_ip(host, ipv6=ipv6)
-        self.port = port or 8080
+        self.host: str = utils.validate_ip(host, ipv6=ipv6)
+        self.port: int = port or 8080
         self._ipv6 = ipv6
-        self.url_prefix = url_prefix or ''
-        self.router = Router(self.url_prefix)
-        self.settings = Settings()
+        self.url_prefix: str = url_prefix or ''
+        self.router: Router = Router(self.url_prefix)
+        self.settings: Settings = Settings()
         if worker_count is None:
             worker_count = (multiprocessing.cpu_count() * 2) + 1
 
-        self.worker_count = worker_count
-        self.suppress_warnings = suppress_warnings
+        self.worker_count: int = worker_count
+        self.suppress_warnings: bool = suppress_warnings
         self._use_ssl = use_ssl
-        self.ssl_context = ssl_context
+        self.ssl_context: ssl.SSLContext = ssl_context
 
         if self._use_ssl and self.ssl_context is None:
             self.ssl_context = ssl.create_default_context()
@@ -104,7 +117,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         self._active_listeners: List[asyncio.Task[Any]] = []
         self._websocket_tasks: List[asyncio.Task[Any]] = []
         self._worker_tasks: List[asyncio.Task[None]] = []
-        self._loop = None
+        self._loop = loop or compat.get_event_loop()
         self._closed = False
 
         if sock:
@@ -124,11 +137,21 @@ class Application(Injectable, metaclass=InjectableMeta):
         self.inject(self)
 
     def __repr__(self) -> str:
+        """
+        Returns:
+            A string representation of this instance.
+        """
         prefix = self.url_prefix or '/'
         return f'<Application url_prefix={prefix!r} is_closed={self.is_closed()}>'
 
     async def __aenter__(self):
-        await self.start()
+        """
+        A context manager that starts the application and closes it accordingly.
+
+        Returns:
+            The same `Application` instance.
+        """
+        self.start()
         return self
     
     async def __aexit__(self, *args: Any):
@@ -243,6 +266,19 @@ class Application(Injectable, metaclass=InjectableMeta):
         return code
 
     async def parse_response(self, response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, Any], File, Response, Any]) -> Optional[Response]:
+        """
+        Parses a response to a usable `Response` instance.
+
+        Args:
+            response: A response to be parsed.
+
+        Returns:
+            A usable `Response` instance.
+
+        Raises:
+            ValueError: If the response is not parsable.
+        
+        """
         status = 200
 
         if isinstance(response, tuple):
@@ -274,6 +310,8 @@ class Application(Injectable, metaclass=InjectableMeta):
         if isinstance(response, (dict, list)):
             resp = JSONResponse(response, status=status)
             return resp
+
+        raise ValueError(f'Could not parse response {response!r}')
 
     async def _run_middlewares(self, request: Request, route: Route,  kwargs: Dict[str, Any]):
         middlewares = route.middlewares.copy()
@@ -345,42 +383,59 @@ class Application(Injectable, metaclass=InjectableMeta):
 
     @property
     def workers(self) -> List[Worker]:
+        """
+        Returns:
+            A list of all workers.
+        """
         return list(self._workers.values())
 
     @property
     def views(self) -> List[HTTPView]:
+        """
+        Returns:
+            A list of all views.
+        """
         return list(self._views.values())
 
     @property
     def socket(self) -> socket.socket:
+        """
+        Returns:
+            The `socket.socket` instance used by the application.
+        """
         return self._socket
 
     @property
     def middlewares(self) -> List[Middleware]:
+        """
+        Returns:
+            A list of all registered middlewares.
+        """
         return self._middlewares
 
     @property
     def listeners(self) -> List[Listener]:
+        """
+        Returns:
+            A list of all registered listeners.
+        """
         return list(self._listeners.values())
 
     @property
     def resources(self) -> List[Resource]:
+        """
+        Returns:
+            A list of all registered resources.
+        """
         return list(self._resources.values())
 
     @property
-    def loop(self) -> Optional[asyncio.AbstractEventLoop]:
+    def loop(self) -> asyncio.AbstractEventLoop:
+        """
+        Returns:
+            The event loop used by the application.
+        """
         return self._loop
-
-    @property
-    def urls(self) -> Set[str]:
-        return {
-            self._build_url(route.path, is_websocket=isinstance(route, WebsocketRoute)) 
-            for route in self.router
-        }
-
-    @property
-    def paths(self) -> Set[str]:
-        return {route.path for route in self.router}
 
     @loop.setter
     def setter(self, value):
@@ -389,10 +444,54 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         self._loop = value
 
+    @property
+    def urls(self) -> Set[str]:
+        """
+        Returns:
+            A set of all registered URLs.
+        """
+        return {
+            self._build_url(route.path, is_websocket=isinstance(route, WebsocketRoute)) 
+            for route in self.router
+        }
+
+    @property
+    def paths(self) -> Set[str]:
+        """
+        Returns:
+            A set of all registered paths.
+        """
+        return {route.path for route in self.router}
+
     def url_for(self, path: str, *, is_websocket: bool=False, **kwargs) -> str:
+        """
+        Builds a URL for a given path.
+
+        Args:
+            path: The path to build a URL for.
+            is_websocket: Whether the path is a websocket path.
+            **kwargs: Additional arguments to build the URL.
+        
+        Returns:
+            The built URL.
+
+        Raises:
+            ValueError: If the path is not a valid one.
+        
+        """
         return self._build_url(path.format(**kwargs), is_websocket=is_websocket)
 
     def inject(self, obj: Injectable):
+        """
+        Applies the given object's routes, listeners and middlewares to the application.
+
+        Args:
+            obj: The object to inject.
+
+        Raises:
+            TypeError: If the object is not an instance of `Injectable`.   
+        """
+
         if not isinstance(obj, Injectable):
             raise TypeError('obj must be an Injectable')
 
@@ -418,6 +517,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         return self
 
     def eject(self, obj: Injectable):
+
         if not isinstance(obj, Injectable):
             raise TypeError('obj must be an Injectable')
 
@@ -434,7 +534,7 @@ class Application(Injectable, metaclass=InjectableMeta):
     
     def is_closed(self) -> bool:
         """
-        Whether or not the application has been closed
+        Whether or not the application has been closed.
 
         Returns:
             True if the application has been closed, False otherwise.
@@ -442,19 +542,59 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         return self._closed
 
-    def is_serving(self):
+    def is_serving(self) -> bool:
+        """
+        Whether or not the application is serving requests.
+
+        Returns:
+            True if the application is serving requests, False otherwise.
+        """
         return all([worker.is_serving() for worker in self.workers])
 
-    def is_ipv6(self):
+    def is_ipv6(self) -> bool:
+        """
+        Wheter or not the application is serving IPv6 requests.
+
+        Returns:
+            True if the application is serving IPv6 requests, False otherwise.
+        """
         return self._ipv6 and utils.is_ipv6(self.host)
 
-    def is_ssl(self):
+    def is_ssl(self) -> bool:
+        """
+        Whether or not the application is serving SSL requests.
+
+        Returns:
+            True if the application is serving SSL requests, False otherwise.
+        """
         return self._use_ssl and isinstance(self.ssl_context, ssl.SSLContext)
 
     def get_worker(self, id: int) -> Optional[Worker]:
+        """
+        Returns the worker with the given ID.
+
+        Args:
+            id: The ID of the worker to return.
+
+        Returns:
+            The worker with the given ID, or None if no worker with the given ID exists.
+        """
         return self._workers.get(id)
 
     def add_worker(self, worker: Union[Worker, Any]) -> Worker:
+        """
+        Adds a worker to the application.
+
+        Args:
+            worker: The worker to add.
+
+        Returns:
+            The worker that was added.
+
+        Raises:
+            TypeError: If the worker is not an instance of `Worker`.
+            ValueError: If the worker already exists.
+        """
         if not isinstance(worker, Worker):
             raise TypeError('worker must be an instance of Worker')
 
@@ -464,25 +604,24 @@ class Application(Injectable, metaclass=InjectableMeta):
         self._workers[worker.id] = worker
         return worker
 
-    async def start(self, *, loop: asyncio.AbstractEventLoop=None):
+    def start(self):
         """
         Starts the application.
-
-        Args:
-            host: The host to listen on.
-            port: The port to listen on.
         """
-        self._loop = loop or compat.get_event_loop()
+        loop = self.loop
 
         for worker in self.workers:
-            task = self.loop.create_task(worker.run(loop), name=f'Worker-{worker.id}')
+            task = loop.create_task(worker.run(loop), name=f'Worker-{worker.id}')
             self._worker_tasks.append(task)
 
         self.dispatch('startup')
 
     def run(self):
-        loop = compat.get_event_loop()
-        loop.run_until_complete(self.start(loop=loop))
+        """
+        Starts the application but blocks until the application is closed.
+        """
+        loop = self.loop
+        self.start()
 
         try:
             loop.run_forever()
@@ -508,6 +647,12 @@ class Application(Injectable, metaclass=InjectableMeta):
         log.info(f'[Application] Closed application.')
 
     def websocket(self, path: str) -> Callable[[CoroFunc], WebsocketRoute]:
+        """
+        Registers a websocket route.
+
+        Args:
+            path: The path to register the route for.
+        """
         def decorator(coro: CoroFunc) -> WebsocketRoute:
             route = WebsocketRoute(path, 'GET', coro, router=self.router)
             self.add_route(route)
@@ -516,6 +661,13 @@ class Application(Injectable, metaclass=InjectableMeta):
         return decorator
 
     def route(self, path: str, method: Optional[str]=None) -> Callable[[CoroFunc], Route]:
+        """
+        Registers a route.
+
+        Args:
+            path: The path to register the route for.
+            method: The HTTP method to register the route for.
+        """
         actual = method or 'GET'
 
         def decorator(func: CoroFunc) -> Route:
@@ -524,6 +676,18 @@ class Application(Injectable, metaclass=InjectableMeta):
         return decorator
 
     def add_route(self, route: Union[Route, WebsocketRoute, Any]) -> Union[Route, WebsocketRoute]:
+        """
+        Adds a route to the application.
+
+        Args:
+            route: The `Route` instance to add.
+
+        Returns:
+            The route that was added.
+
+        Raises:
+            RegistrationError: If the route already exists or the argument passed in was not an instance of either `Route` or `WebsocketRoute`.
+        """
         if not isinstance(route, (Route, WebsocketRoute)):
             fmt = 'Expected Route or WebsocketRoute but got {0!r} instead'
             raise RegistrationError(fmt.format(route.__class__.__name__))
@@ -545,7 +709,21 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         return self.router.add_route(route)
 
-    def add_router(self, router: Union[Router, Any]):
+    def add_router(self, router: Union[Router, Any]) -> Router:
+        """
+        Applies a router's routes and middlewares to the application.
+
+        Args:
+            router: The `Router` to apply.
+
+        Returns:
+            The router that was added.
+
+        Raises:
+            TypeError: If the router is not an instance of `Router`.
+
+        """
+
         if not isinstance(router, Router):
             fmt = 'Expected Router but got {0!r} instead'
             raise TypeError(fmt.format(router.__class__.__name__))
@@ -559,6 +737,16 @@ class Application(Injectable, metaclass=InjectableMeta):
         return router
 
     def get_route(self, method: str, path: str) -> Optional[Union[Route, WebsocketRoute]]:
+        """
+        Gets a route from the application.
+
+        Args:
+            method: The HTTP method to get the route for.
+            path: The path to get the route for.
+
+        Returns:
+            The route that was found.
+        """
         res = (path, method)
         route = self.router.routes.get(res)
 
@@ -606,11 +794,33 @@ class Application(Injectable, metaclass=InjectableMeta):
             return self.add_route(route)
         return decorator
 
-    def remove_route(self, route: Union[Route, WebsocketRoute]):
+    def remove_route(self, route: Union[Route, WebsocketRoute]) -> Union[Route, WebsocketRoute]:
+        """
+        Removes a route from the application.
+        
+        Args:
+            route: The route to remove.
+
+        Returns:
+            The route that was removed.
+        """
         self.router.routes.pop((route.path, route.method))
         return route
 
-    def add_event_listener(self, coro: CoroFunc, name: Optional[str]=None):
+    def add_event_listener(self, coro: CoroFunc, name: Optional[str]=None) -> Listener: 
+        """
+        Adds an event listener to the application.
+
+        Args:
+            coro: The coroutine function to add as an event listener.
+            name: The name of the event to listen for.
+
+        Returns:
+            The event listener that was added.
+
+        Raises:
+            RegistrationError: If the `coro` argument that was passed in is not a proper coroutine function.
+        """
         if not inspect.iscoroutinefunction(coro):
             raise RegistrationError('Listeners must be coroutines')
 
@@ -624,11 +834,26 @@ class Application(Injectable, metaclass=InjectableMeta):
         self._listeners[actual] = [listener]
         return listener
 
-    def remove_event_listener(self, listener: Listener):
+    def remove_event_listener(self, listener: Listener) -> Listener:
+        """
+        Removes a listener from the application.
+
+        Args:
+            listener: The listener to remove.
+
+        Returns:
+            The listener that was removed.
+        """
         self._listeners[listener.event].remove(listener)
         return listener
 
     def event(self, name: Optional[str]=None) -> Callable[[CoroFunc], Listener]:
+        """
+        A decorator that adds an event listener to the application.
+
+        Args:
+            name: The name of the event to listen for, if nothing was passed in the name of the function is used.
+        """
         def decorator(func: CoroFunc):
             return self.add_event_listener(func, name)
         return decorator
@@ -737,7 +962,22 @@ class Application(Injectable, metaclass=InjectableMeta):
                     exception: Exception):
         traceback.print_exception(type(exception), exception, exception.__traceback__)
     
-def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs):
+def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) -> Application:
+    """
+    Makes an application that accepts both IPv4 and IPv6 requests.
+
+    Args:
+        ipv4: The IPv4 host to use.
+        ipv6: The IPv6 host to use.
+        port: The port to listen on.
+        kwargs: Additional arguments to pass to the Application constructor.
+
+    Returns:
+        The dual-stack application.
+
+    Raises:
+        RuntimeError: If dualstack support is not available
+    """
     if not utils.has_dualstack_ipv6():
         raise RuntimeError('Dualstack support is not available')
 

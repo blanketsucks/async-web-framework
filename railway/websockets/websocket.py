@@ -2,13 +2,14 @@ from typing import Any, Dict, Tuple, Optional
 import json
 
 from .frame import WebSocketFrame, WebSocketOpcode, Data, WebSocketCloseCode
-from atom.stream import StreamReader, StreamWriter
+from railway.stream import StreamReader, StreamWriter
 
 __all__ = (
-    'Websocket',
+    'ServerWebsocket',
+    'ClientWebsocket',
 )
 
-class Websocket:
+class ServerWebsocket:
     def __init__(self, reader: StreamReader, writer: StreamWriter) -> None:
         self._reader = reader
         self._writer = writer
@@ -37,6 +38,9 @@ class Websocket:
 
         frame = WebSocketFrame(opcode=opcode, data=data)
         return await self.send_frame(frame)
+
+    async def send(self, data: bytes, *, opcode: Optional[WebSocketOpcode]=None):
+        return await self.send_bytes(data, opcode=opcode)
 
     async def send_str(self, data: str, *, opcode: Optional[WebSocketOpcode]=None):
         return await self.send_bytes(data.encode(), opcode=opcode)
@@ -70,19 +74,28 @@ class Websocket:
 
     async def receive(self):
         opcode, raw, data = await WebSocketFrame.decode(self._reader.read)
-        return Data(raw, data), opcode
+        return Data(raw, data)
 
     async def receive_bytes(self):
-        data, opcode = await self.receive()
-        return data.data, opcode
+        data = await self.receive()
+        return data.data
 
     async def receive_str(self):
-        data, opcode = await self.receive()
-        return data.as_string(), opcode
+        data = await self.receive()
+        return data.as_string()
 
     async def receive_json(self):
-        data, opcode = await self.receive()
-        return data.as_json(), opcode
+        data = await self.receive()
+        return data.as_json()
 
-        
-    
+class ClientWebsocket(ServerWebsocket):
+
+    async def send_frame(self, frame: WebSocketFrame):
+        data = frame.encode(masked=True)
+        await self._writer.write(data)
+
+        return len(data)
+
+    async def receive(self):
+        opcode, raw, data = await WebSocketFrame.decode(self._reader.read, masked=False)
+        return Data(raw, data)

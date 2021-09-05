@@ -14,6 +14,9 @@ def is_immutable(obj: Any):
     raise TypeError(f'{obj.__class__.__name__!r} is immutable')
 
 class ImmutableMapping(Dict[KT, VT]):
+    """
+    A `dict` that cannot be modified.
+    """
     def setdefault(self, key: Any, default: Any=None):
         is_immutable(self)
 
@@ -45,6 +48,9 @@ class ImmutableMapping(Dict[KT, VT]):
         return self
 
 class MultiDict(Dict[KT, VT]):
+    """
+    A dictionary that supports multiple values for a single key.
+    """
     def __init__(self, *args: Any, **kwargs: Any):
         self._dict: Dict[KT, List[VT]] = {}
         self._list: List[Tuple[KT, VT]] = []
@@ -93,22 +99,42 @@ class URL:
 
     @property
     def scheme(self) -> str:
+        """
+        Returns:
+            The scheme of the URL.
+        """
         return self.components.scheme
     
     @property
     def netloc(self) -> str:
+        """
+        Returns:
+            The netloc of the URL.
+        """
         return self.components.netloc
 
     @property
     def path(self) -> str:
+        """
+        Returns:
+            The path of the URL.
+        """
         return self.components.path
 
     @property
     def hostname(self) -> Optional[str]:
+        """
+        Returns:
+            The hostname of the URL.
+        """
         return self.components.hostname
 
     @property
     def query(self) -> ImmutableMapping[str, str]:
+        """
+        Returns:
+            The query parameters of the URL as a [ImmutableMapping](./datastructures.md).
+        """
         ret = self.components.query
         query = parse_qsl(ret)
 
@@ -116,18 +142,34 @@ class URL:
 
     @property
     def fragment(self) -> Optional[str]:
+        """
+        Returns:
+            The fragment of the URL.
+        """
         return self.components.fragment
 
     @property
     def username(self) -> Optional[str]:
+        """
+        Returns:
+            The username of the URL.
+        """
         return self.components.username
 
     @property
     def password(self) -> Optional[str]:
+        """
+        Returns:
+            The password of the URL.
+        """
         return self.components.password
 
     @property
     def port(self) -> Optional[int]:
+        """
+        Returns:
+            The port of the URL.
+        """
         return self.components.port
 
     def __repr__(self) -> str:

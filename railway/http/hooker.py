@@ -3,15 +3,13 @@ import base64
 
 from typing import TYPE_CHECKING, Optional
 
-from atom.utils import find_headers
-from atom.websockets import (
-    Websocket as _Websocket, 
+from railway.utils import find_headers
+from railway.websockets import (
+    ClientWebsocket as Websocket,
     WebSocketCloseCode, 
-    WebSocketFrame, 
-    Data
 )
-from atom.client import Client
-from atom.response import HTTPStatus
+from railway.client import Client
+from railway.response import HTTPStatus
 from .request import Request
 from .abc import Hooker
 from .errors import HandshakeError
@@ -25,17 +23,6 @@ __all__ = (
     'TCPHooker',
     'WebsocketHooker'
 )
-
-class Websocket(_Websocket):
-    async def send_frame(self, frame: WebSocketFrame):
-        data = frame.encode(masked=True)
-        await self._writer.write(data)
-
-        return len(data)
-
-    async def receive(self):
-        opcode, raw, data = await WebSocketFrame.decode(self._reader.read, mask=False)
-        return Data(raw, data), opcode
 
 class TCPHooker(Hooker):
     def __init__(self, session: 'HTTPSession') -> None:

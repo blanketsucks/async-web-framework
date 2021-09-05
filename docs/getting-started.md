@@ -5,97 +5,147 @@
 ### Basic Example
 
 ```py
-import atom
+import railway
 
-app = atom.Application()
+app = railway.Application()
 
 @app.route('/hello/{name}', 'GET')
-async def get_name(request: atom.Request, name: str):
-    if len(name) > 64:
+async def get_name(request: railway.Request, name: str):
+    if len(name) > 25:
         error = {
-            'error': 'name too long.
+            'message': 'name too long.',
+            'status': 400
         }
-        return atom.abort(400, message=error, content_type='application/json')
+        return error, 400
 
     return {
         'Hello': name
     }
 
 if __name__ == '__main__':
-    asyncio.run(atom.run(app))
+    app.run()
+```
 
+### Websocket Example
+```py
+import railway
+
+app = railway.Application()
+
+@app.websocket('/ws')
+async def ws(request: railway.Request, ws: railway.Websocket):
+    while True:
+        await ws.send(b'Hello!')
+
+        data = await ws.receive()
+        print(data.data)
+
+
+if __name__ == '__main__':
+    app.run()
 ```
 
 ### Views Example
 
 ```py
-import atom
+import railway
 
-app = atom.Application()
+app = railway.Application()
 app.users = {}
 
-@app.view('/users') # Either this or class UsersView(atom.HTTPView, path='/users'), both work
-class UsersView(atom.HTTPView):
-    async def get(self, request: atom.Request):
+@app.view('/users') # Either this or class UsersView(railway.HTTPView, path='/users'), both work
+class UsersView(railway.HTTPView):
+    async def get(self, request: railway.Request):
         return request.app.users
 
 if __name__ == '__main__':
-    asyncio.run(atom.run(app))
+    app.run()
 ```
 
-### Oauth example
-
+### Resource Example with ratelimits
 ```py
-import atom
-from atom.oauth import discord
+from typing import Dict
+import railway
 
-app = atom.Application(supress_warnings=True)
-router = atom.Router()
+app = railway.Application()
 
-app.settings['SESSION_COOKIE_NAME'] = 'cookie_name'
+class User(railway.Model):
+    name: str
+    id: int
 
-oauth = discord.Oauth2Client(
-    client_id='',
-    client_secret='',
-    redirect_uri='http://127.0.0.1:8080/callback'
-)
+@app.resource()
+class Users(railway.Resource):
+    def __init__(self) -> None:
+        self.users: Dict[int, User] = {}
+        self.ratelimiter = railway.RatelimiteHandler()
 
-@router.get('/callback')
-async def index(request: atom.Request):
-    token, code = request.session.get('code')
-    if code:
-        return request.redirect('/home')
+        self.ratelimiter.add_bucket(
+            path='/users',
+            rate=5,
+            per=1
+        )
 
-    code = request.url.query.get('code')
-    if not code:
-        return request.redirect('/login')
+    def update_ratelimiter(self, path: str, request: railway.Request):
+        bucket = self.ratelimiter.get_bucket(path)
 
-    session = await oauth.create_session(code)
-    request.session['code'] = (session.access_token, code)
+        try:
+            bucket.update_ratelimit(request, request.client_ip)
+        except railway.Ratelimited as e:
+            message = {
+                'message': 'Ratelimit exceeded. Please try again later.'
+            }
 
-    return request.redirect('/home')
+            response = railway.JSONResponse(body=message, status=427)
+            response.add_header('Retry-After', e.retry_after)
 
-@router.get('/home')
-async def index(request: atom.Request):
-    token, code = request.session.get('code')
-    if not token:
-        return request.redirect('/login')
+            return response
 
-    session = oauth.get_session(code)
-    user = await session.fetch_user()
+        return None
 
-    return atom.JSONResponse(user.to_dict())
+    @railway.route('/users', 'GET')
+    async def get_all_users(self, request: railway.Request):
+        resp = self.update_ratelimiter('/users', request)
+        if resp:
+            return resp
 
-@router.get('/login')
-def redirect(request: atom.Request):
-    token, code = request.session.get('code')
-    if code:
-        return request.redirect('/home')
+        users = [user.json() for user in self.users.values()]
+        return users
 
-    return oauth.redirect(request)
+    @railway.route('/users', 'POST')
+    async def create_user(self, request: railway.Request, user: User):
+        resp = self.update_ratelimiter('/users', request)
+        if resp:
+            return resp
 
-app.add_router(router)
+        if user.id in self.users:
+            return {
+                'message': 'user already exists.',
+            }, 400
+
+        self.users[user.id] = user
+        return user, 201
+
+    @railway.route('/users/{id}', 'DELETE')
+    async def delete_user(self, request: railway.Request, id: int):
+        user = self.users.pop(id, None)
+        if not user:
+            return {
+                'message': 'user not found.',
+            }, 404
+
+        return user, 204
+
+    @railway.route('/users/{id}', 'GET')
+    async def get_user(self, request: railway.Request, id: int):
+        user = self.users.get(id)
+        if not user:
+            return {
+                'message': 'user not found.',
+            }, 404
+
+        return user
 
 if __name__ == '__main__':
-    asyncio.run(atom.run(app))
+    app.run()
 ```
+

@@ -5,19 +5,33 @@ if TYPE_CHECKING:
     from .request import Request
 
 class Cookie:
+    """
+    Attributes:
+        name: The name of the cookie.
+        value: The value of the cookie.
+        http_only: Whether the cookie is http only.
+        secure: Whether the cookie is marked as secure.
+    """
+
     def __init__(self, 
                 name: str, 
                 value: str, 
                 domain: Optional[str], 
                 http_only: bool,
                 secure: bool):
-        self.name = name
-        self.value = value
-        self.http_only = http_only
-        self.secure = secure
+        self.name: str = name
+        self.value: str = value
+        self.http_only: bool = http_only
+        self.secure: bool = secure
         self._domain = domain
 
-    def set_domain(self, domain: str):
+    def set_domain(self, domain: str) -> None:
+        """
+        Sets the cookie's domain
+
+        Args:
+            domain: The domain to set the cookie to.
+        """
         self._domain = domain
 
     def __str__(self):
@@ -28,11 +42,23 @@ class Cookie:
     
     
 class CookieJar:
+    """
+    A cookie jar used to store cookies.
+    """
     def __init__(self):
         self._cookies: Dict[str, Cookie] = {}
 
     @classmethod
     def from_request(cls, request: Request) -> CookieJar:
+        """
+        Builds a cookie jar from a request.
+
+        Args:
+            request: The request to build the cookie jar from.
+
+        Returns:
+            A cookie jar containing the cookies from the request.
+        """
         header = request.headers.get('Cookie', '')
         if not header:
             return cls()
@@ -47,6 +73,16 @@ class CookieJar:
         return jar
 
     def add_cookie(self, name: str, value: str, *, domain: Optional[str]=None, http_only: bool=False, is_secure: bool=False):
+        """
+        Adds a cookie to the jar
+
+        Args:
+            name: The name of the cookie
+            value: The value of the cookie
+            domain: The domain of the cookie
+            http_only: Whether the cookie is http only
+            is_secure: Whether the cookie is secure
+        """
         cookie = Cookie(
             name=name, 
             value=value, 
@@ -59,9 +95,18 @@ class CookieJar:
         return cookie
 
     def get_cookie(self, name: str) -> Optional[Cookie]:
+        """
+        Gets a cookie from the jar.
+
+        Args:
+            name: The name of the cookie to get.
+        """
         return self._cookies.get(name)
 
     def encode(self):
+        """
+        Encodes the cookie jar as a string.
+        """
         encoded: List[str] = []
 
         for cookie in self._cookies.values():

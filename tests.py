@@ -1,4 +1,12 @@
-import socket
+import railway
+import logging
 
-addrs = socket.getaddrinfo(socket.gethostname(), 8080, type=socket.SOCK_STREAM)
-print(addrs)
+logging.basicConfig(level=logging.DEBUG)
+
+app = railway.Application()
+
+@app.get('/')
+async def index(request):
+    return 'Hello, World!'
+
+app.run()

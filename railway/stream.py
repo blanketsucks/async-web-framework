@@ -55,7 +55,10 @@ class StreamReader:
         self.buffer.extend(data)
 
         if self._waiter:
-            self._waiter.set_result(None)
+            try:
+                self._waiter.set_result(None)
+            except asyncio.InvalidStateError:
+                pass
 
     def feed_eof(self):
         return

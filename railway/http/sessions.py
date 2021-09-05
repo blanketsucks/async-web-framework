@@ -6,7 +6,7 @@ from .hooker import TCPHooker, WebsocketHooker, Websocket
 from .response import Response
 from .utils import AsyncContextManager
 
-from atom import compat
+from railway import compat
 
 __all__ = (
     'HTTPSession',
