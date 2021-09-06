@@ -54,13 +54,13 @@ class Request:
         self._app = app
         self._url = url
         self._body = body
-        self.version = version
-        self.method = method
+        self.version: str = version
+        self.method: str = method
         self.connection = connection
         self.worker = worker
-        self.headers = headers
+        self.headers: Dict[str, Any] = headers
         self.route: Optional[Union[Route, WebsocketRoute]] = None
-        self.created_at = created_at
+        self.created_at: datetime.datetime = created_at
 
     async def send(self, response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, Any], File, Response, Any]) -> None:
         """
@@ -92,7 +92,7 @@ class Request:
         return self.connection.is_closed()
 
     @property
-    def app(self):
+    def app(self) -> Application:
         """
         Returns:
             The [Application](./application.md) that the request was sent to.
@@ -121,40 +121,88 @@ class Request:
         return self._cookies
 
     @property
-    def cookie_jar(self):
+    def cookie_jar(self) -> CookieJar:
+        """
+        Returns:
+            The [CookieJar](./cookies.md) of the request.
+        """
         return CookieJar.from_request(self)
 
     @property
-    def session(self):
+    def session(self) -> CookieSession:
+        """
+        Returns:
+            The [CookieSession](./cookies.md) of the request.
+        """
         return CookieSession.from_request(self)
 
     @property
-    def user_agent(self):
+    def user_agent(self) -> str:
+        """
+        Returns:
+            The user agent of the request.
+        """
         return self.headers.get('User-Agent')
 
     @property
-    def content_type(self):
+    def content_type(self) -> str:
+        """
+        Returns:
+            The content type of the request.
+        """
         return self.headers.get('Content-Type')
 
     @property
-    def host(self):
+    def host(self) -> str:
+        """
+        Returns:
+            The host of the request.
+        """
         return self.headers.get('Host')
 
     @property
-    def query(self):
+    def query(self) -> Dict[str, str]:
+        """
+        Returns:
+            The query dict of the request.
+        """
         return self.url.query
 
     @property
     def client_ip(self) -> str:
+        """
+        Returns:
+            The IP address of the client.
+        """
         return self.connection.peername[0]
 
+    @property
+    def server_ip(self) -> str:
+        """
+        Returns:
+            The IP address of the server.
+        """
+        return self.connection.sockname[0]
+
     def text(self) -> str:
+        """
+        Returns:
+            The text of the request.
+        """
         return self._body.decode() if isinstance(self._body, (bytes, bytearray)) else self._body
 
     def json(self) -> Dict[str, Any]:
+        """
+        Returns:
+            The JSON body of the request.
+        """
         return json.loads(self.text())
 
-    def form(self):
+    def form(self) -> FormData:
+        """
+        Returns:
+            The body as a [FormData](./formdata.md) object.
+        """
         return FormData.from_request(self)
 
     def redirect(self, 
@@ -164,6 +212,19 @@ class Request:
                 headers: Optional[Dict[str, Any]]=None, 
                 status: Optional[int]=None, 
                 content_type: Optional[str]=None) -> Redirection:
+        """
+        Redirects a request to another URL.
+
+        Args:
+            to: The URL to redirect to.
+            body: The body of the response.
+            headers: The headers of the response.
+            status: The status code of the response.
+            content_type: The content type of the response.
+        
+        Returns:
+            A response.
+        """
         headers = headers or {}
         status = status or 302
         content_type = content_type or 'text/plain'

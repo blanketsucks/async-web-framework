@@ -88,18 +88,43 @@ class Context:
         return source
 
 class Template:
+    """
+    A template object used as a helper for rendering HTML
+
+    Attributes:
+        path: The path to the template file
+        loop: The event loop to use for async operations
+    """
     def __init__(self, path: Union[str, pathlib.Path, Any], loop: Optional[asyncio.AbstractEventLoop]=None) -> None:
+        """
+        Template constructor
+
+        Args:
+            path: The path to the template file
+            loop: The event loop to use for async operations
+        """
         if isinstance(path, str):
-            self.path = path
+            self.path: str = path
         elif isinstance(path, pathlib.Path):
-            self.path = path.name
+            self.path: str = str(path)
         else:
             raise TypeError('path must be a string or pathlib.Path')
 
+        self.path: str
+
         self.fp = open(self.path, 'r')
-        self.loop = loop or compat.get_event_loop()
+        self.loop: asyncio.AbstractEventLoop = loop or compat.get_event_loop()
 
     async def read(self) -> str:
+        """
+        Reads the template file.
+
+        Returns:
+            The template file contents.
+
+        Raises:
+            ValueError: If the file is closed.
+        """
         if self.fp.closed:
             raise ValueError('file is closed')
 
@@ -111,14 +136,26 @@ async def render(
     __globals: Optional[Dict[str, Any]]=None, 
     __locals: Optional[Dict[str, Any]]=None, 
     **kwargs: Any
-):
+) -> HTMLResponse:
+    """
+    Renders an HTML file.
+
+    Args:
+        path: The path to the template file.
+        __globals: The global variables to use for the template.
+        __locals: The local variables to use for the template.
+        **kwargs: The variables to use for the template.
+
+    Returns:
+        The rendered HTML response.
+    """
     if not __globals:
         __globals = {}
 
     if not __locals:
         __locals = {}
 
-    loop = asyncio.get_running_loop()
+    loop = compat.get_running_loop()
     vars = {**__globals, **__locals, **kwargs}
 
     template = Template(path, loop)

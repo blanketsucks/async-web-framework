@@ -62,13 +62,30 @@ def is_ipv6(ip: str) -> bool:
         return False
 
 def is_ipv4(ip: str) -> bool:
+    """
+    Args:
+        ip: A string representing an address.
+
+    Returns:
+        True if the given IP is an IPv4 address.
+    """
     try:
         socket.inet_aton(ip)
         return True
     except socket.error:
         return False
 
-def validate_ip(ip: str=None, *, ipv6: bool=False) :
+def validate_ip(ip: str=None, *, ipv6: bool=False) -> str:
+    """
+    Validates an IP address
+
+    Args:
+        ip: The IP address to validate.
+        ipv6: If True, validates an IPv6 address.
+
+    Returns:
+        The validated IP address.
+    """
     if not ip:
         if ipv6:
             return LOCALHOST_V6
@@ -131,17 +148,20 @@ def deprecated(other: Optional[str]=None):
         return wrapper
     return decorator
 
+def jsonify(**kwargs: Any) -> Response:
+    """
+    Kinda like `flask.jsonify`.
 
+    Args:
+        **kwargs: Keyword arguments to pass to `json.dumps`.
 
-def jsonify(*, response: bool=True, **kwargs: Any):
-    """Inspired by Flask's jsonify"""
+    Returns:
+        A Response object.
+    """
     data = json.dumps(kwargs, indent=4)
 
-    if response:
-        resp = Response(data, content_type='application/json')
-        return resp
-
-    return data
+    resp = Response(data, content_type='application/json')
+    return resp
 
 def iter_headers(headers: bytes) -> Iterator[List[Any]]:
     offset = 0

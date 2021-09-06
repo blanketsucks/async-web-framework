@@ -18,12 +18,25 @@ nav:
     - Data Structures: API-Reference/datastructures.md
     - Objects: API-Reference/objects.md
     - Application: API-Reference/application.md
-    - Responses: API-Reference/responses.md
+    - Router: API-Reference/router.md
+    - Settings: API-Reference/settings.md
+    - Request: API-Reference/request.md
     - Response: API-Reference/response.md
     - FormData: API-Reference/formdata.md
+    - Responses: API-Reference/responses.md
     - File: API-Reference/file.md
     - Cookies: API-Reference/cookies.md
+    - Ratelimits: API-Reference/ratelimits.md
+    - Resources: API-Reference/resources.md
+    - Views: API-Reference/views.md
+    - Templates: API-Reference/templates.md
     - Models: API-Reference/models.md
+    - Injectables: API-Reference/injectables.md
+    - Utils: API-Reference/utils.md
+  - Extensions:
+    - Workers: extensions/workers.md
+    - Streams: extensions/streams.md
+    - Test Client: extensions/testclient.md
 
 plugins:
 - search

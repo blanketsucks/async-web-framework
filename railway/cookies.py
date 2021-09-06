@@ -12,7 +12,6 @@ class Cookie:
         http_only: Whether the cookie is http only.
         secure: Whether the cookie is marked as secure.
     """
-
     def __init__(self, 
                 name: str, 
                 value: str, 

@@ -94,7 +94,7 @@ class Route(Object):
         return self._middlewares
 
     @property
-    def router(self):
+    def router(self) -> Router:
         """
         Returns:
             The router used to register the route with.
@@ -150,7 +150,7 @@ class Route(Object):
         """
         return self.add_middleware(callback)
 
-    def after_request(self, callback: Union[CoroFunc, Func]):
+    def after_request(self, callback: Union[CoroFunc, Func]) -> Union[CoroFunc, Func]:
         """
         Registers a callback to be called after the route is handled.
 
@@ -231,14 +231,14 @@ class Middleware(Object):
     def route(self):
         self.detach()
 
-    def is_global(self):
+    def is_global(self) -> bool:
         """
         Returns:
             True if the middleware is registered with the global router.
         """
         return self._is_global
 
-    def is_route_specific(self):
+    def is_route_specific(self) -> bool:
         """
         Returns:
             True if the middleware is registered with a route.
@@ -298,6 +298,13 @@ class Listener(Object):
         return '<Listener event={0.event!r}>'.format(self)
 
 def route(path: str, method: str) -> Callable[[CoroFunc], Route]:
+    """
+    A decorator that returns a [Route](./objects.md) object.
+
+    Args:
+        path: The path to register the route with.
+        method: The HTTP method to register the route with.
+    """
     def decorator(func: CoroFunc) -> Route:
         
         if getattr(func, '__self__', None):
@@ -306,17 +313,36 @@ def route(path: str, method: str) -> Callable[[CoroFunc], Route]:
         return Route(path, method, func, router=None)
     return decorator
 
-def websocket_route(path: str, method: str) -> Callable[[CoroFunc], WebsocketRoute]:
+def websocket_route(path: str) -> Callable[[CoroFunc], WebsocketRoute]:
+    """
+    A decorator that returns a [WebsocketRoute](./objects.md) object.
+
+    Args:
+        path: The path to register the route with.
+    
+    """
     def decorator(func: CoroFunc) -> WebsocketRoute:
-        return WebsocketRoute(path, method, func)
+        return WebsocketRoute(path, 'GET', func, router=None)
     return decorator
 
 def listener(event: str=None) -> Callable[[CoroFunc], Listener]:
+    """
+    A decorator that returns a [Listener](./objects.md) object.
+
+    Args:
+        event: The event to register the listener to.
+    """
     def decorator(func: CoroFunc) -> Listener:
         return Listener(func, event or func.__name__)
     return decorator
 
 def middleware(callback: CoroFunc) -> Middleware:
+    """
+    A decorator that returns a global [Middleware](./objects.md) object.
+
+    Args:
+        callback: The coroutine(?) function used by the middleware.
+    """
     middleware = Middleware(callback)
     middleware._is_global = True
 

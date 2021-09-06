@@ -90,7 +90,7 @@ class Users(railway.Resource):
 
         try:
             bucket.update_ratelimit(request, request.client_ip)
-        except railway.Ratelimited as e:
+        except railway.RatelimitExceeded as e:
             message = {
                 'message': 'Ratelimit exceeded. Please try again later.'
             }
