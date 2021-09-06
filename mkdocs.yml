@@ -32,11 +32,17 @@ nav:
     - Templates: API-Reference/templates.md
     - Models: API-Reference/models.md
     - Injectables: API-Reference/injectables.md
+    - Test Client: API-Reference/testclient.md
     - Utils: API-Reference/utils.md
+    - Workers: API-Reference/workers.md
   - Extensions:
-    - Workers: extensions/workers.md
+    - Client: extensions/client.md
+    - Server: extensions/server.md
     - Streams: extensions/streams.md
-    - Test Client: extensions/testclient.md
+    - RFC-6555: extensions/rfc6555.md
+    - HTTP:
+      - Response: extensions/http/response.md
+      - Sessions: extensions/http/sessions.md
 
 plugins:
 - search

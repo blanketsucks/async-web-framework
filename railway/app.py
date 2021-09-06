@@ -36,7 +36,7 @@ __all__ = (
 )
 
 
-class Application(Injectable, metaclass=InjectableMeta):
+class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
     """
     A class respreseting an ASGI application.
 
@@ -161,12 +161,6 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         self.start()
         return self
-    
-    async def __aexit__(self, *args: Any) -> None:
-        """
-        A context manager that stops the application and closes it accordingly.
-        """
-        await self.close()
 
     def _verify_settings(self):
         settings = self.settings
@@ -646,7 +640,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         loop = self.loop
 
         for worker in self.workers:
-            task = loop.create_task(worker.run(loop), name=f'Worker-{worker.id}')
+            task = loop.create_task(worker.run(), name=f'Worker-{worker.id}')
             self._worker_tasks.append(task)
 
         self.dispatch('startup')

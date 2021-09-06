@@ -1,5 +1,5 @@
 import socket
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Coroutine, Dict, List, Literal, Optional, Tuple, Union, overload
 import asyncio
 
 __all__ = (
@@ -30,6 +30,12 @@ class Address:
         return self._addr[4]
 
 class HappyEyeballs:
+    """
+    An implementation of the RFC 6555 protocol.\n
+    Reference: [https://tools.ietf.org/html/rfc6555](https://tools.ietf.org/html/rfc6555)\n
+    Wikipedia: [https://en.wikipedia.org/wiki/Happy_eyeballs](https://en.wikipedia.org/wiki/Happy_eyeballs)
+    
+    """
     def __init__(self) -> None:
         self._connected_sock: Optional[socket.socket] = None
         self._cache: Dict[Tuple[str, int], Address] = {}
@@ -99,9 +105,34 @@ class HappyEyeballs:
 
                 return sock
 
+        sock = self._create_socket(socket.AF_INET, socket.SOCK_STREAM)
+        if self._wait_for_connection(sock, (host, port), 0.3):
+            self._connected_sock = sock
+            self._cache[(host, port)] = Address((socket.AF_INET, socket.SOCK_STREAM, 0, '', (host, port)))
+
+            return sock
+
         raise ConnectionTimeout(f'Could not connect to {host}:{port}')
 
-    def connect(self, host: str, port: int, *, socket_type: Optional[socket.SocketKind]=None):
+    def connect(self, host: str, port: int, *, socket_type: Optional[socket.SocketKind]=None) -> socket.socket:
+        """
+        Connects to the given host and port.
+        
+        It tries to priotize IPv6 over IPv4, and will try to connect to the first of both protocols.
+        The way those addresses are filtered is by using [socket.getaddrinfo](https://docs.python.org/3/library/socket.html#socket.getaddrinfo).
+
+        If both connections fail, it will try to connect to the originally given host and port from this method,
+        if the connections to the original host and port fail too, it will raise a `ConnectionTimeout` exception. 
+        Otherwise it returns a socket.
+
+        Args:
+            host: The host to connect to.
+            port: The port to connect to.
+            socket_type: The socket type to use.
+
+        Returns:
+            A `socket.socket`.
+        """
         if not socket_type:
             socket_type = socket.SOCK_STREAM
     
@@ -113,14 +144,41 @@ class HappyEyeballs:
         return self._connect(host, port, addrs)
 
     def send(self, data: bytes) -> None:
+        """
+        Sends data to the connected socket.
+
+        Args:
+            data: The data to send.
+
+        Raises:
+            ConnectionError: If the socket is not connected.
+        """
         self._ensure_connection()
         self._connected_sock.send(data)
 
     def recv(self, size: int) -> bytes:
+        """
+        Recieves data from the connected socket.
+
+        Args:
+            size: The number of bytes to receive.
+        
+        Returns:
+            The read data.
+
+        Raises:
+            ConnectionError: If the socket is not connected.
+        """
         self._ensure_connection()
         return self._connected_sock.recv(size)
 
     def close(self) -> None:
+        """
+        Closes the connection.
+
+        Raises:
+            ConnectionError: If the socket is not connected.
+        """
         self._ensure_connection()
         self._connected_sock.close()
 
@@ -174,7 +232,7 @@ class AsyncHappyEyeballs(HappyEyeballs):
 
         raise Exception('No connection available')
 
-    async def connect(self, host: str, port: int, *, socket_type: Optional[socket.SocketKind]=None):
+    async def connect(self, host: str, port: int, *, socket_type: Optional[socket.SocketKind]=None) -> socket.socket:
         if not socket_type:
             socket_type = socket.SOCK_STREAM
 

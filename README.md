@@ -40,7 +40,6 @@ async def ws(request: railway.Request, ws: railway.Websocket):
         data = await ws.receive()
         print(data.data)
 
-
 if __name__ == '__main__':
     app.run()
 ```

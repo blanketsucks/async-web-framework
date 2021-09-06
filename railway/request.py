@@ -33,6 +33,8 @@ class Request:
         headers: The HTTP headers.
         created_at: The time the request was created.
         route: The [Route](./objects.md) that the request was sent to.
+        worker: The [Worker](./workers.md) that the request was sent to.
+        connection: The [ClientConnection](docs/extensions/server.md) that the request was sent to.
     """
     __slots__ = (
         '_encoding', 'version', 'method', 'worker', 'connection',

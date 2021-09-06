@@ -3,12 +3,14 @@ import warnings
 import functools
 import socket
 import asyncio
+import weakref
 from typing import Any, Callable, Iterator, List, Optional, Type, Tuple
 
 from .response import Response
 from ._types import MaybeCoroFunc
 
 __all__ = (
+    'AsyncResource',
     'maybe_coroutine',
     'LOCALHOST',
     'LOCALHOST_V6',
@@ -26,6 +28,16 @@ __all__ = (
 
 LOCALHOST = '127.0.0.1'
 LOCALHOST_V6 = '::1'
+
+class AsyncResource:
+    async def close(self):
+        raise NotImplementedError
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        await self.close()
 
 async def maybe_coroutine(func: MaybeCoroFunc[Any], *args: Any, **kwargs: Any) -> Any:
     if asyncio.iscoroutinefunction(func):

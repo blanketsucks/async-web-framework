@@ -102,7 +102,6 @@ class TestClient:
 
             app.loop.run_until_complete(main())
             ```
-        
         """
         url = self.app.url_for(path)
         return self.session.request(url=url, method=method, **kwargs)

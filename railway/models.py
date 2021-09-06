@@ -9,7 +9,6 @@ __all__ = (
     'ModelMeta'
 )
 
-
 class _Default:
     def __repr__(self):
         return '<Default>'
@@ -84,7 +83,6 @@ def _make_fields(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) ->
 
     return tuple(fields)
 
-
 def _getattr(obj: Any, name: str):
     attr = getattr(obj, name)
 
@@ -140,10 +138,12 @@ class ModelMeta(type):
 
 class Model(metaclass=ModelMeta):
     """
-    A model that contains fields and methods to serialize and deserialize.
+    A model that contains fields and methods to serialize and deserialize into JSON objects.
 
     Example:
         ```py
+        from railway import Model
+
         class Person(Model):
             name: str
             age: int
@@ -174,7 +174,7 @@ class Model(metaclass=ModelMeta):
         return {f.name: _getattr(self, f.name) for f in self.__fields__}
 
     @classmethod
-    def from_json(cls, data: Union[Dict[str, Any], Any]) -> 'Model':
+    def from_json(cls, data: Union[Dict[str, Any], Any]) -> Model:
         """
         Makes the model from a JSON object.
 
@@ -185,7 +185,9 @@ class Model(metaclass=ModelMeta):
             The model.
 
         Raises:
-            TypeError: If the JSON object is not a dict.
+            TypeError: If the data passed in is not a dict.
+            MissingField: If a field is missing.
+            IncompatibleType: If the type of the field is incompatible with the type of the data.
         """
         if not isinstance(data, dict):
             ret = f"Invalid argument type for 'data'. Expected {dict!r} got {data.__class__!r} instead"

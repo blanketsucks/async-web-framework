@@ -7,7 +7,7 @@ import logging
 import datetime
 import socket as _socket
 
-from .server import Server, ClientConnection
+from .server import TCPServer, ClientConnection
 from .websockets import ServerWebsocket as Websocket
 from .request import Request
 from .response import Response
@@ -101,7 +101,7 @@ class Worker:
         Starts the worker.
         This function does not begin the serving of requests.
         """
-        self.server = Server(
+        self.server = TCPServer(
             host=self.host, 
             port=self.port,
             ipv6=self.app.is_ipv6(), 
@@ -143,6 +143,12 @@ class Worker:
 
         self.app.dispatch('worker_shutdown', self)
         log.info(f'[Worker-{self.id}] Stopped serving.')
+
+    async def close(self):
+        """
+        An alias for `stop`.
+        """
+        await self.stop()
 
     def get_websocket(self, connection: ClientConnection) -> Optional[Websocket]:
         """
