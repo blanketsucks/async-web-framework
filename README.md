@@ -1,6 +1,6 @@
 # async-web-stuff
 
-## Example Usages
+## Examples
 
 ### Basic Example
 
