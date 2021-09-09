@@ -1,6 +1,9 @@
-from setuptools import setup, Extension, find_packages
+from setuptools import setup
 from Cython.Build import cythonize
 
+extensions = [
+
+]
 
 setup(
     name='railway',
@@ -10,7 +13,8 @@ setup(
         'railway.http',
         'railway.server',
         'railway.rfc6555',
-        'railway.websockets'
+        'railway.websockets',
+        'railway-stubs'
     ],
-    ext_modules=cythonize('railway/utils.pyx', compiler_directives={'language_level': 3, 'embedsignature': True}),
+    ext_modules=extensions,
 )
