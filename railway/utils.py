@@ -1,9 +1,31 @@
+"""
+MIT License
+
+Copyright (c) 2021 blanketsucks
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
 import json
 import warnings
 import functools
 import socket
 import asyncio
-import weakref
 from typing import Any, Callable, Iterator, List, Optional, Type, Tuple
 
 from .response import Response
@@ -20,8 +42,6 @@ __all__ = (
     'is_ipv4',
     'validate_ip',
     'jsonify',
-    'deprecated',
-    'Deprecated',
     'SETTING_ENV_PREFIX',
     'VALID_METHODS'
 )
@@ -30,8 +50,38 @@ LOCALHOST = '127.0.0.1'
 LOCALHOST_V6 = '::1'
 
 class AsyncResource:
+    """
+    
+    Example
+    -------
+    .. code-block:: python3
+
+        import railway
+        import asyncio
+
+        class MyResource(railway.AsyncResource):
+
+            async def close(self):
+                print('closing')
+                # do something that closes stuff
+            
+        async def main():
+            async with MyResource() as resource:
+                # do something with the created source
+
+        asyncio.run(main())
+
+    """
     async def close(self):
+        """
+        A method that is supposed to be overridden by subclasses.
+        """
         raise NotImplementedError
+
+    def __del__(self):
+        asyncio.create_task(
+            self.close()
+        )
 
     async def __aenter__(self):
         return self
@@ -40,32 +90,44 @@ class AsyncResource:
         await self.close()
 
 async def maybe_coroutine(func: MaybeCoroFunc[Any], *args: Any, **kwargs: Any) -> Any:
+    """
+    Runs a function or coroutine, and returns its result,
+
+    Parameters
+    ----------
+    func: Union[Callable[..., Coroutine], Callable[..., Any]]
+        The function or coroutine to run.
+    \*args: Any
+        Positional arguments to pass to the function or coroutine.
+    \*\*kwargs: Any
+        Keyword arguments to pass to the function or coroutine.
+    """
     if asyncio.iscoroutinefunction(func):
         return await func(*args, **kwargs)
 
     return func(*args, **kwargs)
 
+
 def has_ipv6() -> bool:
     """
-    Returns: 
-        True if the system can bind an IPv6 address.
+    A helper function that checks if the system supports IPv6.
     """
     return socket.has_ipv6
 
 def has_dualstack_ipv6() -> bool:
     """
-    Returns:
-        True if the system has dualstack IPv6 support.
+    A helper function that checks if the system has dual-stack IPv6 support
     """
     return socket.has_dualstack_ipv6()
 
 def is_ipv6(ip: str) -> bool:
     """
-    Args:
-        ip: A string representing an address.
+    A helper function that checks if a given IP address is a valid IPv6 one.
     
-    Returns:
-        True if the given IP is an IPv6 address.
+    Parameters
+    ----------
+    ip: :class:`str`
+        A string representing an IP address.
     """
     try:
         socket.inet_pton(socket.AF_INET6, ip)
@@ -75,11 +137,12 @@ def is_ipv6(ip: str) -> bool:
 
 def is_ipv4(ip: str) -> bool:
     """
-    Args:
-        ip: A string representing an address.
-
-    Returns:
-        True if the given IP is an IPv4 address.
+    A helper function that checks if a given IP address is a valid IPv6 one.
+    
+    Parameters
+    ----------
+    ip: :class:`str`
+        A string representing an IP address.
     """
     try:
         socket.inet_aton(ip)
@@ -89,14 +152,16 @@ def is_ipv4(ip: str) -> bool:
 
 def validate_ip(ip: str=None, *, ipv6: bool=False) -> str:
     """
-    Validates an IP address
+    A helper function that validates an IP address.
+    If an IP address is not given it will return the localhost address.
 
-    Args:
-        ip: The IP address to validate.
-        ipv6: If True, validates an IPv6 address.
+    Parameters
+    ----------
+    ip: Optional[:class:`str`]
+        The IP address to validate.
+    ipv6: Optional[:class:`bool`]
+        Whether to validate an IPv6 address or not. Defaults to `False`.
 
-    Returns:
-        The validated IP address.
     """
     if not ip:
         if ipv6:
@@ -162,13 +227,12 @@ def deprecated(other: Optional[str]=None):
 
 def jsonify(**kwargs: Any) -> Response:
     """
-    Kinda like `flask.jsonify`.
+    Kinda like :py:func:`flask.jsonify`.
 
-    Args:
-        **kwargs: Keyword arguments to pass to `json.dumps`.
-
-    Returns:
-        A Response object.
+    Parameters
+    ----------
+        \*\*kwargs: 
+            Keyword arguments to pass to :py:func:`json.dumps`.
     """
     data = json.dumps(kwargs, indent=4)
 

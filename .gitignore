@@ -2,3 +2,10 @@ __pycache__
 .idea
 build
 site
+*.egg-info
+.vscode
+.mypy_cache
+docs/_build
+*.c
+*.so
+*.pyd

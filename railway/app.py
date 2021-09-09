@@ -1,3 +1,26 @@
+"""
+MIT License
+
+Copyright (c) 2021 blanketsucks
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
 import functools
 import ssl
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
@@ -40,15 +63,66 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
     """
     A class respreseting an ASGI application.
 
-    Attributes:
-        host: A string representing the host to listen on.
-        port: An integer representing the port to listen on.
-        url_prefix: A string representing the url prefix.
-        router: A [Router](./router.md) instance.
-        settings: A [Settings](./settings.md) instance.
-        worker_count: An integer representing the number of workers to spawn.
-        suppress_warnings: A bool indicating whether warnings should be surpressed.
-        ssl_context: A `ssl.SSLContext` instance.
+    The application also supports usage as a context manager.
+
+    Example
+    -------
+    .. code-block:: python3
+
+        import railway
+
+        app = railway.Application()
+
+        async def main():
+            async with app:
+                # do fancy stuff
+
+        app.loop.run_until_complete(main())
+
+    Parameters
+    ----------
+    host: :class:`str`
+        A string representing the host to listen on.
+    port: :class:`int`
+        An integer representing the port to listen on.
+    url_prefix: :class:`str`
+        A string representing the url prefix.
+    loop: :class:`asyncio.AbstractEventLoop`
+        An optional asyncio event loop.
+    settings: :class:`~railway.settings.Settings`
+        An optional :class:`~railway.settings.Settings` instance. If not specified,
+        the default settings will be used.
+    settings_file: Union[:class:`pathlib.Path`, :class:`str`]
+        An optional path to a settings file.
+    load_settings_from_env: :class:`bool`
+        An optional bool indicating whether to load settings from the environment.
+    ipv6: :class:`bool`
+        An optional bool indicating whether to use IPv6.
+    sock: :class:`socket.socket`
+        An optional :class:`socket.socket` instance.
+    worker_count: :class:`int`
+        An optional integer representing the number of workers to spawn.
+    use_ssl: :class:`bool`
+        An optional bool indicating whether to use SSL.
+    ssl_context: :class:`ssl.SSLContext`
+        An optional :class:`ssl.SSLContext` instance.
+
+    Attributes
+    -----------
+    host: :class:`str`
+        A string representing the host to listen on.
+    port: :class:`int`
+        An integer representing the port to listen on.
+    url_prefix: :class:`str`
+        A string representing the url prefix.
+    router: :class:`~.router.Router`
+        The router used for registering routes.
+    settings: :class:`~railway.settings.Settings` instance.
+        The settings used to configure the application.
+    worker_count: :class:`int` 
+        An integer representing the number of workers to spawn.
+    ssl_context: :class:`ssl.SSLContext`
+        A `ssl.SSLContext` instance.
     """
     def __init__(self,
                 host: Optional[str]=None,
@@ -62,27 +136,8 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
                 ipv6: bool=False,
                 sock: Optional[socket.socket]=None,
                 worker_count: Optional[int]=None, 
-                suppress_warnings: Optional[bool]=False,
                 use_ssl: Optional[bool]=False,
                 ssl_context: Optional[ssl.SSLContext]=None):
-        """
-        Constructor.
-
-        Args:
-            host: A string representing the host to listen on.
-            port: An integer representing the port to listen on.
-            url_prefix: A string representing the url prefix.
-            loop: An optional asyncio event loop.
-            settings: An optional [Settings](./settings.md) instance.
-            settings_file: An optional path to a settings file.
-            load_settings_from_env: An optional bool indicating whether to load settings from the environment.
-            ipv6: An optional bool indicating whether to use IPv6.
-            sock: An optional `socket.socket` instance.
-            worker_count: An optional integer representing the number of workers to spawn.
-            suppress_warnings: An optional bool indicating whether to suppress warnings.
-            use_ssl: An optional bool indicating whether to use SSL.
-            ssl_context: An optional `ssl.SSLContext` instance.
-        """
         if ipv6:
             has_ipv6 = utils.has_ipv6()
             if not has_ipv6:
@@ -108,7 +163,6 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         self.port: int = port
         self.url_prefix: str = url_prefix or ''
         self.router: Router = Router(self.url_prefix)
-        self.suppress_warnings: bool = suppress_warnings
         self.ssl_context: ssl.SSLContext = ssl_context or settings['ssl_context']
         self.worker_count: int = worker_count or settings['worker_count']
 
@@ -145,20 +199,10 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         self.inject(self)
 
     def __repr__(self) -> str:
-        """
-        Returns:
-            A string representation of this instance.
-        """
         prefix = self.url_prefix or '/'
         return f'<Application url_prefix={prefix!r} is_closed={self.is_closed()}>'
 
     async def __aenter__(self) -> 'Application':
-        """
-        A context manager that starts the application and closes it accordingly.
-
-        Returns:
-            The same `Application` instance.
-        """
         self.start()
         return self
 
@@ -413,56 +457,49 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
     @property
     def workers(self) -> List[Worker]:
         """
-        Returns:
-            A list of all workers.
+        A list of all workers.
         """
         return list(self._workers.values())
 
     @property
     def views(self) -> List[HTTPView]:
         """
-        Returns:
-            A list of all views.
+        A list of all views.
         """
         return list(self._views.values())
 
     @property
     def socket(self) -> socket.socket:
         """
-        Returns:
-            The `socket.socket` instance used by the application.
+        The socket used to listen for connections.
         """
         return self._socket
 
     @property
     def middlewares(self) -> List[Middleware]:
         """
-        Returns:
-            A list of all registered middlewares.
+        A list of all middlewares.
         """
         return self._middlewares
 
     @property
     def listeners(self) -> List[Listener]:
         """
-        Returns:
-            A list of all registered listeners.
+        A list of all listeners.
         """
         return list(self._listeners.values())
 
     @property
     def resources(self) -> List[Resource]:
         """
-        Returns:
-            A list of all registered resources.
+        A list of all resources.
         """
         return list(self._resources.values())
 
     @property
     def loop(self) -> asyncio.AbstractEventLoop:
         """
-        Returns:
-            The event loop used by the application.
+        The event loop used by the application.
         """
         return self._loop
 
@@ -476,8 +513,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
     @property
     def urls(self) -> Set[str]:
         """
-        Returns:
-            A set of all registered URLs.
+        A set of all URLs.
         """
         return {
             self._build_url(route.path, is_websocket=isinstance(route, WebsocketRoute)) 
@@ -487,26 +523,22 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
     @property
     def paths(self) -> Set[str]:
         """
-        Returns:
-            A set of all registered paths.
+        A set of all paths.
         """
         return {route.path for route in self.router}
 
     def url_for(self, path: str, *, is_websocket: bool=False, **kwargs) -> str:
         """
-        Builds a URL for a given path.
+        Builds a URL for a given path and returns it.
 
-        Args:
-            path: The path to build a URL for.
-            is_websocket: Whether the path is a websocket path.
-            **kwargs: Additional arguments to build the URL.
-        
-        Returns:
-            The built URL.
-
-        Raises:
-            ValueError: If the path is not a valid one.
-        
+        Parameters
+        ----------
+            path: :class:`str`
+                The path to build a URL for.
+            is_websocket: :class:`bool`
+                Whether the path is a websocket path.
+            **kwargs: 
+                Additional arguments to build the URL.
         """
         return self._build_url(path.format(**kwargs), is_websocket=is_websocket)
 
@@ -514,11 +546,13 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Applies the given object's routes, listeners and middlewares to the application.
 
-        Args:
-            obj: The object to inject.
+        Parameters
+        ----------
+            obj: :class:`~railway.injectables.Injectable` 
+                The object to inject.
 
         Raises:
-            TypeError: If the object is not an instance of `Injectable`.   
+            TypeError: If the object is not an instance of :class:`~railway.injectables.Injectable`.   
         """
 
         if not isinstance(obj, Injectable):
@@ -546,7 +580,17 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         return self
 
     def eject(self, obj: Injectable):
+        """
+        Removes the given object's routes, listeners and middlewares from the application.
 
+        Parameters
+        ----------
+            obj: :class:`~railway.injectables.Injectable` 
+                The object to eject.
+
+        Raises:
+            TypeError: If the object is not an instance of :class:`~railway.injectables.Injectable`.   
+        """
         if not isinstance(obj, Injectable):
             raise TypeError('obj must be an Injectable')
 
@@ -563,38 +607,25 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
     
     def is_closed(self) -> bool:
         """
-        Whether or not the application has been closed.
-
-        Returns:
-            True if the application has been closed, False otherwise.
-
+        Returns whether or not the application has been closed.
         """
         return self._closed
 
     def is_serving(self) -> bool:
         """
-        Whether or not the application is serving requests.
-
-        Returns:
-            True if the application is serving requests, False otherwise.
+        Returns whether or not the application is serving requests.
         """
         return all([worker.is_serving() for worker in self.workers])
 
     def is_ipv6(self) -> bool:
         """
-        Wheter or not the application is serving IPv6 requests.
-
-        Returns:
-            True if the application is serving IPv6 requests, False otherwise.
+        Returns wheter or not the application is serving IPv6 requests.
         """
         return self._ipv6 and utils.is_ipv6(self.host)
 
     def is_ssl(self) -> bool:
         """
-        Whether or not the application is serving SSL requests.
-
-        Returns:
-            True if the application is serving SSL requests, False otherwise.
+        Returns whether or not the application is serving SSL requests.
         """
         return self._use_ssl and isinstance(self.ssl_context, ssl.SSLContext)
 
@@ -602,11 +633,10 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Returns the worker with the given ID.
 
-        Args:
-            id: The ID of the worker to return.
-
-        Returns:
-            The worker with the given ID, or None if no worker with the given ID exists.
+        Parameters
+        ----------
+        id: :class:`int`
+            The ID of the worker to return.
         """
         return self._workers.get(id)
 
@@ -614,13 +644,13 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Adds a worker to the application.
 
-        Args:
-            worker: The worker to add.
+        Parameters
+        ----------
+            worker: :class:`~railway.workers.Worker`
+                The worker to add.
 
-        Returns:
-            The worker that was added.
-
-        Raises:
+        Raises
+        ------
             TypeError: If the worker is not an instance of `Worker`.
             ValueError: If the worker already exists.
         """
@@ -679,11 +709,16 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Registers a websocket route.
 
-        Args:
-            path: The path to register the route for.
+        Parameters
+        ----------
+            path: :class:`str`
+                The path to register the route for.
 
-        Example:
-            ```py
+        Examples
+        -------
+
+        .. code-block :: python3
+
             @app.websocket('/ws')
             async def websocket_handler(request: railway.Request, ws: railway.Websocket):
                 await ws.send(b'Hello, World')
@@ -692,7 +727,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
                 print(data.data)
 
                 await ws.close()
-            ```
+            
         """
         def decorator(coro: CoroFunc) -> WebsocketRoute:
             route = WebsocketRoute(path, 'GET', coro, router=self.router)
@@ -705,16 +740,22 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Registers a route.
 
-        Args:
-            path: The path to register the route for.
-            method: The HTTP method to register the route for.
+        Parameters
+        ----------
+            path: :class:`str`
+                The path of the route
+            method: Optional[:class:`str`]
+                The HTTP method of the route. Defaults to ``GET``.
 
-        Example:
-            ```py
+        Examples
+        -------
+
+        .. code-block :: python3
+
             @app.route('/', 'GET')
             async def index(request: railway.Request):
                 return 'Hello, world!'
-            ```
+            
         """
         actual = method or 'GET'
 
@@ -727,30 +768,18 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Adds a route to the application.
 
-        Args:
-            route: The `Route` instance to add.
+        Parameters
+        ----------
+            route: :class:`~railway.objects.Route`
+                The route to add.
 
-        Returns:
-            The route that was added.
-
-        Raises:
+        Raises
+        ----------
             RegistrationError: If the route already exists or the argument passed in was not an instance of either `Route` or `WebsocketRoute`.
         """
         if not isinstance(route, (Route, WebsocketRoute)):
             fmt = 'Expected Route or WebsocketRoute but got {0!r} instead'
             raise RegistrationError(fmt.format(route.__class__.__name__))
-
-        if not inspect.iscoroutinefunction(route.callback):
-            if not self.suppress_warnings:
-                fmt = (
-                    'This framework does support synchronous routes but due to everything being done in asynchronous manner it\'s not recommended'
-                )
-                utils.warn(
-                    message=fmt,
-                    category=Warning,
-                )
-
-                log.warn(fmt)
 
         if route in self.router:
             raise RegistrationError('{0!r} is already a route.'.format(route.path))
@@ -761,17 +790,33 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Applies a router's routes and middlewares to the application.
 
-        Args:
-            router: The `Router` to apply.
+        Parameter
+        ----------
+            router: :class:`~railway.router.Router`
+                The router to apply.
 
-        Returns:
-            The router that was added.
-
-        Raises:
+        Raises
+        ----------
             TypeError: If the router is not an instance of `Router`.
 
-        """
+        Example
+        ----------
 
+        .. code-block:: python3
+
+            import railway
+
+            app = railway.Application()
+            router = railway.Router()
+
+            @router.route('/hi', 'GET')
+            async def hi(request: railway.Request):
+                return 'hi'
+
+            app.add_router(router)
+            app.run()
+
+        """
         if not isinstance(router, Router):
             fmt = 'Expected Router but got {0!r} instead'
             raise TypeError(fmt.format(router.__class__.__name__))
@@ -784,59 +829,99 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         
         return router
 
-    def get_route(self, method: str, path: str) -> Optional[Union[Route, WebsocketRoute]]:
-        """
-        Gets a route from the application.
-
-        Args:
-            method: The HTTP method to get the route for.
-            path: The path to get the route for.
-
-        Returns:
-            The route that was found.
-        """
-        res = (path, method)
-        route = self.router.routes.get(res)
-
-        return route
-
     def get(self, path: str) -> Callable[[CoroFunc], Route]:
+        """
+        Adds a :class:`~railway.objects.Route` with the ``GET`` HTTP method.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
+        """
         def decorator(func: CoroFunc) -> Route:
             route = Route(path, 'GET', func, router=self.router)
             return self.add_route(route)
         return decorator
 
     def put(self, path: str) -> Callable[[CoroFunc], Route]:
+        """
+        Adds a :class:`~railway.objects.Route` with the ``PUT`` HTTP method.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
+        """
         def decorator(func: CoroFunc):
             route = Route(path, 'PUT', func, router=self.router)
             return self.add_route(route)
         return decorator
 
     def post(self, path: str) -> Callable[[CoroFunc], Route]:
+        """
+        Adds a :class:`~railway.objects.Route` with the ``POST`` HTTP method.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
+        """
         def decorator(func: CoroFunc):
             route = Route(path, 'POST', func, router=self.router)
             return self.add_route(route)
         return decorator
 
     def delete(self, path: str) -> Callable[[CoroFunc], Route]:
+        """
+        Adds a :class:`~railway.objects.Route` with the ``DELETE`` HTTP method.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
+        """
         def decorator(func: CoroFunc):
             route = Route(path, 'DELETE', func, router=self.router)
             return self.add_route(route)
         return decorator
 
     def head(self, path: str) -> Callable[[CoroFunc], Route]:
+        """
+        Adds a :class:`~railway.objects.Route` with the ``HEAD`` HTTP method.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
+        """
         def decorator(func: CoroFunc):
             route = Route(path, 'HEAD', func, router=self.router)
             return self.add_route(route)
         return decorator
 
     def options(self, path: str) -> Callable[[CoroFunc], Route]:
+        """
+        Adds a :class:`~railway.objects.Route` with the ``OPTIONS`` HTTP method.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
+        """
         def decorator(func: CoroFunc):
             route = Route(path, 'OPTIONS', func, router=self.router)
             return self.add_route(route)
         return decorator
 
     def patch(self, path: str) -> Callable[[CoroFunc], Route]:
+        """
+        Adds a :class:`~railway.objects.Route` with the ``PATCH`` HTTP method.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
+        """
         def decorator(func: CoroFunc):
             route = Route(path, 'PATCH', func, router=self.router)
             return self.add_route(route)
@@ -860,14 +945,14 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         Adds an event listener to the application.
 
         Args:
-            coro: The coroutine function to add as an event listener.
-            name: The name of the event to listen for.
-
-        Returns:
-            The event listener that was added.
+            coro: Callable[..., Coroutine]
+                The coroutine function to add as an event listener.
+            name: Optional[:class:`str`]
+                The name of the event to listen for. 
+                If not given, it takes the name of the function passed in instead
 
         Raises:
-            RegistrationError: If the `coro` argument that was passed in is not a proper coroutine function.
+            RegistrationError: If the ``coro`` argument that was passed in is not a proper coroutine function.
         """
         if not inspect.iscoroutinefunction(coro):
             raise RegistrationError('Listeners must be coroutines')
@@ -887,10 +972,8 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         Removes a listener from the application.
 
         Args:
-            listener: The listener to remove.
-
-        Returns:
-            The listener that was removed.
+            listener: :class:`~railway.objects.Listener`
+                The listener to remove.
         """
         self._listeners[listener.event].remove(listener)
         return listener
@@ -903,11 +986,12 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
             name: The name of the event to listen for, if nothing was passed in the name of the function is used.
 
         Example:
-            ```py
-            @app.event('on_startup')
-            async def startup():
-                print('Application started serving')
-            ```
+            .. code-block :: python3
+
+                @app.event('on_startup')
+                async def startup():
+                    print('Application started serving')
+            
         """
         def decorator(func: CoroFunc):
             return self.add_event_listener(func, name)
@@ -997,13 +1081,14 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
             path: The path of the view to add.
 
         Example:
-            ```py
-            @app.view('/')
-            class Index(railway.HTTPView):
-                
-                async def get(self, request: railway.Request):
-                    return 'Hello, world!'
-            ```
+            .. code-block :: python3
+
+                @app.view('/')
+                class Index(railway.HTTPView):
+                    
+                    async def get(self, request: railway.Request):
+                        return 'Hello, world!'
+            
         """
         def decorator(cls: Type[HTTPView]):
             if not cls.__url_route__:
@@ -1075,16 +1160,17 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
             The resource that was added.
 
         Example:
-            ```py
-            @app.resource('users')
-            class Users(Resource):
-                def __init__(self):
-                    self.users = {}
+            .. code-block :: python3
 
-                @railway.route('/users', 'GET')
-                async def get_all(self, request: railway.Request):
-                    return self.users
-            ```
+                @app.resource('users')
+                class Users(Resource):
+                    def __init__(self):
+                        self.users = {}
+
+                    @railway.route('/users', 'GET')
+                    async def get_all(self, request: railway.Request):
+                        return self.users
+            
         """
         def decorator(cls: Type[Resource]):
             resource = cls()
@@ -1124,12 +1210,13 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
             RegistrationError: If the `callback` argument that was passed in is not a proper coroutine function.
 
         Example:
-            ```py
-            @app.middleware
-            async def middleware(request: railway.Request, route: railway.Route, **kwargs):
-                # do stuff
-        """
+            .. code-block :: python3
 
+                @app.middleware
+                async def middleware(request: railway.Request, route: railway.Route, **kwargs):
+                    # do stuff
+
+        """
         if not inspect.iscoroutinefunction(callback):
             raise RegistrationError('Middlewares must be coroutines')
 
@@ -1159,39 +1246,44 @@ def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) 
     """
     Makes an application that accepts both IPv4 and IPv6 requests.
 
-    Args:
-        ipv4: The IPv4 host to use.
-        ipv6: The IPv6 host to use.
-        port: The port to listen on.
-        kwargs: Additional arguments to pass to the Application constructor.
+    Parameters
+    ----------
+    ipv4: :class:`str`
+        The IPv4 host to use. Defaults to ``127.0.0.1``
+    ipv6: :class:`str`
+        The IPv6 host to use. Defaults to ``::1``
+    port: :class:`int`
+        The port to listen on. Defaults to ``8080``
+    \*\*kwargs: Any
+        Additional arguments to pass to the Application constructor.
 
-    Returns:
-        The dual-stack application.
-
-    Raises:
+    Raises
+    ----------
         RuntimeError: If dualstack support is not available
 
-    Example:
-        ```py
-        import railway
+    Example
+    ----------
+        .. code-block :: python3
 
-        app = railway.dualstack_ipv6()
+            import railway
 
-        @app.route('/')
-        async def index(request: railway.Request):
-            if railway.is_ipv6(request.client_ip):
-                return 'Hello, IPv6 world!'
+            app = railway.dualstack_ipv6()
 
-            return 'Hello, IPv4 world!'
+            @app.route('/')
+            async def index(request: railway.Request):
+                if railway.is_ipv6(request.client_ip):
+                    return 'Hello, IPv6 world!'
 
-        app.run()
-        ```
+                return 'Hello, IPv4 world!'
+
+            app.run()
+        
     """
     if not utils.has_dualstack_ipv6():
         raise RuntimeError('Dualstack support is not available')
 
-    app = Application(worker_count=0, port=port)
     worker_count = kwargs.pop('worker_count', multiprocessing.cpu_count() + 1)
+    app = Application(worker_count=0, port=port, **kwargs)
 
     ipv4 = utils.validate_ip(ipv4)
     ipv6 = utils.validate_ip(ipv6, ipv6=True)

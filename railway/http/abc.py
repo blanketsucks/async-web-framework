@@ -1,3 +1,26 @@
+"""
+MIT License
+
+Copyright (c) 2021 blanketsucks
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -8,8 +31,8 @@ import copy
 from socket import SocketKind, AddressFamily, gethostname
 
 from .errors import HookerAlreadyConnected, HookerClosed
-from .response import Response, HTTPStatus
-from .request import Request
+from .response import HTTPResponse, HTTPStatus
+from .request import HTTPRequest
 from railway.utils import find_headers
 from railway.http.utils import AsyncIterator
 
@@ -84,7 +107,7 @@ class Hooker:
                     headers: Dict[str, Any],
                     body: Optional[str]):
         headers.setdefault('Connection', 'close')
-        return Request(method, path, host, headers, body)
+        return HTTPRequest(method, path, host, headers, body)
 
     async def build_response(self, data: Optional[bytes]=None):
         if not data:
@@ -98,7 +121,7 @@ class Hooker:
         status = HTTPStatus(int(status)) # type: ignore
         headers: Dict[str, Any] = dict(hdrs) # type: ignore
 
-        return Response(
+        return HTTPResponse(
             hooker=self,
             status=status,
             version=version,

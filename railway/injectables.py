@@ -1,3 +1,26 @@
+"""
+MIT License
+
+Copyright (c) 2021 blanketsucks
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
 from typing import Tuple, Any, Dict, Type, List
 
 from .objects import Route, Middleware, Listener
@@ -39,13 +62,19 @@ class Injectable:
     """
     A base class for injectable classes.
 
-    Attributes:
-        __routes__: A list of [Route](./objects.md) objects.
-        __listeners__: A list of [Listener](./objects.md) objects.
-        __middlewares__: A list of [Middleware](./objects.md) objects.
+    Attributes
+    ---------- 
+    __routes__: List[:class:`~railway.objects.Route`]
+        A list of :class:`~railway.objects.Route` objects.
+    __listeners__: List[:class:`~railway.objects.Listener`]
+        A list of :class:`~railway.objects.Listener` objects.
+    __middlewares__: List[:class:`~railway.objects.Middleware`]
+        A list of :class:`~railway.objects.Middleware` objects.
 
-    Example:
-        ```py
+    Example
+    -------
+    .. code-block:: python3
+
         import railway
 
         app = railway.Application()
@@ -57,7 +86,7 @@ class Injectable:
                 return 'Hello, world!'
 
         app.inject(MyInjectable())
-        ```
+        
     """
     __routes__: List[Route]
     __listeners__: List[Listener]
