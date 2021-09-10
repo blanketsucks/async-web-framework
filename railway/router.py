@@ -39,7 +39,12 @@ class Router:
     """
     A route handler.
 
-    Attributes:
+    Parameters
+    ----------
+    
+
+    Attributes
+    ----------
         url_prefix: The prefix used for route urls.
         routes: A dictionary of routes.
         middlewares: A list of middleware callbacks.
@@ -49,7 +54,7 @@ class Router:
         """
         Router constructor.
 
-        Args:
+        Parameters:
             url_prefix: The prefix used for route urls.
         """
         self.url_prefix = url_prefix
@@ -75,7 +80,7 @@ class Router:
         """
         Adds a route to the router.
 
-        Args:
+        Parameters:
             route: The route to add.
 
         Returns:
@@ -97,7 +102,7 @@ class Router:
         """
         Removes a route from the router.
 
-        Args:
+        Parameters:
             route: The route to remove.
         
         Returns:
@@ -109,7 +114,7 @@ class Router:
         """
         A decorator for registering a websocket route.
 
-        Args:
+        Parameters:
             path: The path to register the route to.
         """
         def wrapper(func: CoroFunc):
@@ -123,7 +128,7 @@ class Router:
         """
         A decorator for registering a route.
 
-        Args:
+        Parameters:
             path: The path to register the route to.
             method: The HTTP method to use for the route.
         """
@@ -198,7 +203,7 @@ class Router:
         """
         A decorator for registering a middleware callback.
 
-        Args:
+        Parameters:
             func: The middleware callback.
         
         Returns:

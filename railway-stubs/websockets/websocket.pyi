@@ -1,5 +1,5 @@
 from .frame import WebSocketCloseCode, WebSocketFrame, WebSocketOpcode, Data
-from railway.stream import StreamReader, StreamWriter
+from railway.streams import StreamReader, StreamWriter
 from railway._types import peer
 from typing import Any, Dict, Optional
 

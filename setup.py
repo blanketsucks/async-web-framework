@@ -1,9 +1,11 @@
 from setuptools import setup
+import sys
 from Cython.Build import cythonize
 
-extensions = [
+requirements = []
 
-]
+if sys.platform != 'win32':
+    requirements.append('uvloop')
 
 setup(
     name='railway',
@@ -16,5 +18,6 @@ setup(
         'railway.websockets',
         'railway-stubs'
     ],
-    ext_modules=extensions,
+    python_requires='>=3.8.0',
+    ext_modules=cythonize('railway/utils.pyx', language_level=3),
 )

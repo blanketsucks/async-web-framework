@@ -123,7 +123,7 @@ class Template:
         """
         Template constructor
 
-        Args:
+        Parameters:
             path: The path to the template file
             loop: The event loop to use for async operations
         """
@@ -164,7 +164,7 @@ async def render(
     """
     Renders an HTML file.
 
-    Args:
+    Parameters:
         path: The path to the template file.
         __globals: The global variables to use for the template.
         __locals: The local variables to use for the template.

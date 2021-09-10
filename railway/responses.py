@@ -146,7 +146,7 @@ class Continue(HTTPResponse):
 @status(101)
 class SwitchingProtocols(HTTPResponse):
     """
-    This code is sent in response to an `Upgrade` request header from the client, 
+    This code is sent in response to an ``Upgrade`` request header from the client, 
     and indicates the protocol the server is switching to.
     """
 
@@ -159,32 +159,32 @@ class Processing(HTTPResponse):
 @status(103)
 class EarlyHints(HTTPResponse):
     """
-    This status code is primarily intended to be used with the `Link` header, 
+    This status code is primarily intended to be used with the ``Link`` header,
     letting the user agent start preloading resources while the server prepares a response.
     """
 
 @status(200)
 class OK(HTTPResponse):
     """
-    The request has succeeded. The meaning of the success depends on the HTTP method:\n
-        - `GET`: The resource has been fetched and is transmitted in the message body.\n
-        - `HEAD`: The representation headers are included in the response without any message body.\n
-        - `PUT` or `POST`: The resource describing the result of the action is transmitted in the message body.\n
-        - `TRACE`: The message body contains the request message as received by the server.
+    The request has succeeded. The meaning of the success depends on the HTTP method:
+        - ``GET``: The resource has been fetched and is transmitted in the message body.
+        - ``HEAD``: The representation headers are included in the response without any message body.
+        - ``PUT`` or ``POST``: The resource describing the result of the action is transmitted in the message body.
+        - ``TRACE``: The message body contains the request message as received by the server.
     """
 
 @status(201)
 class Created(HTTPResponse):
     """
     The request has succeeded and a new resource has been created as a result. 
-    This is typically the response sent after `POST` requests, or some `PUT` requests.
+    This is typically the response sent after ``POST`` requests, or some ``PUT`` requests.
     """
 
 @status(202)
 class Accepted(HTTPResponse):
     """
     The request has been received but not yet acted upon. It is noncommittal, 
-    since there is no way in HTTP to later send an asynchronous response indicating the outcome of the request. 
+    since there is no way in HTTP to later send an asynchronous response indicating the outcome of the request.
     It is intended for cases where another process or server handles the request, or for batch processing.
     """
 
@@ -212,7 +212,7 @@ class ResetContent(HTTPResponse):
 @status(206)
 class PartialContent(HTTPResponse):
     """
-    This response code is used when the `Range` header is sent from the client to request only part of a resource.
+    This response code is used when the ``Range`` header is sent from the client to request only part of a resource.
     """
 
 @status(207)
@@ -224,7 +224,7 @@ class MultiStatus(HTTPResponse):
 @status(208)
 class AlreadyReported(HTTPResponse):
     """
-    Used inside a `<dav:propstat>` response element to avoid repeatedly enumerating the internal members of multiple bindings to the same collection.
+    Used inside a ``<dav:propstat>`` response element to avoid repeatedly enumerating the internal members of multiple bindings to the same collection.
     """
 
 @status(226)
@@ -276,7 +276,7 @@ class NotModified(Redirection):
 class TemporaryRedirect(Redirection):
     """
     The server sends this response to direct the client to get the requested resource at another URI with same method that was used in the prior request. 
-    This has the same semantics as the `302 Found` HTTP response code, with the exception that the user agent must not change the HTTP method used: If a POST was used in the first request, 
+    This has the same semantics as the ``302 Found`` HTTP response code, with the exception that the user agent must not change the HTTP method used: If a POST was used in the first request, 
     a `POST` must be used in the second request.
     """
 
@@ -284,8 +284,8 @@ class TemporaryRedirect(Redirection):
 class PermanentRedirect(Redirection):
     """
     This means that the resource is now permanently located at another URI, specified by the Location: HTTP Response header. 
-    This has the same semantics as the `301 Moved Permanently` HTTP response code, 
-    with the exception that the user agent must not change the HTTP method used: If a `POST` was used in the first request, a `POST` must be used in the second request.
+    This has the same semantics as the ``301 Moved Permanently`` HTTP response code, 
+    with the exception that the user agent must not change the HTTP method used: If a ``POST`` was used in the first request, a `POST` must be used in the second request.
     """
 
 @status(400)
@@ -312,7 +312,7 @@ class PaymentRequired(HTTPException):
 class Forbidden(HTTPException):
     """
     The client does not have access rights to the content; that is, it is unauthorized, 
-    so the server is refusing to give the requested resource. Unlike `401`, the client's identity is known to the server.
+    so the server is refusing to give the requested resource. Unlike ``401``, the client's identity is known to the server.
     """
 
 @status(404)
@@ -320,7 +320,7 @@ class NotFound(HTTPException):
     """
     The server can not find the requested resource. In the browser, this means the URL is not recognized. 
     In an API, this can also mean that the endpoint is valid but the resource itself does not exist. 
-    Servers may also send this response instead of `403` to hide the existence of a resource from an unauthorized client. 
+    Servers may also send this response instead of ``403`` to hide the existence of a resource from an unauthorized client. 
     This response code is probably the most famous one due to its frequent occurrence on the web.
     """
 
@@ -341,7 +341,7 @@ class NotAcceptable(HTTPException):
 @status(407)
 class ProxyAuthenticationRequired(HTTPException):
     """
-    This is similar to 401 but authentication is needed to be done by a proxy.
+    This is similar to ``401`` but authentication is needed to be done by a proxy.
     """
 
 @status(408)
@@ -370,7 +370,7 @@ class Gone(HTTPException):
 @status(411)
 class LengthRequired(HTTPException):
     """
-    Server rejected the request because the `Content-Length` header field is not defined and the server requires it.
+    Server rejected the request because the ``Content-Length`` header field is not defined and the server requires it.
     """
 
 @status(412)
@@ -383,7 +383,7 @@ class PreconditionFailed(HTTPException):
 class PayloadTooLarge(HTTPException):
     """
     Request entity is larger than limits defined by server; 
-    the server might close the connection or return an `Retry-After` header field.
+    the server might close the connection or return an ``Retry-After`` header field.
     """
 
 @status(414)
@@ -401,14 +401,14 @@ class UnsupportedMediaType(HTTPException):
 @status(416)
 class RangeNotSatisfiable(HTTPException):
     """
-    The range specified by the `Range` header field in the request can't be fulfilled; 
+    The range specified by the ``Range`` header field in the request can't be fulfilled; 
     it's possible that the range is outside the size of the target URI's data.
     """
 
 @status(417)
 class ExpectationFailed(HTTPException):
     """
-    This response code means the expectation indicated by the `Expect` request header field can't be met by the server.
+    This response code means the expectation indicated by the ``Expect`` request header field can't be met by the server.
     """
 
 @status(418)
@@ -451,15 +451,15 @@ class TooEarly(HTTPException):
 @status(426)
 class UpgradeRequired(HTTPException):
     """
-    The server refuses to perform the request using the current protocol but might be willing to do so after the client upgrades to a different protocol. 
-    The server sends an `Upgrade` header in a `426 `response to indicate the required protocol(s).
+    The server refuses to perform the request using the current protocol but might be willing to do so after the client upgrades to a different protocol.
+    The server sends an ``Upgrade`` header in a ``426`` response to indicate the required protocol(s).
     """
 
 @status(428)
 class PreconditionRequired(HTTPException):
     """
-    The origin server requires the request to be conditional. This response is intended to prevent the 'lost update' problem, 
-    where a client `GET`s a resource's state, modifies it, and `PUT`s it back to the server, 
+    The origin server requires the request to be conditional. This response is intended to prevent the 'lost update' problem,
+    where a client ``GET`` s a resource's state, modifies it, and ``PUT`` s it back to the server,
     when meanwhile a third party has modified the state on the server, leading to a conflict.
     """
 
@@ -492,7 +492,7 @@ class InternalServerError(HTTPException):
 class NotImplemented(HTTPException):
     """
     The request method is not supported by the server and cannot be handled. 
-    The only methods that servers are required to support (and therefore that must not return this code) are `GET` and `HEAD`.
+    The only methods that servers are required to support (and therefore that must not return this code) are ``GET`` and ``HEAD``.
     """
 
 @status(502)
@@ -507,7 +507,7 @@ class ServiceUnavailable(HTTPException):
     """
     The server is not ready to handle the request. Common causes are a server that is down for maintenance or that is overloaded. 
     Note that together with this response, a user-friendly page explaining the problem should be sent. 
-    This response should be used for temporary conditions and the `Retry-After`: HTTP header should, if possible, contain the estimated time before the recovery of the service. 
+    This response should be used for temporary conditions and the ``Retry-After``: HTTP header should, if possible, contain the estimated time before the recovery of the service. 
     The webmaster must also take care about the caching-related headers that are sent along with this response, as these temporary condition responses should usually not be cached.
     """
 

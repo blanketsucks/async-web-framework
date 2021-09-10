@@ -50,16 +50,19 @@ class Object:
     """
     A base object.
 
-    Attributes:
-        callback: The coroutine(?) function used by the object.
+    Parameters
+    ----------
+    callback: Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
+        the function used by the object.
+
+    Attributes
+    ----------
+    callback: Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
+        The coroutine(?) function used by the object.
     """
     callback: MaybeCoroFunc
 
     def __init__(self, callback: MaybeCoroFunc) -> None:
-        """
-        Args:
-            callback: The coroutine(?) function used by the object.
-        """
         self.callback = callback
 
     async def __call__(self, *args: Any, **kwds: Any) -> Any:
@@ -67,12 +70,21 @@ class Object:
 
 class PartialRoute:
     """
-    A partial route.
-    This object is created whenever an error occurs during the route handling process.
+    A partial route. This object is created whenever an error occurs during the route handling process.
 
-    Attributes:
-        path: The path of the route.
-        method: The method of the route.
+    Parameters
+    ----------
+    path: :class:`str`
+        The part of the route.
+    method: :class:`str`
+        The method of the route.
+
+    Attributes
+    ----------
+    path: 
+        The path of the route.
+    method: 
+        The method of the route.
     """
     def __init__(self, path: str, method: str) -> None:
         self.path: str = path
@@ -85,20 +97,28 @@ class Route(Object):
     """
     A route object.
 
-    Attributes:
-        path: The path of the route.
-        method: The method of the route.
-        callback: The coroutine(?) function used by the route.
-    """
+    Parameters
+    ----------
+    path: :class:`str`
+        The path of the route.
+    method: :class:`str`
+        The method of the route.
+    callback: Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
+        The function used by the route.
+    router: Optional[:class:`~railway.router.Router`]
+        The router to register the route with.
+        The case that this can be ``None`` is when using :func:`~railway.objects.route`.
 
-    def __init__(self, path: str, method: str, callback: MaybeCoroFunc, *, router: Optional[Router]) -> None:
-        """
-        Args:
-            path: The path of the route.
-            method: The method of the route.
-            callback: The coroutine(?) function used by the route.
-            router: The router to register the route with. 
-        """
+    Attributes
+    ----------
+    path: :class:`str`
+        The path of the route.
+    method: :class:`str`
+        The method of the route.
+    callback: Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
+        The coroutine(?) function used by the route.
+    """
+    def __init__(self, path: str, method: str, callback: MaybeCoroFunc, *, router: Optional['Router']) -> None:
         self._router = router
 
         self.path: str = path
@@ -111,16 +131,14 @@ class Route(Object):
     @property
     def middlewares(self) -> List[Middleware]:
         """
-        Returns:
-            A list of [Middleware](./objects.md) registered with the route.
+        A list of middlewares registered with the route.
         """
         return self._middlewares
 
     @property
-    def router(self) -> Router:
+    def router(self) -> 'Router':
         """
-        Returns:
-            The router used to register the route with.
+        The router used to register the route with.
         """
         return self._router
 
@@ -134,11 +152,11 @@ class Route(Object):
         """
         Registers a middleware with the route.
 
-        Args:
-            callback: The coroutine(?) function used by the middleware.
+        Parameters
+        ----------
+            callback: Callable[..., Coroutine[Any, Any, Any]]
+                The coroutine function used by the middleware.
 
-        Returns:
-            The [Middleware](./objects.md) object registered.
         """
         if not inspect.iscoroutinefunction(callback):
             raise RegistrationError('All middlewares must be async')
@@ -152,11 +170,10 @@ class Route(Object):
         """
         Removes a middleware from the route.
 
-        Args:
-            middleware: The [Middleware](./objects.md) object to remove.
-        
-        Returns:
-            The [Middleware](./objects.md) object removed.
+        Parameters
+        ----------
+            middleware: :class:`~railway.objects.Middleware`
+                The middleware to remove.
         """
         self._middlewares.remove(middleware)
         return middleware
@@ -165,23 +182,21 @@ class Route(Object):
         """
         A decorator that registers a middleware with the route.
 
-        Args:
-            callback: The coroutine(?) function used by the middleware.
-        
-        Returns:
-            The [Middleware](./objects.md) object registered.
+        Parameters
+        ----------
+            callback: Callable[..., Coroutine[Any, Any, Any]]
+                The coroutine function used by the middleware.
         """
         return self.add_middleware(callback)
 
-    def after_request(self, callback: Union[CoroFunc, Func]) -> Union[CoroFunc, Func]:
+    def after_request(self, callback: MaybeCoroFunc) -> MaybeCoroFunc:
         """
         Registers a callback to be called after the route is handled.
 
-        Args:
-            callback: The coroutine(?) function or a function to be called.
-        
-        Returns:
-            The registered callback.
+        Parameters
+        ----------
+            callback: Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
+                The coroutine(?) function or a function to be called.
         """
         self._after_request = callback
         return callback
@@ -203,16 +218,21 @@ class Middleware(Object):
     """
     A middleware object.
 
-    Attributes:
-        callback: The coroutine(?) function used by the middleware.
+    Parameters
+    ----------
+    callback: CoroFunc
+        The coroutine(?) function used by the middleware.
+    route: Optional[:class:`~railway.objects.Route`]
+        The route to register the middleware with.
+    router: Optional[:class:`~railway.router.Router`]
+        The router to register the middleware with.
+
+    Attributes
+    ----------
+    callback: CoroFunc
+        The coroutine(?) function used by the middleware.
     """
-    def __init__(self, callback: CoroFunc, route: Optional[Route]=None, router: Optional[Router]=None) -> None:
-        """
-        Args:
-            callback: The coroutine(?) function used by the middleware.
-            route: The route to register the middleware with.
-            router: The router to register the middleware with.
-        """
+    def __init__(self, callback: CoroFunc, route: Optional[Route]=None, router: Optional['Router']=None) -> None:
         self.callback: CoroFunc = callback
 
         self._router = router
@@ -223,8 +243,7 @@ class Middleware(Object):
     @property
     def router(self) -> Optional[Router]:
         """
-        Returns:
-            The router used to register the middleware with.
+        The router used to register the middleware with.
         """
         return self._router
 
@@ -236,10 +255,9 @@ class Middleware(Object):
         self._router = value
 
     @property
-    def route(self) -> Optional[Route]:
+    def route(self) -> Optional['Route']:
         """
-        Returns:
-            The route used to register the middleware with.
+        The route used to register the middleware with.
         """
         return self._route
 
@@ -249,6 +267,7 @@ class Middleware(Object):
             raise TypeError('route must be a Route instance')
 
         self._route = value
+        self.attach(value)
 
     @route.deleter
     def route(self):
@@ -256,15 +275,13 @@ class Middleware(Object):
 
     def is_global(self) -> bool:
         """
-        Returns:
-            True if the middleware is registered with the global router.
+        True if the middleware is registered with the global router.
         """
         return self._is_global
 
     def is_route_specific(self) -> bool:
         """
-        Returns:
-            True if the middleware is registered with a route.
+        True if the middleware is registered with a route.
         """
         return not self.is_global()
 
@@ -285,8 +302,10 @@ class Middleware(Object):
         """
         Attaches the middleware to a route.
 
-        Args:
-            route: The [Route](./objects.md) to attach the middleware to.
+        Parameters
+        ----------
+            route: :class:`~railway.objects.Route`
+                The route to attach the middleware to.
         """
         if self.is_global():
             raise RegistrationError('Global middlewares can not be attached to a route')
@@ -301,7 +320,7 @@ class Middleware(Object):
 
 class WebsocketRoute(Route):
     """
-    A subclass of `Route` representing a websocket route
+    A subclass of :class:`~railway.objects.Route` representing a websocket route
     """
     pass
 
@@ -309,9 +328,19 @@ class Listener(Object):
     """
     A listener object.
 
-    Attributes:
-        callback: The coroutine(?) function used by the listener.
-        event: The event the listener is registered to.
+    Parameters
+    ----------
+        callback: Callable[..., Coroutine[Any, Any, Any]]
+            The coroutine(?) function used by the listener.
+        event: :class:`str`
+            The event the listener is registered to.
+
+    Attributes
+    ----------
+        callback: Callable[..., Coroutine[Any, Any, Any]]
+            The coroutine(?) function used by the listener.
+        event: :class:`str`
+            The event the listener is registered to.
     """
     def __init__(self, callback: CoroFunc, name: str) -> None:
         self.event: str = name
@@ -322,11 +351,14 @@ class Listener(Object):
 
 def route(path: str, method: str) -> Callable[[CoroFunc], Route]:
     """
-    A decorator that returns a [Route](./objects.md) object.
+    A decorator that returns a :class:`~railway.objects.Route` object.
 
-    Args:
-        path: The path to register the route with.
-        method: The HTTP method to register the route with.
+    Parameters
+    ----------
+    path: :class:`str`
+        The path to register the route with.
+    method: :class:`str`
+        The HTTP method to register the route with.
     """
     def decorator(func: CoroFunc) -> Route:
         
@@ -338,10 +370,12 @@ def route(path: str, method: str) -> Callable[[CoroFunc], Route]:
 
 def websocket_route(path: str) -> Callable[[CoroFunc], WebsocketRoute]:
     """
-    A decorator that returns a [WebsocketRoute](./objects.md) object.
+    A decorator that returns a :class:`~railway.objects.WebsocketRoute` object.
 
-    Args:
-        path: The path to register the route with.
+    Parameters
+    ----------
+    path: :class:`str`
+        The path to register the route with.
     
     """
     def decorator(func: CoroFunc) -> WebsocketRoute:
@@ -350,10 +384,12 @@ def websocket_route(path: str) -> Callable[[CoroFunc], WebsocketRoute]:
 
 def listener(event: str=None) -> Callable[[CoroFunc], Listener]:
     """
-    A decorator that returns a [Listener](./objects.md) object.
+    A decorator that returns a :class:`~railway.objects.Listener` object.
 
-    Args:
-        event: The event to register the listener to.
+    Parameters
+    ----------
+    event: :class:`str`
+        The event to register the listener to.
     """
     def decorator(func: CoroFunc) -> Listener:
         return Listener(func, event or func.__name__)
@@ -361,10 +397,11 @@ def listener(event: str=None) -> Callable[[CoroFunc], Listener]:
 
 def middleware(callback: CoroFunc) -> Middleware:
     """
-    A decorator that returns a global [Middleware](./objects.md) object.
+    A decorator that returns a global :class:`~railway.objects.Middleware` object.
 
-    Args:
-        callback: The coroutine(?) function used by the middleware.
+    Parameters:
+        callback: CoroFunc
+            The coroutine(?) function used by the middleware.
     """
     middleware = Middleware(callback)
     middleware._is_global = True

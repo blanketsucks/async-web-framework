@@ -26,7 +26,7 @@ import ssl
 from typing import Any, Union, List, Optional
 import socket
 
-from railway.stream import StreamWriter, StreamReader
+from railway.streams import StreamTransport
 from railway import compat
 
 __all__ = (
@@ -48,8 +48,7 @@ class ClientProtocol(asyncio.Protocol):
     def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
         self.loop = loop
 
-        self.reader = None
-        self.writer = None
+        self.transport = None
 
         self.waiter = None
 
@@ -57,32 +56,28 @@ class ClientProtocol(asyncio.Protocol):
         return self
 
     def connection_made(self, transport: asyncio.Transport) -> None: # type: ignore
-        self.reader = StreamReader()
-        self.writer = StreamWriter(transport)
-
+        self.transport = StreamTransport(transport)
         self.waiter = self.loop.create_future()
 
     def data_received(self, data: bytes) -> None:
-        if not self.reader:
+        if not self.transport:
             return
 
-        self.reader.feed_data(data)
+        self.transport.feed_data(data)
 
     def pause_writing(self) -> None:
-        if not self.writer:
+        if not self.transport:
             return
 
-        writer = self.writer
-        writer._waiter = self.loop.create_future() # type: ignore
+        writer = self.transport._writer
+        if not writer._waiter:
+            writer._waiter = self.loop.create_future() # type: ignore
     
     def resume_writing(self) -> None:
-        if not self.writer:
+        if not self.transport:
             return
 
-        writer = self.writer
-
-        if writer._waiter: # type: ignore
-            writer._waiter.set_result(None) # type: ignore
+        self.transport._wakeup_writer()
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
         if exc:
@@ -205,7 +200,7 @@ class Client:
         """
         Writes data to the transport.
 
-        Args:
+        Parameters:
             data: The data to write.
             timeout: The timeout to use.
 
@@ -213,13 +208,13 @@ class Client:
             asyncio.TimeoutError: If the timeout is exceeded.
         """
         self._ensure_connection()
-        await self._protocol.writer.write(data, timeout=timeout) # type: ignore
+        await self._protocol.transport.write(data, timeout=timeout) # type: ignore
     
     async def writelines(self, data: List[Union[bytearray, bytes]], *, timeout: Optional[float]=None):
         """
         Writes a list of data to the transport.
 
-        Args:
+        Parameters:
             data: The data to write.
             timeout: The timeout to use.
 
@@ -227,13 +222,13 @@ class Client:
             asyncio.TimeoutError: If the timeout is exceeded.
         """
         self._ensure_connection()
-        await self._protocol.writer.writelines(data, timeout=timeout) # type: ignore
+        await self._protocol.transport.writelines(data, timeout=timeout) # type: ignore
 
     async def receive(self, nbytes: Optional[int]=None, *, timeout: Optional[float]=None) -> bytes:
         """
         Reads data from the transport.
 
-        Args:
+        Parameters:
             nbytes: The number of bytes to read.
             timeout: The timeout to use.
 
@@ -244,7 +239,7 @@ class Client:
             asyncio.TimeoutError: If the timeout is exceeded.
         """
         self._ensure_connection()
-        return await self._protocol.reader.read(nbytes, timeout=timeout) # type: ignore
+        return await self._protocol.transport.read(nbytes, timeout=timeout) # type: ignore
 
     async def close(self) -> None:
         """
@@ -252,7 +247,7 @@ class Client:
         """
         self._ensure_connection()
 
-        self._protocol.writer.close() # type: ignore
+        self._protocol.transport.close() # type: ignore
         await self._protocol.wait_for_close() # type: ignore
 
         self._closed = True
@@ -267,7 +262,7 @@ def create_connection(
     """
     A helper function to create a client.
 
-    Args:
+    Parameters:
         host: The host to connect to.
         port: The port to connect to.
         ssl_context: The SSL context to use.

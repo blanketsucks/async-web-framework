@@ -42,7 +42,7 @@ class File:
         """
         File constructor.
 
-        Args:
+        Parameters:
             fp: Can be either `str`, `pathlib.Path` or an `io.BytesIO` object.
             filename: The name of the file.
         """
@@ -77,7 +77,7 @@ class File:
         """
         Saves the file as `name`.
 
-        Args:
+        Parameters:
             name: The name of the file.
         """
         loop = compat.get_running_loop()

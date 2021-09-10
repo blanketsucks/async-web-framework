@@ -29,11 +29,29 @@ if TYPE_CHECKING:
 
 class Cookie:
     """
-    Attributes:
-        name: The name of the cookie.
-        value: The value of the cookie.
-        http_only: Whether the cookie is http only.
-        secure: Whether the cookie is marked as secure.
+    Parameters
+    ----------
+    name: :class:`str`
+        The name of the cookie.
+    value: :class:`str`
+        The value of the cookie.
+    domain: Optional[:class:`str`]
+        The domain of the cookie.
+    http_only: :class:`bool`
+        Whether the cookie is http only.
+    secure: :class:`bool`
+        Whether the cookie is marked as secure.
+
+    Attributes
+    ----------
+    name: :class:`str`
+        The name of the cookie.
+    value: :class:`str`
+        The value of the cookie.
+    http_only: :class:`bool`
+        Whether the cookie is http only.
+    secure: :class:`bool`
+        Whether the cookie is marked as secure.
     """
     def __init__(self, 
                 name: str, 
@@ -51,8 +69,10 @@ class Cookie:
         """
         Sets the cookie's domain
 
-        Args:
-            domain: The domain to set the cookie to.
+        Parameters
+        ----------
+        domain: :class:`str`
+            The domain to set the cookie to.
         """
         self._domain = domain
 
@@ -71,17 +91,16 @@ class CookieJar:
         self._cookies: Dict[str, Cookie] = {}
 
     @classmethod
-    def from_request(cls, request: 'Request') -> CookieJar:
+    def from_request(cls, request: Request) -> CookieJar:
         """
         Builds a cookie jar from a request.
 
-        Args:
-            request: The request to build the cookie jar from.
-
-        Returns:
-            A cookie jar containing the cookies from the request.
+        Parameters
+        ----------
+        request: :class:`~railway.request.Request`
+            The request to build the cookie jar from.
         """
-        header = request.headers.get('Cookie', '')
+        header: str = request.headers.get('Cookie')
         if not header:
             return cls()
 
@@ -98,12 +117,18 @@ class CookieJar:
         """
         Adds a cookie to the jar
 
-        Args:
-            name: The name of the cookie
-            value: The value of the cookie
-            domain: The domain of the cookie
-            http_only: Whether the cookie is http only
-            is_secure: Whether the cookie is secure
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the cookie
+        value: :class:`str`
+            The value of the cookie
+        domain: Optional[:class:`str`]
+            The domain of the cookie
+        http_only: :class:`bool`
+            Whether the cookie is http only
+        is_secure: :class:`bool`
+            Whether the cookie is secure
         """
         cookie = Cookie(
             name=name, 
@@ -120,8 +145,10 @@ class CookieJar:
         """
         Gets a cookie from the jar.
 
-        Args:
-            name: The name of the cookie to get.
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the cookie to get.
         """
         return self._cookies.get(name)
 

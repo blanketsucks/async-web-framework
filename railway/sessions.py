@@ -40,7 +40,7 @@ class CookieSession(Dict[str, Any]):
         Creates a new session with the given ID.
         If a session with the given ID already exists, it is returned instead.
 
-        Args:
+        Parameters:
             session_id: The ID of the session. (meaning the value of the cookie used)
 
         Returns:
@@ -55,7 +55,7 @@ class CookieSession(Dict[str, Any]):
         """
         Returns a session from the given request.
 
-        Args:
+        Parameters:
             request: The request to get the session from.
 
         Returns:

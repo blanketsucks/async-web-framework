@@ -93,7 +93,7 @@ class FormData:
         """
         Add a file to the form data.
 
-        Args:
+        Parameters:
             file: A [File](./file.md) object.
             disposition: A [Disposition](./formdata.md) object.
         """
@@ -104,7 +104,7 @@ class FormData:
         """
         Creates a form data object from a request.
 
-        Args:
+        Parameters:
             request: A [Request](./request.md) object.
         
         Returns:

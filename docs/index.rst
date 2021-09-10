@@ -6,13 +6,7 @@
 Welcome to Railway's documentation!
 ===================================
 
-.. toctree::
-   :maxdepth: 2
-   :caption: Contents:
-
-   api
-
-
+pog
 
 Indices and tables
 ==================
@@ -20,3 +14,11 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+
+
+Contents
+========
+.. toctree::
+   :maxdepth: 2
+
+   api

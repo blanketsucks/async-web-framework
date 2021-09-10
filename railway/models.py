@@ -202,7 +202,7 @@ class Model(metaclass=ModelMeta):
         """
         Makes the model from a JSON object.
 
-        Args
+        Parameters
         ----
         data: :class:`dict`
             The JSON object.

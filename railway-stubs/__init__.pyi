@@ -15,7 +15,7 @@ from .templates import *
 from .models import *
 from .workers import *
 from .testclient import *
-from .stream import *
+from .streams import *
 from .ratelimits import *
 from .injectables import *
 from .resources import *

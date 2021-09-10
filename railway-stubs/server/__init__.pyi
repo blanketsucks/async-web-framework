@@ -3,7 +3,7 @@ import pathlib
 import socket
 import sys
 import ssl
-from railway.stream import StreamReader, StreamWriter
+from railway.streams import StreamReader, StreamWriter
 from railway._types import peer
 from typing import Any, Dict, List, Optional, Tuple, Union
 

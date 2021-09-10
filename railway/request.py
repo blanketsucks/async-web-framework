@@ -50,14 +50,22 @@ class Request:
     """
     A request that is sent to the server.
 
-    Attributes:
-        method: The HTTP method.
-        version: The HTTP version.
-        headers: The HTTP headers.
-        created_at: The time the request was created.
-        route: The [Route](./objects.md) that the request was sent to.
-        worker: The [Worker](./workers.md) that the request was sent to.
-        connection: The [ClientConnection](s) that the request was sent to.
+    Attributes
+    ----------
+    method: :class:`str`
+        The HTTP method.
+    version: :class:`str`
+        The HTTP version.
+    headers: :class:`dict`
+        The HTTP headers.
+    created_at: :class:`datetime.datetime`
+        The time the request was created.
+    route: :class:`~railway.objects.Route`
+        The route that the request was sent to.
+    worker: 
+        The worker that the request was sent to.
+    connection: 
+        The connection that the request was sent to.
     """
     __slots__ = (
         '_encoding', 'version', 'method', 'worker', 'connection',
@@ -91,8 +99,14 @@ class Request:
         """
         Sends a response to the client.
 
-        Args:
-            response: The response to send.
+        Parameters
+        ----------
+        response: 
+            The response to send.
+
+        Raises
+        ------
+        ValueError: If the response is not parsable.
         """
         data = await self.app.parse_response(response)
         await self.worker.write(
@@ -111,32 +125,28 @@ class Request:
 
     def is_closed(self) -> bool:
         """
-        Returns:
-            True if the connection is closed.
+        True if the connection is closed.
         """
         return self.connection.is_closed()
 
     @property
     def app(self) -> Application:
         """
-        Returns:
-            The [Application](./application.md) that the request was sent to.
+        The application.
         """
         return self._app
 
     @property
     def url(self) -> URL:
         """
-        Returns:
-            The [URL](./datastructures.md) of the request.
+        The URL of the request.
         """
         return URL(self._url)
 
     @property
     def cookies(self) -> Dict[str, str]:
         """
-        Returns:
-            The cookies of the request.
+        The cookies of the request.
         """
         jar = self.cookie_jar
         self._cookies = {
@@ -148,85 +158,74 @@ class Request:
     @property
     def cookie_jar(self) -> CookieJar:
         """
-        Returns:
-            The [CookieJar](./cookies.md) of the request.
+        The cookie jar of the request.
         """
         return CookieJar.from_request(self)
 
     @property
     def session(self) -> CookieSession:
         """
-        Returns:
-            The [CookieSession](./cookies.md) of the request.
+        The cookie session of the request.
         """
         return CookieSession.from_request(self)
 
     @property
     def user_agent(self) -> str:
         """
-        Returns:
-            The user agent of the request.
+        The user agent of the request.
         """
         return self.headers.get('User-Agent')
 
     @property
     def content_type(self) -> str:
         """
-        Returns:
-            The content type of the request.
+        The content type of the request.
         """
         return self.headers.get('Content-Type')
 
     @property
     def host(self) -> str:
         """
-        Returns:
-            The host of the request.
+        The host of the request.
         """
         return self.headers.get('Host')
 
     @property
     def query(self) -> Dict[str, str]:
         """
-        Returns:
-            The query dict of the request.
+        The query dict of the request.
         """
         return self.url.query
 
     @property
     def client_ip(self) -> str:
         """
-        Returns:
-            The IP address of the client.
+        The IP address of the client.
         """
         return self.connection.peername[0]
 
     @property
     def server_ip(self) -> str:
         """
-        Returns:
-            The IP address of the server.
+        The IP address of the server.
         """
         return self.connection.sockname[0]
 
     def text(self) -> str:
         """
-        Returns:
-            The text of the request.
+        The text of the request.
         """
         return self._body.decode() if isinstance(self._body, (bytes, bytearray)) else self._body
 
     def json(self) -> Dict[str, Any]:
         """
-        Returns:
-            The JSON body of the request.
+        The JSON body of the request.
         """
         return json.loads(self.text())
 
     def form(self) -> FormData:
         """
-        Returns:
-            The body as a [FormData](./formdata.md) object.
+        The form data of the request.
         """
         return FormData.from_request(self)
 
@@ -240,7 +239,8 @@ class Request:
         """
         Redirects a request to another URL.
 
-        Args:
+        Parameters
+        ----------
             to: The URL to redirect to.
             body: The body of the response.
             headers: The headers of the response.

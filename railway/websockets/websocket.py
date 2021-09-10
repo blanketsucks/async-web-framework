@@ -25,7 +25,7 @@ from typing import Any, Dict, Tuple, Optional
 import json
 
 from .frame import WebSocketFrame, WebSocketOpcode, Data, WebSocketCloseCode
-from railway.stream import StreamReader, StreamWriter
+from railway.streams import StreamReader, StreamWriter
 
 __all__ = (
     'ServerWebsocket',

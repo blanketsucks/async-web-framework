@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import asyncio
+from asyncio.streams import StreamReader
 import pathlib
 import io
 import sys
@@ -29,7 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import ssl
 import socket
 
-from railway.stream import StreamWriter, StreamReader
+from railway.streams import StreamTransport
 from railway import compat, utils
 
 __all__ = [
@@ -57,8 +58,7 @@ class ServerProtocol(asyncio.Protocol):
     def __init__(self, loop: asyncio.AbstractEventLoop, max_connections: int) -> None:
         self.loop = loop
 
-        self.readers: Dict[Tuple[str, int], StreamReader] = {}
-        self.writers: Dict[Tuple[str, int], StreamWriter] = {}
+        self.transports: Dict[Tuple[str, int], StreamTransport] = {}
         self.waiters: Dict[Tuple[str, int], asyncio.Future[None]] = {}
 
         self.pending: asyncio.Queue[asyncio.Transport] = asyncio.Queue(
@@ -78,11 +78,8 @@ class ServerProtocol(asyncio.Protocol):
             self.transport.close()
             raise ConnectionAbortedError('Too many connections')
 
-        reader = StreamReader(self.loop)
-        writer = StreamWriter(transport)
 
-        self.readers[peername] = reader
-        self.writers[peername] = writer
+        self.transports[peername] = StreamTransport(transport)
         self.waiters[peername] = self.loop.create_future()
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
@@ -95,55 +92,51 @@ class ServerProtocol(asyncio.Protocol):
         if waiter:
             waiter.set_result(None)
 
-        self.readers.pop(peername, None)
-        self.writers.pop(peername, None)
+        self.transports.pop(peername, None)
 
-    def get_reader(self, peername: Tuple[str, int]) -> Optional[StreamReader]:
-        return self.readers.get(peername)
-
-    def get_writer(self, peername: Tuple[str, int]) -> Optional[StreamWriter]:
-        return self.writers.get(peername)
+    def get_transport(self, peername: Tuple[str, int]) -> Optional[StreamTransport]:
+        return self.transports.get(peername)
 
     def get_waiter(self, peername: Tuple[str, int]) -> Optional['asyncio.Future[None]']:
         return self.waiters.get(peername)
 
     def data_received(self, data: bytes) -> None:
         peername = self.transport.get_extra_info('peername')
-        reader = self.get_reader(peername)
+        transport = self.get_transport(peername)
 
-        if not reader:
-            reader = StreamReader(self.loop)
-            self.readers[peername] = reader
+        if not transport:
+            return
 
-        reader.feed_data(data)
+        transport.feed_data(data)
 
     def pause_writing(self) -> None:
         peername = self.transport.get_extra_info('peername')
-        writer = self.get_writer(peername)
+        transport = self.get_transport(peername)
 
-        if not writer:
+        if not transport:
             return
 
-        writer._waiter = self.loop.create_future() # type: ignore
+        waiter = transport._writer._waiter
+        if not waiter:
+            transport._writer._waiter = self.loop.create_future()
     
     def resume_writing(self) -> None:
         peername = self.transport.get_extra_info('peername')
-        writer = self.get_writer(peername)
+        transport = self.get_transport(peername)
 
-        if not writer:
-            writer = StreamWriter(self.transport)
-            self.writers[peername] = writer
+        if not transport:
+            return
  
-        writer._waiter.set_result(None) # type: ignore
+        transport._wakeup_writer() 
 
     def eof_received(self) -> None:
         peername = self.transport.get_extra_info('peername')
-        reader = self.get_reader(peername)
+        transport = self.get_transport(peername)
 
-        if not reader:
+        if not transport:
             return
 
-        reader.feed_eof()
+        transport.feed_eof()
 
 class ClientConnection:
     """
@@ -156,11 +149,9 @@ class ClientConnection:
     """
     def __init__(self, 
                 protocol: ServerProtocol, 
-                writer: StreamWriter,
-                reader: StreamReader, 
+                transport: StreamTransport,
                 loop: asyncio.AbstractEventLoop) -> None:
-        self._reader = reader
-        self._writer = writer
+        self._transport = transport
         self._protocol = protocol
         self.loop = loop
         self._closed = False
@@ -188,7 +179,7 @@ class ClientConnection:
         Returns:
             The peername of the connection.
         """
-        return self._writer.get_extra_info('peername')
+        return self._transport.get_extra_info('peername')
 
     @property
     def sockname(self) -> Tuple[str, int]:
@@ -196,7 +187,7 @@ class ClientConnection:
         Returns:
             The sockname of the connection.
         """
-        return self._writer.get_extra_info('sockname')
+        return self._transport.get_extra_info('sockname')
 
     def is_closed(self) -> bool:
         """
@@ -209,7 +200,7 @@ class ClientConnection:
         """
         Receives data from the connection.
 
-        Args:
+        Parameters:
             nbytes: The number of bytes to receive..
             timeout: The maximum time to wait for the data to be received.
 
@@ -219,34 +210,34 @@ class ClientConnection:
         Raises:
             asyncio.TimeoutError: If the data could not be received in time.
         """
-        data = await self._reader.read(nbytes=nbytes, timeout=timeout)
+        data = await self._transport.read(nbytes=nbytes, timeout=timeout)
         return data
     
     async def write(self, data: bytes) -> int:
         """
         Writes data to the connection.
 
-        Args:
+        Parameters:
             data: The data to write.
 
         Returns:
             The number of bytes written.
 
         """
-        await self._writer.write(data)
+        await self._transport.write(data)
         return len(data)
 
     async def writelines(self, data: List[bytes]) -> int:
         """
         Writes a list of data to the connection.
 
-        Args:
+        Parameters:
             data: The data to write.
 
         Returns:
             The number of bytes written.
         """
-        await self._writer.writelines(data)
+        await self._transport.writelines(data)
         return len(b''.join(data))
 
     async def sendfile(self, 
@@ -258,7 +249,7 @@ class ClientConnection:
         """
         Sends a file to the client.
 
-        Args:
+        Parameters:
             path: The path to the file to send.
             offset: The offset in the file to start sending from.
             count: The number of bytes to send.
@@ -276,7 +267,7 @@ class ClientConnection:
 
         data = await self.loop.run_in_executor(None, read, path)
         return await self.loop.sendfile(
-            transport=self._writer._transport, # type: ignore
+            transport=self._transport._transport, # type: ignore
             file=io.BytesIO(data),
             offset=offset,
             count=count,
@@ -287,7 +278,7 @@ class ClientConnection:
         """
         Closes the connection.
         """
-        self._writer.close()
+        self._transport.close()
         waiter = self.protocol.get_waiter(self.peername)
         if waiter:
             await waiter
@@ -330,7 +321,7 @@ class BaseServer:
                 is_ssl: Optional[bool]=False,
                 ssl_context: Optional[ssl.SSLContext]=None) -> None:
         """
-        Args:
+        Parameters:
             max_connections: The maximum number of connections to keep pending.
             loop: The event loop used.
             is_ssl: Whether to use SSL.
@@ -408,7 +399,7 @@ class BaseServer:
         """
         Accepts an incoming connection.
 
-        Args:
+        Parameters:
             timeout: The timeout to wait for a connection.
 
         Returns:
@@ -422,20 +413,15 @@ class BaseServer:
         if self._server is None:
             raise RuntimeError('Server not started')
 
-        transport = await asyncio.wait_for(
+        original = await asyncio.wait_for(
             fut=protocol.pending.get(),
             timeout=timeout,
         )
-        peername = transport.get_extra_info('peername')
+        peername = original.get_extra_info('peername')
+        transport = protocol.get_transport(peername)
 
-        reader = protocol.get_reader(peername)
-        writer = protocol.get_writer(peername)
-
-        if not reader:
-            return
-
-        if not writer:
-            return
+        if transport is None:
+            return None
 
         # if self.is_ssl() and self._ssl_context is not None:
         #     transport = await self.loop.start_tls(
@@ -447,9 +433,8 @@ class BaseServer:
 
         # print('?')
         return ClientConnection(
-            writer=writer,
             protocol=protocol, 
-            reader=reader, 
+            transport=transport,
             loop=self.loop
         )
 
@@ -504,7 +489,7 @@ class TCPServer(BaseServer):
         """
         Starts the server.
 
-        Args:
+        Parameters:
             sock: The socket to use.
 
         Returns:
@@ -541,7 +526,7 @@ def create_server(
     """
     A helper function to create a server.
 
-    Args:
+    Parameters:
         host: The host to listen on.
         port: The port to listen on.
         ipv6: Whether to use IPv6.
@@ -579,7 +564,7 @@ if sys.platform != 'win32':
                     is_ssl: bool=None, 
                     ssl_context: Optional[ssl.SSLContext]=None) -> None:
             """
-            Args:
+            Parameters:
                 path: The path of the socket to listen on.
                 max_connections: The maximum number of connections to keep pending.
                 loop: The event loop used.
@@ -631,7 +616,7 @@ if sys.platform != 'win32':
         """
         A helper function to create a UNIX server.
 
-        Args:
+        Parameters:
             path: The path of the socket to listen on.
             max_connections: The maximum number of connections to keep pending.
             loop: The event loop used.

@@ -28,7 +28,8 @@ from . import compat
 
 __all__ = (
     'StreamWriter',
-    'StreamReader'
+    'StreamReader',
+    'StreamTransport'
 )
 
 class StreamWriter:
@@ -36,11 +37,13 @@ class StreamWriter:
         """
         StreamWriter constructor.
 
-        Args:
+        Parameters:
             transport: an `asyncio.Transport`
         """
         self._transport = transport
         self._waiter: 'Optional[asyncio.Future[None]]' = None
+
+        self._loop = compat.get_running_loop()
 
     @property
     def transport(self) -> asyncio.Transport:
@@ -59,11 +62,15 @@ class StreamWriter:
         finally:
             self._waiter = None
 
+    def _wakeup_waiter(self):
+        if self._waiter:
+            self._waiter.set_result(None)
+
     async def write(self, data: Union[bytearray, bytes], *, timeout: float=None) -> None:
         """
         Writes data to the transport.
 
-        Args:
+        Parameters:
             data: data to write.
             timeout: timeout to wait for the write to complete.
 
@@ -71,13 +78,15 @@ class StreamWriter:
             asyncio.TimeoutError: if the timeout expires.
         """
         self._transport.write(data)
+
+        self._waiter = self._loop.create_future()
         await self._wait_for_drain(timeout)
 
     async def writelines(self, data: List[Union[bytearray, bytes]], *, timeout: float=None) -> None:
         """
         Writes a list of data to the transport.
 
-        Args:
+        Parameters:
             data: list of data to write.
             timeout: timeout to wait for the write to complete.
 
@@ -91,7 +100,7 @@ class StreamWriter:
         """
         Get optional transport information.
 
-        Args:
+        Parameters:
             name: the name of the information.
             default: the default value to return if the information is not available.
         
@@ -160,7 +169,7 @@ class StreamReader:
         """
         StreamReader constructor.
 
-        Args:
+        Parameters:
             loop: an `asyncio.AbstractEventLoop`
         """
         self.buffer: bytearray = bytearray()
@@ -180,7 +189,7 @@ class StreamReader:
         """
         Feeds the data to the reader.
 
-        Args:
+        Parameters:
             data: data to be fed.
         """
         self.buffer.extend(data)
@@ -198,7 +207,7 @@ class StreamReader:
         """
         Reads `nbytes` from the stream. If `nbytes` is not provided, reads the whole stream.
 
-        Args:
+        Parameters:
             nbytes: Number of bytes to read.
             timeout: Timeout to wait for the read to complete.
 
@@ -224,3 +233,47 @@ class StreamReader:
         self.buffer = self.buffer[nbytes:]
 
         return bytes(data)
+
+class StreamTransport:
+    """
+    A wrapper around a :class:`asyncio.Transport` that provides
+    :class:`~railway.streams.StreamWriter` and :class:`~railway.streams.StreamReader` functionality
+    """
+    def __init__(self, transport: asyncio.Transport) -> None:
+        self._transport = transport
+        self._writer = StreamWriter(transport)
+        self._reader = StreamReader()
+    
+    def _wakeup_writer(self):
+        self._writer._wakeup_waiter()
+
+    def get_extra_info(self, name: str, default: Any=None) -> Any:
+        return self._writer.get_extra_info(name, default)
+
+    def close(self):
+        self._writer.close()
+
+    def abort(self):
+        return self._transport.abort()
+
+    def is_closing(self):
+        return self._transport.is_closing()
+
+    def is_reading(self):
+        return self._transport.is_reading()
+
+    def feed_data(self, data: Union[bytes, bytearray]):
+        self._reader.feed_data(data)
+
+    def feed_eof(self):
+        self._reader.feed_eof()
+
+    async def receive(self, nbytes: Optional[int]=None, *, timeout: Optional[float]=None) -> bytes:
+        return await self._reader.read(nbytes, timeout=timeout)
+
+    async def write(self, data: Union[bytearray, bytes], *, timeout: Optional[float]=None):
+        await self._writer.write(data, timeout=timeout)
+
+    async def writelines(self, data: List[Union[bytearray, bytes]], *, timeout: Optional[float]=None):
+        await self._writer.writelines(data, timeout=timeout)
+    

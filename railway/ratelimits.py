@@ -56,7 +56,7 @@ class Key:
         """
         Updates the ratelimit.
 
-        Args:
+        Parameters:
             current: The current time.
         """
         current = current or time.time()
@@ -92,7 +92,7 @@ class Key:
         """
         Gets the remaining time.
 
-        Args:
+        Parameters:
             current: The current time.
 
         Returns:
@@ -133,7 +133,7 @@ class Bucket:
         """
         Adds a [Key](ratelimits.md) to the bucket.
 
-        Args:
+        Parameters:
             value: The value of that key to add.
 
         Returns:
@@ -155,7 +155,7 @@ class Bucket:
         """
         Updates the ratelimit for a [Key](ratelimits.md).
 
-        Args:
+        Parameters:
             request: The [Request](./request.md) object.
             value: The value of that key.
 
@@ -193,7 +193,7 @@ class RatelimiteHandler:
         """
         Adds a [Bucket](./ratelimits.md) to the handler.
 
-        Args:
+        Parameters:
             path: The path to the bucket.
             rate: The rate limit per second.
             per: The time window in seconds.
@@ -207,7 +207,7 @@ class RatelimiteHandler:
         """
         Gets a [Bucket](ratelimits.md) from the handler.
 
-        Args:
+        Parameters:
             path: The path to the bucket.
         """
         return self._buckets.get(path)

@@ -1,5 +1,5 @@
 import asyncio
-from railway.stream import StreamReader, StreamWriter
+from railway.streams import StreamReader, StreamWriter
 import socket
 import ssl
 from typing import Any, List, Optional, Union

@@ -59,7 +59,7 @@ __all__ = (
 )
 
 
-class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
+class Application(Injectable, metaclass=InjectableMeta):
     """
     A class respreseting an ASGI application.
 
@@ -106,6 +106,19 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         An optional bool indicating whether to use SSL.
     ssl_context: :class:`ssl.SSLContext`
         An optional :class:`ssl.SSLContext` instance.
+
+    Raises
+    ------
+    RuntimeError
+        If ``ipv6`` was specified and the system does not support it. |br|
+        If ``sock`` was specified and the socket does not have ``SO_REUSEADDR`` enabled.
+    TypeError
+        If ``port`` is not a valid integer. This can from either the constructor or the settings. |br|
+        If ``worker_count`` is not a valid integer. |br|
+        If ``sock`` was specified and it is not a valid :class:`socket.socket` instance.
+    ValueError 
+        If ``host`` is not a valid IP. This can from either the constructor or the settings. |br|
+        If ``worker_count`` is an integer less than 0.
 
     Attributes
     -----------
@@ -205,6 +218,9 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
     async def __aenter__(self) -> 'Application':
         self.start()
         return self
+
+    async def __aexit__(self, *args):
+        await self.close()
 
     def _verify_settings(self):
         settings = self.settings
@@ -342,15 +358,14 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Parses a response to a usable `Response` instance.
 
-        Args:
-            response: A response to be parsed.
+        Parameters
+        ----------
+            response: 
+                A response to be parsed.
 
-        Returns:
-            A usable `Response` instance.
-
-        Raises:
+        Raises
+        ------
             ValueError: If the response is not parsable.
-        
         """
         status = 200
 
@@ -551,7 +566,8 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
             obj: :class:`~railway.injectables.Injectable` 
                 The object to inject.
 
-        Raises:
+        Raises
+        ------
             TypeError: If the object is not an instance of :class:`~railway.injectables.Injectable`.   
         """
 
@@ -567,6 +583,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
             for middleware in route.middlewares:
                 middleware.callback = functools.partial(middleware.callback, obj)
 
+            route._router = self.router
             self.add_route(route)
 
         for listener in obj.__listeners__:
@@ -588,7 +605,8 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
             obj: :class:`~railway.injectables.Injectable` 
                 The object to eject.
 
-        Raises:
+        Raises
+        ------
             TypeError: If the object is not an instance of :class:`~railway.injectables.Injectable`.   
         """
         if not isinstance(obj, Injectable):
@@ -790,7 +808,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Applies a router's routes and middlewares to the application.
 
-        Parameter
+        Parameters
         ----------
             router: :class:`~railway.router.Router`
                 The router to apply.
@@ -931,11 +949,9 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Removes a route from the application.
         
-        Args:
-            route: The route to remove.
-
-        Returns:
-            The route that was removed.
+        Parameters
+            route: :class:`~railway.objects.Route`
+            The route to remove.
         """
         self.router.routes.pop((route.path, route.method))
         return route
@@ -944,14 +960,16 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Adds an event listener to the application.
 
-        Args:
-            coro: Callable[..., Coroutine]
+        Parameters
+        ----------
+            coro: Callable[..., Coroutine[Any, Any, Any]]
                 The coroutine function to add as an event listener.
             name: Optional[:class:`str`]
                 The name of the event to listen for. 
                 If not given, it takes the name of the function passed in instead
 
-        Raises:
+        Raises
+        ----------
             RegistrationError: If the ``coro`` argument that was passed in is not a proper coroutine function.
         """
         if not inspect.iscoroutinefunction(coro):
@@ -971,7 +989,8 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Removes a listener from the application.
 
-        Args:
+        Parameters
+        ----------
             listener: :class:`~railway.objects.Listener`
                 The listener to remove.
         """
@@ -982,10 +1001,12 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         A decorator that adds an event listener to the application.
 
-        Args:
+        Parameters
+        ----------
             name: The name of the event to listen for, if nothing was passed in the name of the function is used.
 
-        Example:
+        Example
+        ----------
             .. code-block :: python3
 
                 @app.event('on_startup')
@@ -1023,8 +1044,10 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Adds a view to the application.
 
-        Args:
-            view: The [HTTPView](./views.md) to add.
+        Parameters
+        ----------
+            view: :class:`~railway.views.HTTPView`
+                The view to add.
 
         Returns:
             The view that was added.
@@ -1048,7 +1071,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Removes a view from the application.
 
-        Args:
+        Parameters:
             path: The path of the view to remove.
 
         Returns:
@@ -1065,7 +1088,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Gets a view from the application.
 
-        Args:
+        Parameters:
             path: The path of the view to get.
 
         Returns:
@@ -1077,7 +1100,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         A decorator that adds a view to the application.
 
-        Args:
+        Parameters:
             path: The path of the view to add.
 
         Example:
@@ -1102,7 +1125,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Adds a resource to the application.
 
-        Args:
+        Parameters:
             resource: The [Resource](./resources.md) to add.
 
         Returns:
@@ -1124,7 +1147,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Removes a resource from the application.
 
-        Args:
+        Parameters:
             name: The name of the resource to remove.
 
         Returns:
@@ -1141,7 +1164,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Gets a resource from the application.
 
-        Args:
+        Parameters:
             name: The name of the resource to get.
         
         Returns:
@@ -1153,7 +1176,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         A decorator that adds a resource to the application.
 
-        Args:
+        Parameters:
             name: The name of the resource to add.
 
         Returns:
@@ -1184,7 +1207,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Adds a middleware to the global application scope.
 
-        Args:
+        Parameters:
             callback: The middleware callback.
 
         Returns:
@@ -1200,7 +1223,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         A decorator that adds a middleware to the global application scope.
 
-        Args:
+        Parameters:
             callback: The middleware callback.
 
         Returns:
@@ -1226,7 +1249,7 @@ class Application(utils.AsyncResource, Injectable, metaclass=InjectableMeta):
         """
         Removes a middleware from the global application scope.
 
-        Args:
+        Parameters:
             middleware: The middleware to remove.
 
         Returns:

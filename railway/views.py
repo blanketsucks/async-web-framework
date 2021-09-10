@@ -95,7 +95,7 @@ class HTTPView(metaclass=ViewMeta):
         """
         Adds a route to this view.
 
-        Args:
+        Parameters:
             method: The HTTP method to use for this route.
             coro: The coroutine function to use for this route.
 
@@ -109,7 +109,7 @@ class HTTPView(metaclass=ViewMeta):
         """
         A helper method for adding routes to a router or removing them.
 
-        Args:
+        Parameters:
             router: The router to add routes to.
             remove_routes: If True, removes all routes inside this view from the router.
 

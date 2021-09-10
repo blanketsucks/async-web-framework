@@ -56,7 +56,7 @@ class TestClient:
         """
         Performs a websocket connection.
 
-        Args:
+        Parameters:
             path: The path to the websocket.
 
         Returns:
@@ -96,7 +96,7 @@ class TestClient:
         """
         Sends a request to the application.
 
-        Args:
+        Parameters:
             path: The path to the resource.
             method: The HTTP method.
             **kwargs: Additional arguments to pass to the request.

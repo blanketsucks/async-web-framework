@@ -148,7 +148,7 @@ class HappyEyeballs:
         if the connections to the original host and port fail too, it will raise a `ConnectionTimeout` exception. 
         Otherwise it returns a socket.
 
-        Args:
+        Parameters:
             host: The host to connect to.
             port: The port to connect to.
             socket_type: The socket type to use.
@@ -170,7 +170,7 @@ class HappyEyeballs:
         """
         Sends data to the connected socket.
 
-        Args:
+        Parameters:
             data: The data to send.
 
         Raises:
@@ -183,7 +183,7 @@ class HappyEyeballs:
         """
         Recieves data from the connected socket.
 
-        Args:
+        Parameters:
             size: The number of bytes to receive.
         
         Returns:

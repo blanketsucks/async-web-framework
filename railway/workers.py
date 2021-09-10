@@ -64,7 +64,7 @@ class Worker:
         """
         Worker constructor.
 
-        Args:
+        Parameters:
             app: The application instance.
             id: The id of the worker.
         """
@@ -177,7 +177,7 @@ class Worker:
         """
         Gets the websocket associated with the given connection.
 
-        Args:
+        Parameters:
             connection: The connection to get the websocket for.
 
         Returns:
@@ -192,7 +192,7 @@ class Worker:
         """
         Saves the websocket to the internal dictionary.
 
-        Args:
+        Parameters:
             ws: The websocket to save.
             connection: The connection to save the websocket for.
         """
@@ -203,7 +203,7 @@ class Worker:
         """
         Feeds the given data into the websocket associated with the given connection.
 
-        Args:
+        Parameters:
             data: The data to feed into the websocket.
             connection: The connection to feed the data into the websocket for.
 
@@ -234,7 +234,7 @@ class Worker:
         """
         Verifies if the given request is a websocket request.
 
-        Args:
+        Parameters:
             request: The request to verify.
 
         Returns:
@@ -284,7 +284,7 @@ class Worker:
         """
         Parses the websocket key from the given request.
 
-        Args:
+        Parameters:
             request: The request to parse the websocket key from.
 
         Returns:
@@ -299,7 +299,7 @@ class Worker:
         """
         Performs a websocket handshake.
 
-        Args:
+        Parameters:
             request: The request to perform the websocket handshake for.
             connection: The connection to perform the websocket handshake for.
         """

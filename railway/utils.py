@@ -32,7 +32,6 @@ from .response import Response
 from ._types import MaybeCoroFunc
 
 __all__ = (
-    'AsyncResource',
     'maybe_coroutine',
     'LOCALHOST',
     'LOCALHOST_V6',
@@ -48,46 +47,6 @@ __all__ = (
 
 LOCALHOST = '127.0.0.1'
 LOCALHOST_V6 = '::1'
-
-class AsyncResource:
-    """
-    
-    Example
-    -------
-    .. code-block:: python3
-
-        import railway
-        import asyncio
-
-        class MyResource(railway.AsyncResource):
-
-            async def close(self):
-                print('closing')
-                # do something that closes stuff
-            
-        async def main():
-            async with MyResource() as resource:
-                # do something with the created source
-
-        asyncio.run(main())
-
-    """
-    async def close(self):
-        """
-        A method that is supposed to be overridden by subclasses.
-        """
-        raise NotImplementedError
-
-    def __del__(self):
-        asyncio.create_task(
-            self.close()
-        )
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *args):
-        await self.close()
 
 async def maybe_coroutine(func: MaybeCoroFunc[Any], *args: Any, **kwargs: Any) -> Any:
     """
