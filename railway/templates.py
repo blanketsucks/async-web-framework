@@ -140,6 +140,7 @@ class Template:
 
 async def render(
     path: Union[str, pathlib.Path],
+    loop: asyncio.AbstractEventLoop=None,
     __globals: Optional[Dict[str, Any]]=None, 
     __locals: Optional[Dict[str, Any]]=None, 
     **kwargs: Any
@@ -151,6 +152,8 @@ async def render(
     -----------
     path: Union[:class:`str`, :class:`pathlib.Path`]
         The path to the template file.
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop to use.
     __globals: Optional[:class:`dict`]
         The global variables to use for the template.
     __locals: Optional[:class:`dict`]
@@ -164,7 +167,6 @@ async def render(
     if not __locals:
         __locals = {}
 
-    loop = compat.get_running_loop()
     vars = {**__globals, **__locals, **kwargs}
 
     template = Template(path, loop)
