@@ -74,7 +74,7 @@ def _make_init(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) -> s
         if isinstance(default, _Default):
             args.append(f'{name}: {annotation}')
         else:
-            args.append(f'{name}: {annotation}={default}')
+            args.append(f'{name}: {annotation}={default!r}')
 
     body: List[str] = []
 
@@ -83,7 +83,9 @@ def _make_init(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) -> s
 
     actual = ', '.join(args)
     bdy = '\n'.join(f'  {b}' for b in body)
-
+    
+    print(actual)
+    print(bdy)
     return f'def __init__(self, *, {actual}) -> None:\n{bdy}'
 
 def _make_fields(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) -> Tuple[Field, ...]:
@@ -122,6 +124,18 @@ def _get_repr(obj: Any, name: str):
     return f'{name}={attr!r}'
 
 class Field:
+    """
+    A model field.
+
+    Attributes
+    ----------
+    name: :class:`str`
+        The name of the field.
+    type: :class:`type`
+        The type of the field.
+    default: Any
+        The default value of the field.
+    """
     def __init__(self, name: str, type: Type[Any], default: Any):
         self.name = name
         self.type = type
@@ -240,4 +254,3 @@ class Model(metaclass=ModelMeta):
                 kwargs[field.name] = field.default
 
         return cls(**kwargs)
-

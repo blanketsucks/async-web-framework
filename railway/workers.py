@@ -54,20 +54,25 @@ class Worker:
     This class is responsible for handling requests from clients and forwarding them to the application. 
     It also handles incoming websocket requests.
 
-    Attributes:
-        app: The application instance.
-        id: The id of the worker.
-        websockets: A dictionary of websocket connections.
-        socket: the `socket.socket` instance used by the worker.
+    Parameters
+    ----------
+    app: :class:`~railway.app.Application`
+        The application instance.
+    id: :class:`int`
+        The id of the worker.
+
+    Attributes
+    ----------
+    app: :class:`railway.app.Application`
+        The application instance.
+    id: :class:`int`
+        The id of the worker.
+    websockets: Dict[:class:`tuple`, :class:`railway.websockets.ServerWebsocket`]
+        A dictionary of websocket connections.
+    socket: :class:`socket.socket`
+        the socket used by the worker.
     """
     def __init__(self, app: Application, id: int):
-        """
-        Worker constructor.
-
-        Parameters:
-            app: The application instance.
-            id: The id of the worker.
-        """
         self.app: Application = app
         self.id: int = id
         self.websockets: Dict[Tuple[str, int], Websocket] = {}
@@ -84,38 +89,33 @@ class Worker:
     @property
     def port(self) -> int:
         """
-        Returns:
-            The port of the worker.
+        The port of the worker.
         """
         return self.app.port
 
     @property
     def host(self) -> str:
         """
-        Returns:
-            The host of the worker.
+        The host of the worker.
         """
         return self.app.host
 
     @property
     def loop(self) -> Optional[asyncio.AbstractEventLoop]:
         """
-        Returns:
-            The event loop of the worker.
+        The event loop of the worker.
         """
         return self.app.loop
 
     def is_working(self) -> bool:
         """
-        Returns:
-            True if the worker is currently handling a request.
+        True if the worker is currently handling a request.
         """
         return self._working
 
     def is_serving(self) -> bool:
         """
-        Returns:
-            True if the worker is currently serving requests.
+        True if the worker is currently serving requests.
         """
         return self.server is not None and self.server.is_serving()
 
@@ -169,7 +169,7 @@ class Worker:
 
     async def close(self):
         """
-        An alias for `stop`.
+        An alias for :meth:`~railway.workers.Worker.stop`.
         """
         await self.stop()
 
@@ -177,11 +177,10 @@ class Worker:
         """
         Gets the websocket associated with the given connection.
 
-        Parameters:
-            connection: The connection to get the websocket for.
-
-        Returns:
-            The websocket associated with the given connection.
+        Parameters
+        ----------
+        connection: :class:`~railway.server.ClientConnection`
+            The connection to get the websocket for.
         """
         peer = connection.peername
         websocket = self.websockets.get(peer)
@@ -192,9 +191,12 @@ class Worker:
         """
         Saves the websocket to the internal dictionary.
 
-        Parameters:
-            ws: The websocket to save.
-            connection: The connection to save the websocket for.
+        Parameters
+        ----------
+        ws: :class:`~railway.websockets.ServerWebsocket`
+            The websocket to save.
+        connection: :class:`~railway.server.ClientConnection`
+            The connection to save the websocket for.
         """
         peer = connection.peername
         self.websockets[peer] = ws
@@ -203,12 +205,12 @@ class Worker:
         """
         Feeds the given data into the websocket associated with the given connection.
 
-        Parameters:
-            data: The data to feed into the websocket.
-            connection: The connection to feed the data into the websocket for.
-
-        Returns:
-            The data fed.
+        Parameters
+        ----------
+        data: :class:`bytes`
+            The data to feed into the websocket.
+        connection: :class:`~railway.server.ClientConnection`
+            The connection to feed the data into the websocket for.
         """
         websocket = self.get_websocket(connection)
         if not websocket:
@@ -234,11 +236,10 @@ class Worker:
         """
         Verifies if the given request is a websocket request.
 
-        Parameters:
-            request: The request to verify.
-
-        Returns:
-            True if the request is a websocket request.
+        Parameters
+        ----------
+        request: :class:`~railway.server.Request`
+            The request to verify.
         """
         if request.method != 'GET':
             return False
@@ -284,11 +285,10 @@ class Worker:
         """
         Parses the websocket key from the given request.
 
-        Parameters:
-            request: The request to parse the websocket key from.
-
-        Returns:
-            The websocket key.
+        Parameters
+        ----------
+        request: :class:`~railway.request.Request`
+            The request to parse the websocket key from.
         """
         key: str = request.headers['Sec-WebSocket-Key']
 
@@ -299,9 +299,12 @@ class Worker:
         """
         Performs a websocket handshake.
 
-        Parameters:
-            request: The request to perform the websocket handshake for.
-            connection: The connection to perform the websocket handshake for.
+        Parameters
+        ----------
+        request: :class:`railway.request.Request`
+            The request to perform the websocket handshake for.
+        connection: :class:`~railway.server.ClientConnection`
+            The connection to perform the websocket handshake for.
         """
         response = SwitchingProtocols()
         key = self.parse_websocket_key(request)
@@ -342,7 +345,7 @@ class Worker:
 
         log.info(f'[Worker-{self.id}] Received a {request.method!r} request to {request.url.path!r} from {connection.peername}')
         
-        websocket = Websocket(connection._reader, connection._writer) # type: ignore
+        websocket = Websocket(connection._transport) # type: ignore
 
         if self.is_websocket_request(request):
             self.store_websocket(websocket, connection)

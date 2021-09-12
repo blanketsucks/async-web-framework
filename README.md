@@ -76,7 +76,7 @@ class User(railway.Model):
 class Users(railway.Resource):
     def __init__(self) -> None:
         self.users: Dict[int, User] = {}
-        self.ratelimiter = railway.RatelimiteHandler()
+        self.ratelimiter = railway.RatelimitHandler()
 
         self.ratelimiter.add_bucket(
             path='/users',
@@ -86,16 +86,15 @@ class Users(railway.Resource):
 
     def update_ratelimiter(self, path: str, request: railway.Request):
         bucket = self.ratelimiter.get_bucket(path)
+        retry_after = bucket.update_ratelimit(request, request.client_ip)
 
-        try:
-            bucket.update_ratelimit(request, request.client_ip)
-        except railway.RatelimitExceeded as e:
+        if retry_after:
             message = {
                 'message': 'Ratelimit exceeded. Please try again later.'
             }
 
             response = railway.JSONResponse(body=message, status=427)
-            response.add_header('Retry-After', e.retry_after)
+            response.add_header('Retry-After', retry_after)
 
             return response
 

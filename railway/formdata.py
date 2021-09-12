@@ -46,7 +46,7 @@ def _get(iterable: List[T], index: int) -> Optional[T]:
 
 class Disposition:
     """
-    A content disposition header.
+    A Content-Disposition header.
     """
     def __init__(self, header: str) -> None:
         self.header = header
@@ -55,24 +55,21 @@ class Disposition:
     @property
     def content_type(self) -> str:
         """
-        Returns:
-            The content type.
+        The content type.
         """
         return self._parts[0]
 
     @property
     def name(self) -> Optional[str]:
         """
-        Returns:
-            The name of the disposition.
+        The name of the disposition.
         """
         return _get(self._parts, 1)
 
     @property
     def filename(self) -> Optional[str]:
         """
-        Returns:
-            The filename of the disposition.
+        The filename of the disposition.
         """
         return _get(self._parts, 2)
 
@@ -80,8 +77,10 @@ class FormData:
     """
     A form data object.
 
-    Attributes:
-        files: A list of tuples containing a [File](./file.md) and [Disposition](./formdata.md) objects.
+    Attributes
+    ----------
+    files: List[Tuple[:class:`~railway.file.File`, Optional[:class:`~railway.formdata.Disposition`]]]
+        A list of tuples containing a :class:`~railway.file.File and :class:`~railway.formdata.Disposition` objects.
     """
     def __init__(self) -> None:
         self.files: List[Tuple[File, Optional[Disposition]]] = []
@@ -93,9 +92,12 @@ class FormData:
         """
         Add a file to the form data.
 
-        Parameters:
-            file: A [File](./file.md) object.
-            disposition: A [Disposition](./formdata.md) object.
+        Parameters
+        ----------
+        file: :class:`~railway.file.File`
+            A file object.
+        disposition: :class:`~railway.formdata.Disposition`
+            A disposition object.
         """
         self.files.append((file, disposition))
 
@@ -104,11 +106,10 @@ class FormData:
         """
         Creates a form data object from a request.
 
-        Parameters:
-            request: A [Request](./request.md) object.
-        
-        Returns:
-            A [FormData](./formdata.md) object.
+        Parameters
+        ----------
+        request: :class:`~railway.request.Request`
+            a request.
         """
         form = cls()
         data = request.text()

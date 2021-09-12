@@ -27,23 +27,17 @@ import time
 from .request import Request
 
 __all__ = (
-    'RatelimitExceeded',
     'Bucket',
-    'RatelimiteHandler'
+    'Key',
+    'RatelimitHandler'
 )
-
-class RatelimitExceeded(Exception):
-    def __init__(self, retry_after: float, key: 'Key') -> None:
-        self.retry_after = retry_after
-        self.key = key
-        self.bucket = key.bucket
-
-        super().__init__(f"Rate limit exceeded. Retry after {retry_after} seconds.")
 
 class Key:
     """
-    Attributes:
-        bucket: The ratelimit [Bucket](ratelimits.md).
+    Attributes
+    -----------
+    bucket: :class:`~railway.ratelimits.Bucket`
+        The bucket this key belongs to.
     """
     def __init__(self, bucket: 'Bucket') -> None:
         self.bucket = bucket
@@ -56,8 +50,10 @@ class Key:
         """
         Updates the ratelimit.
 
-        Parameters:
-            current: The current time.
+        Parameters
+        -----------
+        current: :class:`float`
+            The current time.
         """
         current = current or time.time()
         self._last = current
@@ -75,16 +71,14 @@ class Key:
     @property
     def rate(self) -> int:
         """
-        Returns:
-            The rate-limit.
+        The rate-limit.
         """
         return self.bucket.rate
 
     @property
     def per(self) -> float:
         """
-        Returns:
-            The period.
+        The period.
         """
         return self.bucket.per
 
@@ -92,11 +86,10 @@ class Key:
         """
         Gets the remaining time.
 
-        Parameters:
-            current: The current time.
-
-        Returns:
-            The remaining time.
+        Parameters
+        -----------
+        current: :class:`float`
+            The current time.
         """
         remaining = self._remaining
 
@@ -109,10 +102,23 @@ class Bucket:
     """
     A rate limit bucket.
 
-    Attributes:
-        rate: The rate limit per second.
-        per: The time window in seconds.
-        path: The path to the bucket.
+    Parameters
+    ----------
+    rate: :class:`int`
+        The rate limit per second.
+    per: :class:`float`
+        The time window in seconds.
+    path: :class:`str`
+        The path to the bucket.
+
+    Attributes
+    ----------
+    rate: :class:`int`
+        The rate limit per second.
+    per: :class:`float`
+        The time window in seconds.
+    path: :class:`str`
+        The path to the bucket.
     """
     def __init__(self, rate: int, per: float, path: Optional[str]) -> None:
         self.rate = rate
@@ -124,20 +130,18 @@ class Bucket:
     @property
     def keys(self) -> List[Key]:
         """
-        Returns:
-            A list of [Key](./ratelimits.md)s.
+        A list of keys.
         """
         return list(self._keys.values())
 
     def add_key(self, value: Any) -> Key:
         """
-        Adds a [Key](ratelimits.md) to the bucket.
+        Adds a key to the bucket.
 
-        Parameters:
-            value: The value of that key to add.
-
-        Returns:
-            The [Key](ratelimits.md) added.
+        Parameters
+        ----------
+        value: Any
+            The value of that key to add.
         """
         key = Key(self)
         self._keys[value] = key
@@ -146,33 +150,38 @@ class Bucket:
 
     def get_key(self, value: Any) -> Optional[Key]:
         """
-        Returns:
-            The [Key](ratelimits.md) for that value.
+        Returns the key for that value.
         """
         return self._keys.get(value)
 
-    def update_ratelimit(self, request: Request, value: Any) -> None:
+    def update_ratelimit(self, request: Request, value: Any) -> Optional[float]:
         """
-        Updates the ratelimit for a [Key](ratelimits.md).
+        Updates the ratelimit for a key.
 
-        Parameters:
-            request: The [Request](./request.md) object.
-            value: The value of that key.
-
-        Raises:
-            RatelimitExceeded: If the ratelimit is exceeded.
+        Parameters
+        ----------
+        request: :class:`~railway.request.Request`
+            The request object.
+        value: Any
+            The value of that key.
         """
         key = self.get_key(value)
         if not key:
             key = self.add_key(value)
 
         after = key.update(current=request.created_at.timestamp())
-        if after:
-            raise RatelimitExceeded(after, key)
+        return after
 
-class RatelimiteHandler:
+class RatelimitHandler:
     """
     The main ratelimit handler.
+
+    Parameters
+    ----------
+    global_rate: Optional[:class:`int`]
+        An optional rate used for the global rate-limite bucket.
+    global_per: Optional[:class:`float`]
+        An optional period used for the global rate-limite bucket.
     """
     def __init__(self, global_rate: Optional[int]=None, global_per: Optional[float]=None) -> None:
         self._buckets: Dict[str, Bucket] = {}
@@ -191,12 +200,16 @@ class RatelimiteHandler:
 
     def add_bucket(self, path: str, *, rate: int, per: float) -> Bucket:
         """
-        Adds a [Bucket](./ratelimits.md) to the handler.
+        Adds a bucket to the handler.
 
-        Parameters:
-            path: The path to the bucket.
-            rate: The rate limit per second.
-            per: The time window in seconds.
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the bucket.
+        rate: :class:`int`
+            The rate limit per second.
+        per: :class:`float`
+            The time window in seconds.
         """
         bucket = Bucket(rate, per, path)
         self._buckets[path] = bucket
@@ -205,15 +218,17 @@ class RatelimiteHandler:
 
     def get_bucket(self, path: str) -> Optional[Bucket]:
         """
-        Gets a [Bucket](ratelimits.md) from the handler.
+        Gets a bucket from the handler.
 
-        Parameters:
-            path: The path to the bucket.
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the bucket.
         """
         return self._buckets.get(path)
 
     def get_global_bucket(self) -> Optional[Bucket]:
         """
-        Gets the global [Bucket](ratelimits.md).
+        Gets the global bucket.
         """
         return self._global_bucket

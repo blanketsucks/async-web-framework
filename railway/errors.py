@@ -25,17 +25,20 @@ class RailwayException(Exception):
     """Base inheritance class for errors that occur during the Application's runtime."""
     pass
 
-class ApplicationError(Exception):
-    pass
+class IPv6NotSupported(RailwayException):
+    def __init__(self) -> None:
+        super().__init__('IPv6 is not supported on this system')
+
+class DualStackNotSupported(RailwayException):
+    def __init__(self) -> None:
+        super().__init__('Dualstack support is not available on this system')
+
 
 class ConnectionError(RailwayException):
     pass
 
-class BadConversion(ApplicationError):
+class BadConversion(RailwayException):
     pass
 
-class InvalidSetting(ApplicationError):
-    pass
-
-class RegistrationError(ApplicationError):
+class RegistrationError(RailwayException):
     pass

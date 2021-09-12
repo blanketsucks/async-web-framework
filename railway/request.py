@@ -95,7 +95,11 @@ class Request:
         self.route: Optional[Union[Route, WebsocketRoute]] = None
         self.created_at: datetime.datetime = created_at
 
-    async def send(self, response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, Any], File, Response, Any]) -> None:
+    async def send(self, 
+        response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, Any], File, Response, URL, Any],
+        *,
+        convert: bool=True
+    ) -> None:
         """
         Sends a response to the client.
 
@@ -108,9 +112,11 @@ class Request:
         ------
         ValueError: If the response is not parsable.
         """
-        data = await self.app.parse_response(response)
+        if convert:
+            response = await self.app.parse_response(response)
+
         await self.worker.write(
-            data=data,
+            data=response,
             connection=self.connection
         )
 
@@ -130,7 +136,7 @@ class Request:
         return self.connection.is_closed()
 
     @property
-    def app(self) -> Application:
+    def app(self) -> 'Application':
         """
         The application.
         """
@@ -230,31 +236,37 @@ class Request:
         return FormData.from_request(self)
 
     def redirect(self, 
-                to: str, 
+                to: Union[str, URL],
                 *, 
                 body: Any=None, 
                 headers: Optional[Dict[str, Any]]=None, 
                 status: Optional[int]=None, 
-                content_type: Optional[str]=None) -> Redirection:
+                content_type: Optional[str]=None) -> Response:
         """
         Redirects a request to another URL.
 
         Parameters
         ----------
-            to: The URL to redirect to.
-            body: The body of the response.
-            headers: The headers of the response.
-            status: The status code of the response.
-            content_type: The content type of the response.
+        to: Union[str, :class:`~railway.datastructers.URL`]
+            The URL to redirect to.
+        body: Any
+            The body of the response.
+        headers: :class:`dict`
+            The headers of the response.
+        status: :class:`int`
+            The status code of the response.
+        content_type: :class:`str`
+            The content type of the response.
         
-        Returns:
-            A response.
+        Raises
+        ------
+        ValueError: If ``status`` is not valid redirection status code.
         """
         headers = headers or {}
         status = status or 302
         content_type = content_type or 'text/plain'
 
-        url = urllib.parse.quote_plus(to, ":/%#?&=@[]!$&'()*+,;")
+        url = urllib.parse.quote_plus(str(to), ":/%#?&=@[]!$&'()*+,;")
         cls: Optional[Type[Redirection]] = redirects.get(status) # type: ignore
 
         if not cls:

@@ -45,8 +45,10 @@ class Resource(Injectable, metaclass=ResourceMeta):
     """
     A resource to be subclassed and used.
 
-    Example:
-        ```py
+    Example
+    -------
+    .. code-block:: python3
+
         import railway
 
         app = railway.Application()
@@ -58,7 +60,7 @@ class Resource(Injectable, metaclass=ResourceMeta):
                 return f'Hello, {name}!'
 
         app.add_resource(MyResource())
-        ```
+        
     """
     __resource_name__: str
     
@@ -68,8 +70,7 @@ class Resource(Injectable, metaclass=ResourceMeta):
     @property
     def name(self) -> str:
         """
-        Returns:
-            The name of the resource.
+        The name of the resource.
         """
         return self.__resource_name__
 
@@ -82,21 +83,18 @@ class Resource(Injectable, metaclass=ResourceMeta):
 
     def routes(self) -> List[Route]:
         """
-        Returns:
-            The list of registered routes in this resource.
+        The list of registered routes in this resource.
         """
         return self.__routes__
 
     def middlewares(self) -> List[Middleware]:
         """
-        Returns:
-            The list of registered middlewares in this resource.
+        The list of registered middlewares in this resource.
         """
         return self.__middlewares__
 
     def listeners(self) -> List[Listener]:
         """
-        Returns:
-            The list of registered listeners in this resource.
+        The list of registered listeners in this resource.
         """
         return self.__listeners__

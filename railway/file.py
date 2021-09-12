@@ -32,35 +32,36 @@ __all__ = (
 )
 
 class File:
-    fp: io.TextIOWrapper
     """
-    Attributes:
-        filename: The name of the file.
-        fp: The file object.
+    Parameters
+    ----------
+    fp: Union[:class:`str`, :class:`pathlib.Path`, :class:`io.BytesIO`]
+        The path to the file. You can also pass in an instance of :class:`io.BytesIO` into this.
+    filename: Optional[:class:`str`]
+        An optional file name.
+
+    Attributes
+    -----------
+    filename: :class:`str`
+        The name of the file.
+    fd: :class:`io.BufferedReader`
+        The file object.
     """
     def __init__(self, fp: Union[str, pathlib.Path, io.BytesIO], *, filename: Optional[str]=None) -> None:
-        """
-        File constructor.
-
-        Parameters:
-            fp: Can be either `str`, `pathlib.Path` or an `io.BytesIO` object.
-            filename: The name of the file.
-        """
-
         if isinstance(fp, io.BytesIO):
-            self.fp = fp
+            self.fd = fp
 
         if isinstance(fp, pathlib.Path):
             if not filename:
                 filename = fp.name
 
-            self.fp = fp.open('rb')
+            self.fd = fp.open('rb')
 
         if isinstance(fp, str):
             if not filename:
                 filename = fp
 
-            self.fp = open(fp, 'rb')
+            self.fd = open(fp, 'rb')
 
         self.filename: Optional[str] = filename
     
@@ -75,10 +76,12 @@ class File:
 
     async def save_as(self, name: str):
         """
-        Saves the file as `name`.
+        Saves the file as ``name``.
 
-        Parameters:
-            name: The name of the file.
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the file.
         """
         loop = compat.get_running_loop()
         data = await self.read()
@@ -92,34 +95,24 @@ class File:
     async def read(self) -> bytes:
         """
         Reads the file.
-
-        Returns:
-            The file data.
         """
         loop = compat.get_running_loop()
-        data = await loop.run_in_executor(None, self.fp.read)
+        data = await loop.run_in_executor(None, self.fd.read)
 
         return data
 
     async def readlines(self) -> List[bytes]:
         """
-        Reads the file as a list of lines.
-
-        Returns:
-            list of bytes.
-        
+        Reads the file as a list of lines. 
         """
         loop = compat.get_running_loop()
-        data = await loop.run_in_executor(None, self.fp.readlines)
+        data = await loop.run_in_executor(None, self.fd.readlines)
 
         return data
 
     async def stream(self) -> AsyncIterator[bytes]:
         """
         An async generator that reads the file.
-
-        Returns:
-            An async generator that yields the file data.
         """
         lines = await self.readlines()
         
@@ -131,4 +124,4 @@ class File:
         Closes the file
         """
         loop = compat.get_running_loop()
-        await loop.run_in_executor(None, self.fp.close())
+        await loop.run_in_executor(None, self.fd.close())

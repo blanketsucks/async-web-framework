@@ -250,6 +250,9 @@ class StreamTransport:
     def get_extra_info(self, name: str, default: Any=None) -> Any:
         return self._writer.get_extra_info(name, default)
 
+    def get_protocol(self) -> asyncio.Protocol:
+        return self._transport.get_protocol()
+
     def close(self):
         self._writer.close()
 

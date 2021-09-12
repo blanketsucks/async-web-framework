@@ -30,7 +30,6 @@ if TYPE_CHECKING:
 class CookieSession(Dict[str, Any]):
     """
     A session that is managed by a cookie.
-    
     """
     cache: Dict[str, CookieSession] = {}
 
@@ -40,14 +39,12 @@ class CookieSession(Dict[str, Any]):
         Creates a new session with the given ID.
         If a session with the given ID already exists, it is returned instead.
 
-        Parameters:
-            session_id: The ID of the session. (meaning the value of the cookie used)
-
-        Returns:
-
-        
+        Parameters
+        -----------
+        session_id: :class:`str`
+            The ID of the session. (meaning the value of the cookie used)
         """
-        self = cls.cache.setdefault(session_id, CookieSession(session_id))
+        self = cls.cache.setdefault(session_id, cls(session_id))
         return self
 
     @classmethod
@@ -55,11 +52,10 @@ class CookieSession(Dict[str, Any]):
         """
         Returns a session from the given request.
 
-        Parameters:
-            request: The request to get the session from.
-
-        Returns:
-            The session from the request.
+        Parameters
+        ----------
+        request: :class:`~railway.request.Request`
+            The request to get the session from.
         """
         cookie = request.app.settings['session_cookie_name']
         session_id = request.cookies.get(str(cookie))

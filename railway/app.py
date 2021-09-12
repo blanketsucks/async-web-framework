@@ -30,6 +30,7 @@ import inspect
 import logging
 import multiprocessing
 import socket
+import uuid
 import asyncio
 import traceback
 
@@ -38,7 +39,7 @@ from .resources import Resource
 from . import compat, utils
 from .server import ClientConnection
 from .request import Request
-from .responses import NotFound, MethodNotAllowed
+from .responses import NotFound, MethodNotAllowed, redirects
 from .errors import *
 from .router import Router
 from .settings import Settings, settings_from_file, settings_from_env, DEFAULT_SETTINGS
@@ -50,6 +51,7 @@ from .file import File
 from .websockets import ServerWebsocket as Websocket
 from .workers import Worker
 from .models import Model
+from .datastructures import URL
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +59,6 @@ __all__ = (
     'dualstack_ipv6',
     'Application',
 )
-
 
 class Application(Injectable, metaclass=InjectableMeta):
     """
@@ -106,6 +107,10 @@ class Application(Injectable, metaclass=InjectableMeta):
         An optional bool indicating whether to use SSL.
     ssl_context: :class:`ssl.SSLContext`
         An optional :class:`ssl.SSLContext` instance.
+    cookie_session_callback: Callable[[:class:`~railway.request.Request`, :class:`~railway.response.Response`], :class:`str`]
+        A callback that gets called whenever there is a need to generate a cookie header value
+        for responses. This function must return a single value being a string, anything else will raise an error.
+        The default for this is a lambda function that returns a :attr:`uuid.UUID.hex` value.
 
     Raises
     ------
@@ -128,7 +133,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         An integer representing the port to listen on.
     url_prefix: :class:`str`
         A string representing the url prefix.
-    router: :class:`~.router.Router`
+    router: :class:`~railway.Router`
         The router used for registering routes.
     settings: :class:`~railway.settings.Settings` instance.
         The settings used to configure the application.
@@ -136,6 +141,8 @@ class Application(Injectable, metaclass=InjectableMeta):
         An integer representing the number of workers to spawn.
     ssl_context: :class:`ssl.SSLContext`
         A `ssl.SSLContext` instance.
+    cookie_session_callback: Callable[[:class:`~railway.request.Request`, :class:`~railway.response.Response`], :class:`str`]
+        A callback that gets called whenever there is a need to generate a cookie header value for responses.
     """
     def __init__(self,
                 host: Optional[str]=None,
@@ -150,11 +157,12 @@ class Application(Injectable, metaclass=InjectableMeta):
                 sock: Optional[socket.socket]=None,
                 worker_count: Optional[int]=None, 
                 use_ssl: Optional[bool]=False,
-                ssl_context: Optional[ssl.SSLContext]=None):
+                ssl_context: Optional[ssl.SSLContext]=None,
+                cookie_session_callback: Optional[Callable[[Request, Response], str]]=None):
         if ipv6:
             has_ipv6 = utils.has_ipv6()
             if not has_ipv6:
-                raise RuntimeError('IPv6 is not supported')
+                raise IPv6NotSupported('IPv6 is not supported')
 
         if settings is None:
             if settings_file:
@@ -178,6 +186,12 @@ class Application(Injectable, metaclass=InjectableMeta):
         self.router: Router = Router(self.url_prefix)
         self.ssl_context: ssl.SSLContext = ssl_context or settings['ssl_context']
         self.worker_count: int = worker_count or settings['worker_count']
+
+        if cookie_session_callback is not None:
+            if not callable(cookie_session_callback):
+                raise TypeError('cookie_session_callback must be a callable')
+
+        self.cookie_session_callback = cookie_session_callback or (lambda req, res: uuid.uuid4().hex)
 
         self._ipv6 = ipv6
         self._use_ssl = use_ssl
@@ -222,6 +236,9 @@ class Application(Injectable, metaclass=InjectableMeta):
     async def __aexit__(self, *args):
         await self.close()
 
+    def __getitem__(self, item: str):
+        return getattr(self, item)
+
     def _verify_settings(self):
         settings = self.settings
 
@@ -250,7 +267,7 @@ class Application(Injectable, metaclass=InjectableMeta):
     def _log(self, message: str):
         log.info(message)
 
-    def _build_url(self, path: str, is_websocket: bool=False) -> str:
+    def _build_url(self, path: str, is_websocket: bool=False) -> URL:
         if path not in self.paths:
             raise ValueError(f'Path {path!r} does not exist')
 
@@ -260,7 +277,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         scheme = 'ws' if is_websocket else 'http'
 
         base = f'{scheme}://{self.host}:{self.port}'
-        return base + path
+        return URL(base + path)
 
     def _add_workers(self):
         workers: Dict[int, Worker] = {}
@@ -316,7 +333,6 @@ class Application(Injectable, metaclass=InjectableMeta):
             else:
                 if issubclass(value.annotation, Model):
                     data = request.json()
-                    data = data.get(key)
 
                     if data:
                         model = value.annotation.from_json(data)
@@ -345,7 +361,8 @@ class Application(Injectable, metaclass=InjectableMeta):
 
     def _validate_status_code(self, code: int):
         if 300 <= code <= 399:
-            ret = 'Redirect status codes cannot be returned, use Request.redirect instead'
+            ret = 'Redirect status codes cannot be returned, use Request.redirect instead, ' \
+                'or you could return an instance of URL accompanied by the redirect status code.'
             raise ValueError(ret)
 
         if not (200 <= code <= 599):
@@ -353,53 +370,6 @@ class Application(Injectable, metaclass=InjectableMeta):
             raise ValueError(ret)
 
         return code
-
-    async def parse_response(self, response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, Any], File, Response, Any]) -> Optional[Response]:
-        """
-        Parses a response to a usable `Response` instance.
-
-        Parameters
-        ----------
-            response: 
-                A response to be parsed.
-
-        Raises
-        ------
-            ValueError: If the response is not parsable.
-        """
-        status = 200
-
-        if isinstance(response, tuple):
-            response, status = response
-
-            if not isinstance(status, int):
-                raise TypeError('Response status must be an integer.')
-
-            status = self._validate_status_code(status)
-
-        if isinstance(response, File):
-            response = FileResponse(response, status=status)  
-
-        elif isinstance(response, Response):
-            if isinstance(response, FileResponse):
-                await response.read()
-                response.file.close()
-
-            return response
-
-        if isinstance(response, Model):
-            resp = JSONResponse(response.json(), status=status)
-            return resp
-
-        if isinstance(response, str):
-            resp = HTMLResponse(response, status=status)
-            return resp
-
-        if isinstance(response, (dict, list)):
-            resp = JSONResponse(response, status=status)
-            return resp
-
-        raise ValueError(f'Could not parse response {response!r}')
 
     async def _run_middlewares(self, request: Request, route: Route,  kwargs: Dict[str, Any]):
         middlewares = route.middlewares.copy()
@@ -462,12 +432,106 @@ class Application(Injectable, metaclass=InjectableMeta):
                 )
 
             self.dispatch('error', route, request, worker, exc)
-            return
+            return 
 
-        resp = await request.send(resp)
+        resp = await self.parse_response(resp)
+        response = self.set_default_cookie(request, resp)
+
+        await request.send(response, convert=False)
 
         if route._after_request:
-            await utils.maybe_coroutine(route._after_request, request, resp, **kwargs)
+            await utils.maybe_coroutine(route._after_request, request, response, **kwargs)
+
+    async def parse_response(self, 
+        response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, Any], File, Response, URL, Any]
+    ) -> Response:
+        """
+        Parses a response to a usable `Response` instance.
+
+        Parameters
+        ----------
+        response: 
+            A response to be parsed.
+
+        Raises
+        ------
+            ValueError: If the response is not parsable.
+        """
+        status = 200
+
+        if isinstance(response, File):
+            response = FileResponse(response, status=status)  
+
+        if isinstance(response, tuple):
+            response, status = response
+
+            if not isinstance(status, int):
+                raise TypeError('Response status must be an integer.')
+
+            if isinstance(response, URL):
+                if not 300 <= status <= 399:
+                    ret = f'{status!r} is not a valid redirect status code'
+                    raise ValueError(ret)
+
+                cls = redirects.get(status)
+                return cls(location=str(response))
+
+            else:
+                status = self._validate_status_code(status)
+
+        elif isinstance(response, URL):
+            cls = redirects.get(302)
+            resp = cls(location=str(response))
+
+        elif isinstance(response, Response):
+            if isinstance(response, FileResponse):
+                await response.read()
+                response.file.close()
+
+            resp = response
+
+        elif isinstance(response, Model):
+            resp = JSONResponse(response.json(), status=status)
+
+        elif isinstance(response, str):
+            resp = HTMLResponse(response, status=status)
+
+        elif isinstance(response, (dict, list)):
+            resp = JSONResponse(response, status=status)
+
+        else:
+            raise ValueError(f'Could not parse {response!r} into a response')
+
+        return resp
+
+    def set_default_cookie(self, request: Request, response: Response) -> Response:
+        """
+        Sets a cookie with the ``session_cookie_name`` of :class:`~railway.settings.Settings`.
+        If the cookie already exists, do nothing.
+
+        Parameters
+        ----------
+        request: :class:`~railway.Request`
+            The request that was sent to the server.
+        response: :class:`~railway.Response`
+            The response to add the cookie to.
+        """
+        name = self.settings['session_cookie_name']
+        cookie = request.cookies.get(name)
+
+        if not cookie:
+            value = self.cookie_session_callback(request, response)
+            if not isinstance(value, str):
+                raise TypeError('Cookie value returned by the cookie_session_callback must be a string.')
+
+            response.add_cookie(
+                name=name,
+                value=value,
+            )
+
+            return response
+
+        return response
 
     @property
     def workers(self) -> List[Worker]:
@@ -526,7 +590,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         self._loop = value
 
     @property
-    def urls(self) -> Set[str]:
+    def urls(self) -> Set[URL]:
         """
         A set of all URLs.
         """
@@ -542,20 +606,21 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         return {route.path for route in self.router}
 
-    def url_for(self, path: str, *, is_websocket: bool=False, **kwargs) -> str:
+    def url_for(self, path: str, *, is_websocket: bool=False, **kwargs) -> URL:
         """
         Builds a URL for a given path and returns it.
 
         Parameters
         ----------
-            path: :class:`str`
-                The path to build a URL for.
-            is_websocket: :class:`bool`
-                Whether the path is a websocket path.
-            **kwargs: 
-                Additional arguments to build the URL.
+        path: :class:`str`
+            The path to build a URL for.
+        is_websocket: :class:`bool`
+            Whether the path is a websocket path.
+        \*\*kwargs: 
+            Additional arguments to build the URL.
         """
-        return self._build_url(path.format(**kwargs), is_websocket=is_websocket)
+        url = self._build_url(path.format(**kwargs), is_websocket=is_websocket)
+        return url
 
     def inject(self, obj: Injectable):
         """
@@ -563,12 +628,12 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         Parameters
         ----------
-            obj: :class:`~railway.injectables.Injectable` 
-                The object to inject.
+        obj: :class:`~railway.injectables.Injectable` 
+            The object to inject.
 
         Raises
         ------
-            TypeError: If the object is not an instance of :class:`~railway.injectables.Injectable`.   
+        TypeError: If the object is not an instance of :class:`~railway.injectables.Injectable`.   
         """
 
         if not isinstance(obj, Injectable):
@@ -602,8 +667,8 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         Parameters
         ----------
-            obj: :class:`~railway.injectables.Injectable` 
-                The object to eject.
+        obj: :class:`~railway.injectables.Injectable` 
+            The object to eject.
 
         Raises
         ------
@@ -664,13 +729,13 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         Parameters
         ----------
-            worker: :class:`~railway.workers.Worker`
-                The worker to add.
+        worker: :class:`~railway.workers.Worker`
+            The worker to add.
 
         Raises
         ------
-            TypeError: If the worker is not an instance of `Worker`.
-            ValueError: If the worker already exists.
+        TypeError: If the worker is not an instance of `Worker`.
+        ValueError: If the worker already exists.
         """
         if not isinstance(worker, Worker):
             raise TypeError('worker must be an instance of Worker')
@@ -729,8 +794,8 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         Parameters
         ----------
-            path: :class:`str`
-                The path to register the route for.
+        path: :class:`str`
+            The path to register the route for.
 
         Examples
         -------
@@ -760,10 +825,10 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         Parameters
         ----------
-            path: :class:`str`
-                The path of the route
-            method: Optional[:class:`str`]
-                The HTTP method of the route. Defaults to ``GET``.
+        path: :class:`str`
+            The path of the route
+        method: Optional[:class:`str`]
+            The HTTP method of the route. Defaults to ``GET``.
 
         Examples
         -------
@@ -788,12 +853,12 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         Parameters
         ----------
-            route: :class:`~railway.objects.Route`
-                The route to add.
+        route: :class:`~railway.objects.Route`
+            The route to add.
 
         Raises
         ----------
-            RegistrationError: If the route already exists or the argument passed in was not an instance of either `Route` or `WebsocketRoute`.
+        RegistrationError: If the route already exists or the argument passed in was not an instance of either `Route` or `WebsocketRoute`.
         """
         if not isinstance(route, (Route, WebsocketRoute)):
             fmt = 'Expected Route or WebsocketRoute but got {0!r} instead'
@@ -810,12 +875,12 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         Parameters
         ----------
-            router: :class:`~railway.router.Router`
-                The router to apply.
+        router: :class:`~railway.router.Router`
+            The router to apply.
 
         Raises
         ----------
-            TypeError: If the router is not an instance of `Router`.
+        TypeError: If the router is not an instance of `Router`.
 
         Example
         ----------
@@ -950,6 +1015,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         Removes a route from the application.
         
         Parameters
+        ----------
             route: :class:`~railway.objects.Route`
             The route to remove.
         """
@@ -962,15 +1028,15 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         Parameters
         ----------
-            coro: Callable[..., Coroutine[Any, Any, Any]]
-                The coroutine function to add as an event listener.
-            name: Optional[:class:`str`]
-                The name of the event to listen for. 
-                If not given, it takes the name of the function passed in instead
+        coro: Callable[..., Coroutine[Any, Any, Any]]
+            The coroutine function to add as an event listener.
+        name: :class:`str`
+            The name of the event to listen for. 
+            If not given, it takes the name of the function passed in instead
 
         Raises
         ----------
-            RegistrationError: If the ``coro`` argument that was passed in is not a proper coroutine function.
+        RegistrationError: If the ``coro`` argument that was passed in is not a proper coroutine function.
         """
         if not inspect.iscoroutinefunction(coro):
             raise RegistrationError('Listeners must be coroutines')
@@ -991,8 +1057,8 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         Parameters
         ----------
-            listener: :class:`~railway.objects.Listener`
-                The listener to remove.
+        listener: :class:`~railway.objects.Listener`
+            The listener to remove.
         """
         self._listeners[listener.event].remove(listener)
         return listener
@@ -1003,15 +1069,16 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         Parameters
         ----------
-            name: The name of the event to listen for, if nothing was passed in the name of the function is used.
+        name: :class:`str`
+            The name of the event to listen for, if nothing was passed in the name of the function is used.
 
         Example
         ----------
-            .. code-block :: python3
+        .. code-block :: python3
 
-                @app.event('on_startup')
-                async def startup():
-                    print('Application started serving')
+            @app.event('on_startup')
+            async def startup():
+                print('Application started serving')
             
         """
         def decorator(func: CoroFunc):
@@ -1046,15 +1113,12 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         Parameters
         ----------
-            view: :class:`~railway.views.HTTPView`
-                The view to add.
+        view: :class:`~railway.views.HTTPView`
+            The view to add.
 
-        Returns:
-            The view that was added.
-
-        Raises:
-            RegistrationError: If the `view` argument that was passed in is not a proper view or it's already registered.
-        
+        Raises
+        ----------
+        RegistrationError: If the `view` argument that was passed in is not a proper view or it's already registered.
         """
         if not isinstance(view, HTTPView):
             raise RegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__))
@@ -1071,11 +1135,10 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         Removes a view from the application.
 
-        Parameters:
-            path: The path of the view to remove.
-
-        Returns:
-            The view that was removed.
+        Parameters
+        ----------
+        path: :class:`str`
+            The path of the view to remove.
         """
         view = self._views.pop(path, None)
         if not view:
@@ -1088,11 +1151,10 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         Gets a view from the application.
 
-        Parameters:
-            path: The path of the view to get.
-
-        Returns:
-            The view that was retrieved.
+        Parameters
+        ----------
+        path: :class:`str`
+            The path of the view to get.
         """
         return self._views.get(path)
 
@@ -1100,17 +1162,20 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         A decorator that adds a view to the application.
 
-        Parameters:
-            path: The path of the view to add.
+        Parameters
+        ----------
+        path: :class:`str`
+            The path of the view to add.
 
-        Example:
-            .. code-block :: python3
+        Example
+        ----------
+        .. code-block :: python3
 
-                @app.view('/')
-                class Index(railway.HTTPView):
-                    
-                    async def get(self, request: railway.Request):
-                        return 'Hello, world!'
+            @app.view('/')
+            class Index(railway.HTTPView):
+                
+                async def get(self, request: railway.Request):
+                    return 'Hello, world!'
             
         """
         def decorator(cls: Type[HTTPView]):
@@ -1125,15 +1190,14 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         Adds a resource to the application.
 
-        Parameters:
-            resource: The [Resource](./resources.md) to add.
+        Parameters
+        ----------
+        resource: :class:`~railway.resources.Resource`
+            The resource to add.
 
-        Returns:
-            The resource that was added.
-
-        Raises:
-            RegistrationError: If the `resource` argument that was passed in is not a proper resource.
-        
+        Raises
+        ----------
+        RegistrationError: If the `resource` argument that was passed in is not a proper resource.
         """
         if not isinstance(resource, Resource):
             raise RegistrationError('Expected Resource but got {0!r} instead.'.format(resource.__class__.__name__))
@@ -1147,11 +1211,10 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         Removes a resource from the application.
 
-        Parameters:
-            name: The name of the resource to remove.
-
-        Returns:
-            The resource that was removed.
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the resource to remove.
         """
         resource = self._resources.pop(name, None)
         if not resource:
@@ -1164,11 +1227,10 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         Gets a resource from the application.
 
-        Parameters:
-            name: The name of the resource to get.
-        
-        Returns:
-            The resource that was retrieved.
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the resource to get.
         """
         return self._resources.get(name)
 
@@ -1176,23 +1238,23 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         A decorator that adds a resource to the application.
 
-        Parameters:
-            name: The name of the resource to add.
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the resource to add.
 
-        Returns:
-            The resource that was added.
+        Example
+        ----------
+        .. code-block :: python3
 
-        Example:
-            .. code-block :: python3
+            @app.resource('users')
+            class Users(Resource):
+                def __init__(self):
+                    self.users = {}
 
-                @app.resource('users')
-                class Users(Resource):
-                    def __init__(self):
-                        self.users = {}
-
-                    @railway.route('/users', 'GET')
-                    async def get_all(self, request: railway.Request):
-                        return self.users
+                @railway.route('/users', 'GET')
+                async def get_all(self, request: railway.Request):
+                    return self.users
             
         """
         def decorator(cls: Type[Resource]):
@@ -1207,11 +1269,10 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         Adds a middleware to the global application scope.
 
-        Parameters:
-            callback: The middleware callback.
-
-        Returns:
-            The middleware that was added.
+        Parameters
+        ----------
+        callback: Callable[..., Coroutine[Any, Any, Any]]
+            The middleware callback.
         """
         middleware = Middleware(callback, router=self)
         middleware._is_global = True
@@ -1223,22 +1284,22 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         A decorator that adds a middleware to the global application scope.
 
-        Parameters:
-            callback: The middleware callback.
+        Parameters
+        ----------
+        callback: Callable[..., Coroutine[Any, Any, Any]]
+            The middleware callback.
 
-        Returns:
-            The middleware that was added.
+        Raises
+        ----------
+            RegistrationError: If the ``callback`` argument that was passed in is not a proper coroutine function.
 
-        Raises:
-            RegistrationError: If the `callback` argument that was passed in is not a proper coroutine function.
+        Example
+        ----------
+        .. code-block :: python3
 
-        Example:
-            .. code-block :: python3
-
-                @app.middleware
-                async def middleware(request: railway.Request, route: railway.Route, **kwargs):
-                    # do stuff
-
+            @app.middleware
+            async def middleware(request: railway.Request, route: railway.Route, **kwargs):
+                # do stuff
         """
         if not inspect.iscoroutinefunction(callback):
             raise RegistrationError('Middlewares must be coroutines')
@@ -1249,11 +1310,10 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         Removes a middleware from the global application scope.
 
-        Parameters:
-            middleware: The middleware to remove.
-
-        Returns:
-            The middleware that was removed.
+        Parameters
+        ----------
+        middleware: :class:`~railway.objects.Middleware`
+            The middleware to remove.
         """
         self._middlewares.remove(middleware)
         return middleware
@@ -1303,7 +1363,7 @@ def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) 
         
     """
     if not utils.has_dualstack_ipv6():
-        raise RuntimeError('Dualstack support is not available')
+        raise DualStackNotSupported('Dualstack support is not available')
 
     worker_count = kwargs.pop('worker_count', multiprocessing.cpu_count() + 1)
     app = Application(worker_count=0, port=port, **kwargs)

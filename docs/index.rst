@@ -3,8 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to Railway's documentation!
-===================================
+Welcome to the Railway web framework
+======================================
 
 pog
 
@@ -19,6 +19,6 @@ Indices and tables
 Contents
 ========
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
 
    api

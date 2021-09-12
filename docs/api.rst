@@ -589,6 +589,33 @@ NetworkAuthenticationRequired
 .. autoclass:: railway.responses.NetworkAuthenticationRequired
     :members:
 
+Requests
+--------------------
+
+Request
+~~~~~~~~
+
+.. autoclass:: railway.request.Request
+    :members:
+
+
+Form-Data
+--------------------
+
+Disposition
+~~~~~~~~~~~~
+
+.. autoclass:: railway.formdata.Disposition
+    :members:
+
+
+FormData
+~~~~~~~~~
+
+.. autoclass:: railway.formdata.FormData
+    :members:
+
+
 Cookies
 --------------------
 
@@ -603,6 +630,45 @@ Cookie
 
 .. autoclass:: railway.cookies.Cookie
     :members:
+
+Files
+-----------------
+
+File
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: railway.file.File
+    :members:
+    :exclude-members: stream
+
+    .. automethod:: File.stream
+        :async-for:
+
+
+Data Structures
+--------------------
+
+ImmutableMapping
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: railway.datastructures.ImmutableMapping
+    :members:
+    :exclude-members: clear, copy, pop, popitem, setdefault, update
+
+MultiDict
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: railway.datastructures.MultiDict
+    :members:
+    :exclude-members: clear
+
+
+URL
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: railway.datastructures.URL
+    :members:
+
 
 Views
 --------------------
@@ -636,9 +702,30 @@ Injectable
 .. autoclass:: railway.injectables.Injectable
     :members:
 
+Resources
+-----------
+
+ResourceMeta
+~~~~~~~~~~~~~
+
+.. autoclass:: railway.resources.ResourceMeta
+    :members:
+
+Resource
+~~~~~~~~~~
+
+.. autoclass:: railway.resources.Resource
+    :members:
+
 
 Models
 ---------------------
+
+Field
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: railway.models.Field
+    :members:
 
 ModelMeta
 ~~~~~~~~~~~~~~~~~~
@@ -652,11 +739,109 @@ Model
 .. autoclass:: railway.models.Model
     :members:
 
+Routers
+---------------------
+
+Router
+~~~~~~~~~~
+
+.. autoclass:: railway.router.Router
+    :members:
+    :exclude-members: route, middleware, websocket, get, post, put, head, options, delete, patch
+
+    .. automethod:: Router.route
+        :decorator:
+
+    .. automethod:: Router.get
+        :decorator:
+
+    .. automethod:: Router.put
+        :decorator:
+
+    .. automethod:: Router.post
+        :decorator:
+
+    .. automethod:: Router.delete
+        :decorator:
+
+    .. automethod:: Router.head
+        :decorator:
+
+    .. automethod:: Router.options
+        :decorator:
+
+    .. automethod:: Router.patch
+        :decorator:
+
+    .. automethod:: Router.websocket
+        :decorator:
+
+    .. automethod:: Router.middleware
+        :decorator:
+
+Ratelimits
+--------------
+
+RatelimitHandler
+~~~~~~~~~~~~~~~~~
+
+.. autoclass:: railway.ratelimits.RatelimitHandler
+    :members:
+
+Bucket
+~~~~~~~~~
+
+.. autoclass:: railway.ratelimits.Bucket
+    :members:
+
+Key
+~~~~
+
+.. autoclass:: railway.ratelimits.Key
+    :members:
+
+Sessions
+---------
+
+CookieSession
+~~~~~~~~~~~~~~~
+
+.. autoclass:: railway.sessions.CookieSession
+    :members:
+
+Templates
+----------
+
+TemplateContext
+~~~~~~~~~~~~~~~~
+
+.. autoclass:: railway.templates.TemplateContext
+    :members:
+
+Template
+~~~~~~~~~
+
+.. autoclass:: railway.templates.Template
+    :members:
+
+.. autofunction:: railway.templates.render
+
+Workers
+--------
+
+Worker
+~~~~~~~
+
+.. autoclass:: railway.workers.Worker
+    :members:
+
 Utility functions
 --------------------
 
 .. autofunction:: railway.utils.maybe_coroutine
+.. autofunction:: railway.utils.has_dualstack_ipv6
 .. autofunction:: railway.utils.has_ipv6
 .. autofunction:: railway.utils.is_ipv6
 .. autofunction:: railway.utils.is_ipv4
 .. autofunction:: railway.utils.validate_ip
+.. autofunction:: railway.utils.jsonify

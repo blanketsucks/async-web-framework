@@ -12,6 +12,7 @@
 #
 import os
 import sys
+
 sys.path.insert(0, os.path.abspath('..'))
 
 
@@ -37,7 +38,7 @@ extensions = [
     'sphinx.ext.napoleon',
     'sphinxcontrib_trio',
     'sphinx_autodoc_typehints',
-    'sphinx_copybutton'
+    'sphinx_copybutton',
 ]
 
 intersphinx_mapping = {

@@ -38,7 +38,7 @@ def is_immutable(obj: Any):
 
 class ImmutableMapping(Dict[KT, VT]):
     """
-    A `dict` that cannot be modified.
+    A :class:`dict` that cannot be modified once initialized.
     """
     def setdefault(self, key: Any, default: Any=None):
         is_immutable(self)
@@ -104,12 +104,29 @@ class Headers(MultiDict[str, str]):
     pass
 
 class URL:
+    """
+    Parameters
+    ----------
+    url: Union[:class:`str`, :class:`bytes`]
+        The URL to parse.
+
+    Attributes
+    -----------
+    value: :class:`str`
+        The originally passed in URL.
+    """
     def __init__(self, url: Union[str, bytes]) -> None:
         if isinstance(url, bytes):
             url = url.decode()
 
         self.value = url
         self.components = urlparse(url)
+
+    def __str__(self) -> str:
+        return self.value
+
+    def __repr__(self) -> str:
+        return f'<URL scheme={self.scheme!r} hostname={self.hostname!r} path={self.path!r}>'
 
     def __add__(self, other: Union[str, 'URL', Any]) -> 'URL':
         if isinstance(other, URL):
@@ -123,40 +140,35 @@ class URL:
     @property
     def scheme(self) -> str:
         """
-        Returns:
-            The scheme of the URL.
+        The scheme of the URL.
         """
         return self.components.scheme
     
     @property
     def netloc(self) -> str:
         """
-        Returns:
-            The netloc of the URL.
+        The netloc of the URL.
         """
         return self.components.netloc
 
     @property
     def path(self) -> str:
         """
-        Returns:
-            The path of the URL.
+        The path of the URL.
         """
         return self.components.path
 
     @property
     def hostname(self) -> Optional[str]:
         """
-        Returns:
-            The hostname of the URL.
+        The hostname of the URL.
         """
         return self.components.hostname
 
     @property
     def query(self) -> ImmutableMapping[str, str]:
         """
-        Returns:
-            The query parameters of the URL as a [ImmutableMapping](./datastructures.md).
+        The query parameters of the URL as an immutable dict.
         """
         ret = self.components.query
         query = parse_qsl(ret)
@@ -166,34 +178,27 @@ class URL:
     @property
     def fragment(self) -> Optional[str]:
         """
-        Returns:
-            The fragment of the URL.
+        The fragment of the URL.
         """
         return self.components.fragment
 
     @property
     def username(self) -> Optional[str]:
         """
-        Returns:
-            The username of the URL.
+        The username of the URL.
         """
         return self.components.username
 
     @property
     def password(self) -> Optional[str]:
         """
-        Returns:
-            The password of the URL.
+        The password of the URL.
         """
         return self.components.password
 
     @property
     def port(self) -> Optional[int]:
         """
-        Returns:
-            The port of the URL.
+        The port of the URL.
         """
         return self.components.port
-
-    def __repr__(self) -> str:
-        return f'<URL scheme={self.scheme!r} hostname={self.hostname!r} path={self.path!r}>'

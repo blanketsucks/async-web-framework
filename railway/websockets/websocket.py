@@ -25,7 +25,7 @@ from typing import Any, Dict, Tuple, Optional
 import json
 
 from .frame import WebSocketFrame, WebSocketOpcode, Data, WebSocketCloseCode
-from railway.streams import StreamReader, StreamWriter
+from railway.streams import StreamTransport
 
 __all__ = (
     'ServerWebsocket',
@@ -33,11 +33,10 @@ __all__ = (
 )
 
 class ServerWebsocket:
-    def __init__(self, reader: StreamReader, writer: StreamWriter) -> None:
-        self._reader = reader
-        self._writer = writer
+    def __init__(self, transport: StreamTransport) -> None:
+        self._transport = transport
 
-        self.peername: Tuple[str, int] = self._writer.get_extra_info('peername')
+        self.peername: Tuple[str, int] = transport.get_extra_info('peername')
         self._closed = False
 
     def __repr__(self) -> str:
@@ -47,11 +46,11 @@ class ServerWebsocket:
         return self._closed
 
     def feed_data(self, data: bytes):
-        return self._reader.feed_data(data)
+        return self._transport.feed_data(data)
 
     async def send_frame(self, frame: WebSocketFrame):
         data = frame.encode()
-        await self._writer.write(data)
+        await self._transport.write(data)
 
         return len(data)
 
@@ -96,7 +95,7 @@ class ServerWebsocket:
         self._writer.close()     
 
     async def receive(self):
-        opcode, raw, data = await WebSocketFrame.decode(self._reader.read)
+        opcode, raw, data = await WebSocketFrame.decode(self._transport.receive)
         return Data(raw, data)
 
     async def receive_bytes(self):
@@ -115,7 +114,7 @@ class ClientWebsocket(ServerWebsocket):
 
     async def send_frame(self, frame: WebSocketFrame):
         data = frame.encode(masked=True)
-        await self._writer.write(data)
+        await self._transport.write(data)
 
         return len(data)
 

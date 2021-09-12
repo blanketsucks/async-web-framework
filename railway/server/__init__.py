@@ -78,7 +78,6 @@ class ServerProtocol(asyncio.Protocol):
             self.transport.close()
             raise ConnectionAbortedError('Too many connections')
 
-
         self.transports[peername] = StreamTransport(transport)
         self.waiters[peername] = self.loop.create_future()
 
@@ -210,7 +209,7 @@ class ClientConnection:
         Raises:
             asyncio.TimeoutError: If the data could not be received in time.
         """
-        data = await self._transport.read(nbytes=nbytes, timeout=timeout)
+        data = await self._transport.receive(nbytes=nbytes, timeout=timeout)
         return data
     
     async def write(self, data: bytes) -> int:

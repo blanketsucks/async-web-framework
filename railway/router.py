@@ -28,7 +28,7 @@ import re
 from ._types import CoroFunc
 
 from .errors import RegistrationError
-from .objects import Route, WebsocketRoute
+from .objects import Middleware, Route, WebsocketRoute
 
 
 __all__ = (
@@ -41,13 +41,17 @@ class Router:
 
     Parameters
     ----------
-    
+    url_prefix: :class:`str`
+        The prefix used for route urls.
 
     Attributes
     ----------
-        url_prefix: The prefix used for route urls.
-        routes: A dictionary of routes.
-        middlewares: A list of middleware callbacks.
+    url_prefix: 
+        The prefix used for route urls.
+    routes: 
+        A dictionary of routes.
+    middlewares: 
+        A list of middleware callbacks.
     """
     _param_regex = r"{(?P<param>\w+)}"
     def __init__(self, url_prefix: str) -> None:
@@ -59,7 +63,7 @@ class Router:
         """
         self.url_prefix = url_prefix
         self.routes: Dict[Tuple[str, str], Union[Route, WebsocketRoute]] = {}
-        self.middlewares: List[CoroFunc] = []
+        self.middlewares: List[Middleware] = []
 
     def _format_pattern(self, path: str):
         if not re.search(self._param_regex, path):
@@ -80,11 +84,10 @@ class Router:
         """
         Adds a route to the router.
 
-        Parameters:
-            route: The route to add.
-
-        Returns:
-            The route that was added.
+        Parameters
+        ----------
+        route: :class:`~railway.objects.Route` 
+            The route to add.
         """
         path = self.url_prefix + route.path
 
@@ -102,11 +105,10 @@ class Router:
         """
         Removes a route from the router.
 
-        Parameters:
-            route: The route to remove.
-        
-        Returns:
-            The route that was removed.
+        Parameters
+        ----------
+        route: :class:`~railway.objects.Route`
+            The route to remove.
         """
         return self.routes.pop((route.path, route.method), None)
 
@@ -114,8 +116,10 @@ class Router:
         """
         A decorator for registering a websocket route.
 
-        Parameters:
-            path: The path to register the route to.
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to register the route to.
         """
         def wrapper(func: CoroFunc):
             route = WebsocketRoute(path, 'GET', func, router=self)
@@ -128,9 +132,12 @@ class Router:
         """
         A decorator for registering a route.
 
-        Parameters:
-            path: The path to register the route to.
-            method: The HTTP method to use for the route.
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to register the route to.
+        method: :class:`str`
+            The HTTP method to use for the route.
         """
         def wrapper(func: CoroFunc):
             route = Route(path, method, func, router=self)
@@ -141,79 +148,120 @@ class Router:
 
     def get(self, path: str) -> Callable[[CoroFunc], Route]:
         """
-        A decorator for registering a route to GET requests.
+        Adds a :class:`~railway.objects.Route` with the ``GET`` HTTP method.
 
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
         """
-        def wrapper(func: CoroFunc):
+        def decorator(func: CoroFunc) -> Route:
             route = Route(path, 'GET', func, router=self)
-            self.add_route(route)
-
-            return route
-        return wrapper
-
-    def post(self, path: str) -> Callable[[CoroFunc], Route]:
-        def wrapper(func: CoroFunc):
-            route = Route(path, 'POST', func, router=self)
-            self.add_route(route)
-
-            return route
-        return wrapper
+            return self.add_route(route)
+        return decorator
 
     def put(self, path: str) -> Callable[[CoroFunc], Route]:
-        def wrapper(func: CoroFunc):
-            route = Route(path, 'PUT', func, router=self)
-            self.add_route(route)
+        """
+        Adds a :class:`~railway.objects.Route` with the ``PUT`` HTTP method.
 
-            return route
-        return wrapper
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
+        """
+        def decorator(func: CoroFunc):
+            route = Route(path, 'PUT', func, router=self)
+            return self.add_route(route)
+        return decorator
+
+    def post(self, path: str) -> Callable[[CoroFunc], Route]:
+        """
+        Adds a :class:`~railway.objects.Route` with the ``POST`` HTTP method.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
+        """
+        def decorator(func: CoroFunc):
+            route = Route(path, 'POST', func, router=self)
+            return self.add_route(route)
+        return decorator
 
     def delete(self, path: str) -> Callable[[CoroFunc], Route]:
-        def wrapper(func: CoroFunc):
+        """
+        Adds a :class:`~railway.objects.Route` with the ``DELETE`` HTTP method.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
+        """
+        def decorator(func: CoroFunc):
             route = Route(path, 'DELETE', func, router=self)
-            self.add_route(route)
-
-            return route
-        return wrapper
-
-    def patch(self, path: str) -> Callable[[CoroFunc], Route]:
-        def wrapper(func: CoroFunc):
-            route = Route(path, 'PATCH', func, router=self)
-            self.add_route(route)
-
-            return route
-        return wrapper
-
-    def options(self, path: str) -> Callable[[CoroFunc], Route]:
-        def wrapper(func: CoroFunc):
-            route = Route(path, 'OPTIONS', func, router=self)
-            self.add_route(route)
-
-            return route
-        return wrapper
+            return self.add_route(route)
+        return decorator
 
     def head(self, path: str) -> Callable[[CoroFunc], Route]:
-        def wrapper(func: CoroFunc):
+        """
+        Adds a :class:`~railway.objects.Route` with the ``HEAD`` HTTP method.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
+        """
+        def decorator(func: CoroFunc):
             route = Route(path, 'HEAD', func, router=self)
-            self.add_route(route)
+            return self.add_route(route)
+        return decorator
 
-            return route
-        return wrapper
+    def options(self, path: str) -> Callable[[CoroFunc], Route]:
+        """
+        Adds a :class:`~railway.objects.Route` with the ``OPTIONS`` HTTP method.
 
-    def middleware(self, func: CoroFunc) -> CoroFunc:
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
+        """
+        def decorator(func: CoroFunc):
+            route = Route(path, 'OPTIONS', func, router=self)
+            return self.add_route(route)
+        return decorator
+
+    def patch(self, path: str) -> Callable[[CoroFunc], Route]:
+        """
+        Adds a :class:`~railway.objects.Route` with the ``PATCH`` HTTP method.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to the route.
+        """
+        def decorator(func: CoroFunc):
+            route = Route(path, 'PATCH', func, router=self)
+            return self.add_route(route)
+        return decorator
+
+    def middleware(self, func: CoroFunc) -> Middleware:
         """
         A decorator for registering a middleware callback.
 
-        Parameters:
-            func: The middleware callback.
-        
-        Returns:
+        Parameters
+        ----------
+        func: Callable[..., Coroutine[Any, Any, Any]]
             The middleware callback.
+
         """
         if not inspect.iscoroutinefunction(func):
             raise RegistrationError('Middleware callbacks must be coroutine functions')
 
-        self.middlewares.append(func)
-        return func
+        middleware = Middleware(func)
+        middleware._is_global = True
+
+        self.middlewares.append(middleware)
+        return middleware
 
     def __iter__(self):
         return self.routes.values().__iter__()

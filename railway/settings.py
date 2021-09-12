@@ -21,7 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-from typing import Dict, Union, Optional, TypedDict
+from typing import Union, Optional, TypedDict
 import importlib
 import os
 import pathlib
@@ -52,7 +52,7 @@ DEFAULT_SETTINGS = {
     'use_ipv6': False,
     'ssl_context': None,
     'worker_count': (multiprocessing.cpu_count() * 2) + 1,
-    'session_cookie_name': None,
+    'session_cookie_name': '__railway',
 }
 
 class Settings(TypedDict):
