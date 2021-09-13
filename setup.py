@@ -19,5 +19,4 @@ setup(
         'railway-stubs'
     ],
     python_requires='>=3.8.0',
-    ext_modules=cythonize('railway/utils.pyx', language_level=3),
 )

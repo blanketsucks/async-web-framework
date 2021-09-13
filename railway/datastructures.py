@@ -24,6 +24,8 @@ SOFTWARE.
 from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union
 from urllib.parse import urlparse, parse_qsl
 
+from . import utils
+
 __all__ = (
     'ImmutableMapping',
     'Headers',
@@ -40,30 +42,39 @@ class ImmutableMapping(Dict[KT, VT]):
     """
     A :class:`dict` that cannot be modified once initialized.
     """
+
+    @utils.clear_docstring
     def setdefault(self, key: Any, default: Any=None):
         is_immutable(self)
 
+    @utils.clear_docstring
     def update(self, **kwargs: VT) -> None:
         is_immutable(self)
 
+    @utils.clear_docstring
     def pop(self, key: Any, default: Any=None):
         is_immutable(self)
 
+    @utils.clear_docstring
     def popitem(self) -> Tuple[KT, VT]:
         is_immutable(self)
 
+    @utils.clear_docstring
     def clear(self) -> None:
         is_immutable(self)
     
+    @utils.clear_docstring
     def __setitem__(self, key: Any, value: Any) -> None:
         is_immutable(self)
 
+    @utils.clear_docstring
     def __delitem__(self, key: Any) -> None:
         is_immutable(self)
 
     def __repr__(self):
         return super().__repr__()
 
+    @utils.clear_docstring
     def copy(self):
         return dict(self)
 
@@ -93,11 +104,36 @@ class MultiDict(Dict[KT, VT]):
         
         self._list = [(k, v) for k, v in self._list if k != key]
 
+    @utils.clear_docstring
     def clear(self) -> None:
         self._dict = {}
         self._list = []
 
+    def get(self, key: KT, default: Any=None) -> Optional[VT]:
+        """
+        Gets the first value belonging to a key.
+
+        Parameters
+        ----------
+        key: Any
+            The key to get the first value for.
+        """
+        values = self._dict.get(key, [])
+        
+        if not values:
+            return default
+
+        return values[0]
+
     def getall(self, key: KT) -> List[VT]:
+        """
+        Gets all the values belonging to a key.
+
+        Parameters
+        ----------
+        key: Any
+            The key to get all values for.
+        """
         return self._dict.get(key, [])
 
 class Headers(MultiDict[str, str]):

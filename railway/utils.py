@@ -26,12 +26,16 @@ import warnings
 import functools
 import socket
 import asyncio
-from typing import Any, Callable, Iterator, List, Optional, Type, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Iterator, List, Optional, Type, Tuple
 
-from .response import Response
 from ._types import MaybeCoroFunc
 
+if TYPE_CHECKING:
+    from .response import Response
+
 __all__ = (
+    'copy_docstring',
+    'clear_docstring',
     'maybe_coroutine',
     'LOCALHOST',
     'LOCALHOST_V6',
@@ -47,6 +51,32 @@ __all__ = (
 
 LOCALHOST = '127.0.0.1'
 LOCALHOST_V6 = '::1'
+
+def copy_docstring(other: Callable[..., Any]) -> Callable[..., Callable[..., Any]]:
+    """
+    A decorator that copies the docstring of another function.
+
+    Parameters
+    ----------
+    other: Callable[..., Any]
+        The function to copy the docstring from.
+    """
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        func.__doc__ = other.__doc__
+        return func
+    return decorator
+
+def clear_docstring(func: Callable[..., Any]) -> Callable[..., Any]:
+    """
+    A decorator that clears the docstring of the decorated function.
+
+    Parameters
+    ----------
+    func: Callable[..., Any]
+        The function to clear the docstring of.
+    """
+    func.__doc__ = ''
+    return func
 
 async def maybe_coroutine(func: MaybeCoroFunc[Any], *args: Any, **kwargs: Any) -> Any:
     """
@@ -145,6 +175,9 @@ class Deprecated:
     def __init__(self, func: Callable[..., Any]) -> None:
         self.__repr = '<Deprecated name={0.__name__!r}>'.format(func)
 
+    def __call__(self, *args, **kwargs):
+        return None
+
     def __bool__(self):
         return False
 
@@ -184,15 +217,16 @@ def deprecated(other: Optional[str]=None):
         return wrapper
     return decorator
 
-def jsonify(**kwargs: Any) -> Response:
+def jsonify(**kwargs: Any) -> 'Response':
     """
     Kinda like :py:func:`flask.jsonify`.
 
     Parameters
     ----------
-        \*\*kwargs: 
-            Keyword arguments to pass to :py:func:`json.dumps`.
+    \*\*kwargs: 
+        Keyword arguments to pass to :func:`json.dumps`.
     """
+    from .response import Response
     data = json.dumps(kwargs, indent=4)
 
     resp = Response(data, content_type='application/json')

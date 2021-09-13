@@ -24,7 +24,7 @@ SOFTWARE.
 from typing import List, Optional, Union, Any
 import asyncio
 
-from . import compat
+from . import compat, utils
 
 __all__ = (
     'StreamWriter',
@@ -222,7 +222,7 @@ class StreamReader:
 
         Raises
         ------
-            asyncio.TimeoutError: If the timeout expires.
+        asyncio.TimeoutError: If the timeout expires.
         """
         if not self.buffer:
             await self._wait_for_data(timeout=timeout)
@@ -254,36 +254,53 @@ class StreamTransport:
     def _wakeup_writer(self):
         self._writer._wakeup_waiter()
 
+    @utils.copy_docstring(StreamWriter.get_extra_info)
     def get_extra_info(self, name: str, default: Any=None) -> Any:
         return self._writer.get_extra_info(name, default)
 
+    @utils.copy_docstring(asyncio.Transport.get_protocol)
     def get_protocol(self) -> asyncio.Protocol:
         return self._transport.get_protocol()
 
     def close(self):
+        """
+        Closes the transport.
+        """
         self._writer.close()
 
     def abort(self):
+        """
+        Closes the transport immediately.
+        """
         return self._transport.abort()
 
     def is_closing(self):
+        """
+        True if the transport is closing.
+        """
         return self._transport.is_closing()
 
     def is_reading(self):
+        """
+        True if the transport is reading.
+        """
         return self._transport.is_reading()
 
+    @utils.copy_docstring(StreamReader.feed_data)
     def feed_data(self, data: Union[bytes, bytearray]):
         self._reader.feed_data(data)
 
     def feed_eof(self):
         self._reader.feed_eof()
 
+    @utils.copy_docstring(StreamReader.read)
     async def receive(self, nbytes: Optional[int]=None, *, timeout: Optional[float]=None) -> bytes:
         return await self._reader.read(nbytes, timeout=timeout)
 
+    @utils.copy_docstring(StreamWriter.write)
     async def write(self, data: Union[bytearray, bytes], *, timeout: Optional[float]=None):
         await self._writer.write(data, timeout=timeout)
 
+    @utils.copy_docstring(StreamWriter.writelines)
     async def writelines(self, data: List[Union[bytearray, bytes]], *, timeout: Optional[float]=None):
         await self._writer.writelines(data, timeout=timeout)
-    

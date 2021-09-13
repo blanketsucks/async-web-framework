@@ -653,15 +653,12 @@ ImmutableMapping
 
 .. autoclass:: railway.datastructures.ImmutableMapping
     :members:
-    :exclude-members: clear, copy, pop, popitem, setdefault, update
 
 MultiDict
 ~~~~~~~~~~~~~~~~~~
 
 .. autoclass:: railway.datastructures.MultiDict
     :members:
-    :exclude-members: clear
-
 
 URL
 ~~~~~~~~~~~~~~~~~~
@@ -848,6 +845,27 @@ Lock
 ~~~~~
 
 .. autoclass:: railway.locks.Lock
+    :members:
+
+Streams
+---------
+
+StreamReader
+~~~~~~~~~~~~
+
+.. autoclass:: railway.streams.StreamReader
+    :members:
+
+StreamWriter
+~~~~~~~~~~~~~
+
+.. autoclass:: railway.streams.StreamWriter
+    :members:
+
+StreamTransport
+~~~~~~~~~~~~~~~~
+
+.. autoclass:: railway.streams.StreamTransport
     :members:
 
 Utility functions
