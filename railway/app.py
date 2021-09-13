@@ -52,6 +52,7 @@ from .websockets import ServerWebsocket as Websocket
 from .workers import Worker
 from .models import Model
 from .datastructures import URL
+from .locks import Semaphore
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +60,18 @@ __all__ = (
     'dualstack_ipv6',
     'Application',
 )
+
+class _MaybeSemaphore:
+    def __init__(self, value: Optional[int]):
+        self.semaphore = Semaphore(value) if value else None
+
+    async def __aenter__(self):
+        if self.semaphore:
+            await self.semaphore.acquire()
+
+    async def __aexit__(self):
+        if self.semaphore:
+            self.semaphore.release()
 
 class Application(Injectable, metaclass=InjectableMeta):
     """
@@ -111,6 +124,25 @@ class Application(Injectable, metaclass=InjectableMeta):
         A callback that gets called whenever there is a need to generate a cookie header value
         for responses. This function must return a single value being a string, anything else will raise an error.
         The default for this is a lambda function that returns a :attr:`uuid.UUID.hex` value.
+    max_concurrent_requests: :class:`int`
+        An integer representing the maximum number of concurrent requests. This is used with a :class:`~railway.locks.Semaphore`. 
+        This doesn't really limit the amount of requests though, it just limits the amount of requests that can be processed at the same time, 
+        clients will still be able to send requests but they will be stalled until the semaphore is released.
+    max_pending_connections: :class:`int`
+        An integer represting the maximun number of pending connections. Again, this isn't really limiting the amount of connections,
+        it just limits the amount of connections that can be queued up before getting processed by the server.
+    connection_timeout: :class:`int`
+        An integer representing the connection timeout. This defines the amount of the time that the client has to make a request
+        after the server has accepted the connection. If the client doesn't make a request within this time, the connection will be
+        closed.
+    backlog: :class:`int`
+        An integer representing the backlog that gets passed to the :meth:`socket.socket.listen` method.
+        Defaults to 200.
+    reuse_host: :class:`bool`
+        An optional bool indicating whether to reuse the host. If set to ``False`` the number of worker used will be at 1 to
+        avoid issues with the host being reused.
+    reuse_port: :class:`bool`
+        An optional bool indicating whether to reuse the port.
 
     Raises
     ------
@@ -144,25 +176,37 @@ class Application(Injectable, metaclass=InjectableMeta):
     cookie_session_callback: Callable[[:class:`~railway.request.Request`, :class:`~railway.response.Response`], :class:`str`]
         A callback that gets called whenever there is a need to generate a cookie header value for responses.
     """
-    def __init__(self,
-                host: Optional[str]=None,
-                port: Optional[int]=None,
-                url_prefix: Optional[str]=None, 
-                *,
-                loop: Optional[asyncio.AbstractEventLoop]=None,
-                settings: Optional[Settings]=None,
-                settings_file: Optional[Union[str, pathlib.Path]]=None, 
-                load_settings_from_env: Optional[bool]=False,
-                ipv6: bool=False,
-                sock: Optional[socket.socket]=None,
-                worker_count: Optional[int]=None, 
-                use_ssl: Optional[bool]=False,
-                ssl_context: Optional[ssl.SSLContext]=None,
-                cookie_session_callback: Optional[Callable[[Request, Response], str]]=None):
+    def __init__(
+        self,
+        host: Optional[str]=None,
+        port: Optional[int]=None,
+        url_prefix: Optional[str]=None, 
+        *,
+        loop: Optional[asyncio.AbstractEventLoop]=None,
+        settings: Optional[Settings]=None,
+        settings_file: Optional[Union[str, pathlib.Path]]=None, 
+        load_settings_from_env: Optional[bool]=False,
+        ipv6: bool=False,
+        sock: Optional[socket.socket]=None,
+        worker_count: Optional[int]=None, 
+        use_ssl: Optional[bool]=False,
+        ssl_context: Optional[ssl.SSLContext]=None,
+        cookie_session_callback: Optional[Callable[[Request, Response], str]]=None,
+        max_pending_connections: Optional[int]=None,
+        max_concurent_requests: Optional[int]=None,
+        connection_timeout: Optional[int]=None,
+        backlog: Optional[int]=None,
+        reuse_host: Optional[bool]=True,
+        reuse_port: Optional[bool]=False
+    ):
         if ipv6:
             has_ipv6 = utils.has_ipv6()
             if not has_ipv6:
                 raise IPv6NotSupported('IPv6 is not supported')
+
+        if reuse_port:
+            if not hasattr(socket, 'SO_REUSEPORT'):
+                raise RuntimeError('SO_REUSEPORT is not supported')
 
         if settings is None:
             if settings_file:
@@ -182,17 +226,22 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         self.host: str = utils.validate_ip(host, ipv6=ipv6)
         self.port: int = port
-        self.url_prefix: str = url_prefix or ''
-        self.router: Router = Router(self.url_prefix)
-        self.ssl_context: ssl.SSLContext = ssl_context or settings['ssl_context']
-        self.worker_count: int = worker_count or settings['worker_count']
+        self.url_prefix = url_prefix or settings['url_prefix']
+        self.router = Router(self.url_prefix)
+        self.ssl_context = ssl_context or settings['ssl_context']
+        self.worker_count = settings['worker_count'] if worker_count is None else worker_count
 
         if cookie_session_callback is not None:
             if not callable(cookie_session_callback):
                 raise TypeError('cookie_session_callback must be a callable')
 
         self.cookie_session_callback = cookie_session_callback or (lambda req, res: uuid.uuid4().hex)
-
+        self._backlog = backlog or settings['backlog']
+        self._concurrent_requests_semaphore = _MaybeSemaphore(
+            value=max_concurent_requests or settings['max_concurrent_requests']
+        )
+        self._max_pending_connections = max_pending_connections or settings['max_pending_connections']
+        self._connection_timeout = connection_timeout or settings['connection_timeout']
         self._ipv6 = ipv6
         self._use_ssl = use_ssl
         self._listeners: Dict[str, List[Listener]] = {}
@@ -204,6 +253,11 @@ class Application(Injectable, metaclass=InjectableMeta):
         self._worker_tasks: List[asyncio.Task[None]] = []
         self._loop = loop or compat.get_event_loop()
         self._closed = False
+        self._reuse_host = reuse_host
+        self._reuse_port = reuse_port
+
+        if not reuse_host:
+            self.worker_count = 1
 
         if self._use_ssl and self.ssl_context is None:
             self.ssl_context = ssl.create_default_context()
@@ -226,8 +280,30 @@ class Application(Injectable, metaclass=InjectableMeta):
         self.inject(self)
 
     def __repr__(self) -> str:
-        prefix = self.url_prefix or '/'
-        return f'<Application url_prefix={prefix!r} is_closed={self.is_closed()}>'
+        values = [f'<{self.__class__.__name__}']
+        attrs = (
+            'url_prefix',
+            'host', 
+            'port',
+            'reuse_host',
+            'reuse_port',
+            'is_ssl',
+            'is_ipv6',
+            'is_closed',
+            'is_serving',
+            'worker_count', 
+            'max_pending_connections', 
+            'connection_timeout'
+        )
+
+        for attr in attrs:
+            value = getattr(self, attr)
+            if callable(value):
+                value = value()
+
+            values.append(f'{attr}={value!r}')
+
+        return ' '.join(values) + '>'
 
     async def __aenter__(self) -> 'Application':
         self.start()
@@ -283,23 +359,36 @@ class Application(Injectable, metaclass=InjectableMeta):
         workers: Dict[int, Worker] = {}
 
         for i in range(self.worker_count):
-            worker = Worker(self, i)
+            worker = Worker(self, i, self._max_pending_connections)
             workers[worker.id] = worker
         
         return workers
 
     def _make_ipv6_socket(self, host: str, port: int):
         sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        if self._reuse_host:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        if self._reuse_port:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
         sock.bind((host, port))
+        sock.listen(self._backlog)
         return sock
 
     def _make_ipv4_socket(self, host: str, port: int):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
+        if self._reuse_host:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        if self._reuse_port:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+
         sock.bind((host, port))
+        sock.listen(self._backlog)
         return sock
 
     def _ensure_listeners(self):
@@ -404,43 +493,44 @@ class Application(Injectable, metaclass=InjectableMeta):
         resp = None
         route = None
 
-        try:
-            kwargs, route = self._resolve_all(request)
+        async with self._concurrent_requests_semaphore:
+            try:
+                kwargs, route = self._resolve_all(request)
 
-            await self._run_middlewares(
-                request=request,
-                route=route,
-                kwargs=kwargs,
-            )
-
-            if request.is_closed():
-                return
-
-            if isinstance(route, WebsocketRoute):
-                return self._handle_websocket_connection(
-                    route=route,
+                await self._run_middlewares(
                     request=request,
-                    websocket=websocket,
+                    route=route,
+                    kwargs=kwargs,
                 )
 
-            resp = await utils.maybe_coroutine(route.callback, request, **kwargs)
-        except Exception as exc:
-            if not route:
-                route = PartialRoute(
-                    path=request.url.path,
-                    method=request.method
-                )
+                if request.is_closed():
+                    return
 
-            self.dispatch('error', route, request, worker, exc)
-            return 
+                if isinstance(route, WebsocketRoute):
+                    return self._handle_websocket_connection(
+                        route=route,
+                        request=request,
+                        websocket=websocket,
+                    )
 
-        resp = await self.parse_response(resp)
-        response = self.set_default_cookie(request, resp)
+                resp = await utils.maybe_coroutine(route.callback, request, **kwargs)
+            except Exception as exc:
+                if not route:
+                    route = PartialRoute(
+                        path=request.url.path,
+                        method=request.method
+                    )
 
-        await request.send(response, convert=False)
+                self.dispatch('error', route, request, worker, exc)
+                return 
 
-        if route._after_request:
-            await utils.maybe_coroutine(route._after_request, request, response, **kwargs)
+            resp = await self.parse_response(resp)
+            response = self.set_default_cookie(request, resp)
+
+            await request.send(response, convert=False)
+
+            if route._after_request:
+                await utils.maybe_coroutine(route._after_request, request, response, **kwargs)
 
     async def parse_response(self, 
         response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, Any], File, Response, URL, Any]
@@ -532,6 +622,41 @@ class Application(Injectable, metaclass=InjectableMeta):
             return response
 
         return response
+
+    @property
+    def reuse_host(self) -> bool:
+        """
+        Whether to reuse the host.
+        """
+        return self._reuse_host
+
+    @property
+    def reuse_port(self) -> bool:
+        """
+        Whether to reuse the port.
+        """
+        return self._reuse_port
+
+    @property
+    def max_pending_connections(self) -> int:
+        """
+        The maximum number of pending connections.
+        """
+        return self._max_pending_connections
+
+    @property
+    def requests_semaphore(self) -> Optional[Semaphore]:
+        """
+        An optional semaphore that limits the number of concurrent requests.
+        """
+        return self._concurrent_requests_semaphore.semaphore
+
+    @property
+    def connection_timeout(self) -> float:
+        """
+        The timeout for a connection.
+        """
+        return self._connection_timeout
 
     @property
     def workers(self) -> List[Worker]:
@@ -751,6 +876,9 @@ class Application(Injectable, metaclass=InjectableMeta):
         Starts the application.
         """
         loop = self.loop
+
+        if not self.workers:
+            raise ValueError('No workers have been added to the application')
 
         for worker in self.workers:
             task = loop.create_task(worker.run(), name=f'Worker-{worker.id}')
@@ -1360,12 +1488,20 @@ def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) 
                 return 'Hello, IPv4 world!'
 
             app.run()
-        
+    
+    Note
+    ----------
+    If ``reuse_host`` is set to ``True``, it will create a two workers, one for IPv4 and one for IPv6.
     """
     if not utils.has_dualstack_ipv6():
         raise DualStackNotSupported('Dualstack support is not available')
 
     worker_count = kwargs.pop('worker_count', multiprocessing.cpu_count() + 1)
+    reuse_host = kwargs.pop('reuse_host', True)
+
+    if not reuse_host:
+        worker_count = 1
+    
     app = Application(worker_count=0, port=port, **kwargs)
 
     ipv4 = utils.validate_ip(ipv4)
@@ -1377,20 +1513,33 @@ def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) 
     workers = []
     id: int = 0
 
+    kwargs = {
+        'app': app,
+        'max_pending_connections': app.max_pending_connections,
+        'connection_timeout': app.connection_timeout,
+    }
+
     for i in range(worker_count):
-        worker = Worker(app, id)
+        kwargs['id'] = id
+
+        worker = Worker(**kwargs)
         worker.socket = ipv4_socket
 
         workers.append(worker)
         id += 1
 
+    print(id, workers)
+
     for i in range(worker_count):
         id += 1
+        kwargs['id'] = id
 
-        worker = Worker(app, id)
+        worker = Worker(**kwargs)
         worker.socket = ipv6_socket
 
         workers.append(worker)
+
+    print(workers)
 
     for worker in workers:
         app.add_worker(worker)

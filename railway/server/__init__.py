@@ -76,7 +76,7 @@ class ServerProtocol(asyncio.Protocol):
             self.pending.put_nowait(transport)
         except asyncio.QueueFull:
             self.transport.close()
-            raise ConnectionAbortedError('Too many connections')
+            return
 
         self.transports[peername] = StreamTransport(transport)
         self.waiters[peername] = self.loop.create_future()

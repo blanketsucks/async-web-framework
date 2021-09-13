@@ -835,6 +835,21 @@ Worker
 .. autoclass:: railway.workers.Worker
     :members:
 
+Locks
+------
+
+Semaphore
+~~~~~~~~~~
+
+.. autoclass:: railway.locks.Semaphore
+    :members:
+
+Lock
+~~~~~
+
+.. autoclass:: railway.locks.Lock
+    :members:
+
 Utility functions
 --------------------
 

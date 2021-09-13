@@ -33,13 +33,13 @@ __all__ = (
 )
 
 class StreamWriter:
+    """
+    Parameters
+    -----------
+    transport: :class:`asyncio.Transport`
+        The transport to use.
+    """
     def __init__(self, transport: asyncio.Transport) -> None:
-        """
-        StreamWriter constructor.
-
-        Parameters:
-            transport: an `asyncio.Transport`
-        """
         self._transport = transport
         self._waiter: 'Optional[asyncio.Future[None]]' = None
 
@@ -48,8 +48,7 @@ class StreamWriter:
     @property
     def transport(self) -> asyncio.Transport:
         """
-        Returns:
-            The transport used by this writer
+        The transport used by this writer
         """
         return self._transport
 
@@ -70,12 +69,16 @@ class StreamWriter:
         """
         Writes data to the transport.
 
-        Parameters:
-            data: data to write.
-            timeout: timeout to wait for the write to complete.
+        Parameters
+        ----------
+        data: Union[:class:`bytearray`, :class:`bytes`]
+            data to write.
+        timeout: Optional[:class:`float`]
+            timeout to wait for the write to complete.
 
-        Raises:
-            asyncio.TimeoutError: if the timeout expires.
+        Raises
+        ------
+        asyncio.TimeoutError: if the timeout expires.
         """
         self._transport.write(data)
 
@@ -86,12 +89,16 @@ class StreamWriter:
         """
         Writes a list of data to the transport.
 
-        Parameters:
-            data: list of data to write.
-            timeout: timeout to wait for the write to complete.
+        Parameters
+        ----------
+        data: List[Union[:class:`bytearray`, :class:`bytes`]]
+            list of data to write.
+        timeout: Optional[:class:`float`]
+            timeout to wait for the write to complete.
 
-        Raises:
-            asyncio.TimeoutError: if the timeout expires.
+        Raises
+        ------
+        asyncio.TimeoutError: if the timeout expires.
         """
         self._transport.writelines(data)
         await self._wait_for_drain(timeout)
@@ -100,12 +107,12 @@ class StreamWriter:
         """
         Get optional transport information.
 
-        Parameters:
-            name: the name of the information.
-            default: the default value to return if the information is not available.
-        
-        Returns:
-            The requested information.
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the information.
+        default: Any
+            The default value to return if the information is not available.
         """
         return self._transport.get_extra_info(name, default)
 
@@ -117,12 +124,17 @@ class StreamWriter:
 
 class StreamReader:
     """
-    Attributes:
-        buffer: A bytearray containing the data.
-        loop: A reference to the event loop.
+    Attributes
+    ----------
+    buffer: :class:`bytearray`
+        A bytearray containing the data.
+    loop: :class:`asyncio.AbstractEventLoop`
+        A reference to the event loop.
 
-    Example:
-        ```py
+    Example
+    -------
+    .. code-block:: python3
+
         import asyncio
         import railway
 
@@ -160,18 +172,10 @@ class StreamReader:
             writer.close()
         
         asyncio.run(main())
-        ```
-        The above example might be bad but it's just a showcase of how to use the class.
         
-    
+        The above example might be bad but it's just a showcase of how to use the class.
     """
     def __init__(self, loop: Optional[asyncio.AbstractEventLoop]=None) -> None:
-        """
-        StreamReader constructor.
-
-        Parameters:
-            loop: an `asyncio.AbstractEventLoop`
-        """
         self.buffer: bytearray = bytearray()
         self.loop: asyncio.AbstractEventLoop = loop or compat.get_running_loop()
 
@@ -189,8 +193,10 @@ class StreamReader:
         """
         Feeds the data to the reader.
 
-        Parameters:
-            data: data to be fed.
+        Parameters
+        ----------
+        data: Union[:class:`bytearray`, :class:`bytes`]
+            data to be fed.
         """
         self.buffer.extend(data)
 
@@ -205,16 +211,17 @@ class StreamReader:
 
     async def read(self, nbytes: Optional[int]=None, *, timeout: Optional[float]=None) -> bytes:
         """
-        Reads `nbytes` from the stream. If `nbytes` is not provided, reads the whole stream.
+        Reads ``nbytes`` off the stream. If ``nbytes`` is not provided, reads the whole stream.
 
-        Parameters:
-            nbytes: Number of bytes to read.
-            timeout: Timeout to wait for the read to complete.
+        Parameters
+        ----------
+        nbytes: :class:`int`
+            Number of bytes to read.
+        timeout: Optional[:class:`float`]
+            Timeout to wait for the read to complete.
 
-        Returns:
-            The read data.
-
-        Raises:
+        Raises
+        ------
             asyncio.TimeoutError: If the timeout expires.
         """
         if not self.buffer:

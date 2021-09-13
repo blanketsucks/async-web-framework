@@ -72,7 +72,7 @@ class Worker:
     socket: :class:`socket.socket`
         the socket used by the worker.
     """
-    def __init__(self, app: Application, id: int):
+    def __init__(self, app: Application, id: int, max_pending_connections: int=200, connection_timeout: int=None):
         self.app: Application = app
         self.id: int = id
         self.websockets: Dict[Tuple[str, int], Websocket] = {}
@@ -80,7 +80,8 @@ class Worker:
         self.current_task = None
         self._working = False
         self.server = None
-
+        self.max_pending_connections = max_pending_connections
+        self.connection_timeout = connection_timeout
         self.socket: _socket.socket = app.socket
 
     def __repr__(self) -> str:
@@ -129,7 +130,8 @@ class Worker:
             port=self.port,
             ipv6=self.app.is_ipv6(), 
             loop=self.loop, 
-            is_ssl=self.app.is_ssl, 
+            is_ssl=self.app.is_ssl(),
+            max_connections=self.max_pending_connections,
             ssl_context=self.app.ssl_context
         )
 
@@ -324,7 +326,7 @@ class Worker:
         """
         self._working = True
         
-        data = await connection.receive()
+        data = await connection.receive(timeout=self.connection_timeout)
         created_at = datetime.datetime.utcnow()
         
         log.info(f'[Worker-{self.id}] Received {len(data)} bytes from {connection.peername}')

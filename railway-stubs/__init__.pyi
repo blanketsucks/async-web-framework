@@ -1,3 +1,4 @@
+from .locks import *
 from .responses import *
 from .response import *
 from .objects import *

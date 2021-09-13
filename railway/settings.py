@@ -49,28 +49,20 @@ VALID_SETTINGS = (
 DEFAULT_SETTINGS = {
     'host': LOCALHOST,
     'port': 8080,
+    'url_prefix': '',
     'use_ipv6': False,
     'ssl_context': None,
     'worker_count': (multiprocessing.cpu_count() * 2) + 1,
     'session_cookie_name': '__railway',
+    'backlog': 200,
+    'max_concurrent_requests': None,
+    'max_pending_connections': 200,
+    'connection_timeout': None    
 }
 
 class Settings(TypedDict):
     """
     A :class:`typing.TypedDict` representing settings used by the application.
-
-    Attributes
-    ----------
-    host: :class:`str`
-        The hostname or IP address to listen on.
-    port: :class:`int`
-        The port to listen on.
-    use_ipv6: :class:`bool`
-        Whether to use IPv6.
-    ssl_context: Optional[:class:`ssl.SSLContext`]
-        The SSL context to use.
-    worker_count: :class:`int`
-        The number of workers to use.
     """
     host: str
     port: int
@@ -78,6 +70,10 @@ class Settings(TypedDict):
     ssl_context: Optional[ssl.SSLContext]
     worker_count: int
     session_cookie_name: Optional[str]
+    backlog: int
+    max_concurrent_requests: Optional[int]
+    max_pending_connections: int
+    connection_timeout: Optional[int]
 
 def settings_from_file(path: Union[str, pathlib.Path]) -> Settings:
     """
