@@ -173,7 +173,7 @@ class StreamReader:
         
         asyncio.run(main())
         
-        The above example might be bad but it's just a showcase of how to use the class.
+        # The above example might be bad but it's just a showcase of how to use the class.
     """
     def __init__(self, loop: Optional[asyncio.AbstractEventLoop]=None) -> None:
         self.buffer: bytearray = bytearray()

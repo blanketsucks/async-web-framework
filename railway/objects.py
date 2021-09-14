@@ -25,10 +25,12 @@ from __future__ import annotations
 import functools
 from typing import TYPE_CHECKING, Callable, List, Any, Optional, Union
 import inspect
+import asyncio
 
 from ._types import CoroFunc, Func, MaybeCoroFunc
 from .utils import maybe_coroutine
 from .errors import RegistrationError
+from .locks import _MaybeSemaphore, Semaphore
 
 if TYPE_CHECKING:
     from .router import Router
@@ -127,6 +129,7 @@ class Route(Object):
 
         self._middlewares: List[Middleware] = []
         self._after_request = None
+        self._limiter = _MaybeSemaphore(None)
 
     @property
     def middlewares(self) -> List[Middleware]:
@@ -210,6 +213,48 @@ class Route(Object):
 
         self._router.remove_route(self)
         return self
+
+    def add_semaphore(self, semaphore: Semaphore):
+        """
+        Adds a semaphore to the route that can be used to limit the number of concurrent requests.
+
+        Parameters
+        ----------
+        semaphore: Union[:class:`asyncio.Semaphore`, :class:`~railway.locks.Semaphore`]
+            A semaphore. This can be either from the :mod:`asyncio` module or the :mod:`railway.locks` module.
+
+        Example
+        --------
+        .. code-block:: python3 
+
+            import railway
+
+            app = railway.Application()
+            sem = railway.Semaphore(50)
+
+            @app.route('/')
+            async def index(request: railway.Request):
+                return 'pog'
+
+            index.add_semaphore(sem)
+
+            app.run()
+
+        """
+        if not isinstance(semaphore, (Semaphore, asyncio.Semaphore)):
+            raise TypeError('semaphore must be an instance of asyncio.Semaphore or railway.Semaphore')
+
+        self._limiter.semaphore = semaphore
+
+    def remove_semaphore(self):
+        """
+        Removes the semaphore from the route.
+        """
+        self._limiter.semaphore = None
+
+    async def __call__(self, *args: Any, **kwds: Any) -> Any:
+        async with self._limiter:
+            return await super().__call__(*args, **kwds)
 
     def __repr__(self) -> str:
         return '<Route path={0.path!r} method={0.method!r}>'.format(self)

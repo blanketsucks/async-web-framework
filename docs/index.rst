@@ -19,6 +19,9 @@ Indices and tables
 Contents
 ========
 .. toctree::
-   :maxdepth: 1
+  :maxdepth: 1
 
-   api
+  api
+  http
+  websockets
+  rfc6555

@@ -24,6 +24,22 @@ SOFTWARE.
 from typing import Any, Dict, Optional
 
 class HTTPRequest:
+    """
+    An HTTP request.
+    
+    Parameters
+    ----------
+    method: :class:`str`
+        The HTTP method.
+    path: :class:`str`
+        The path of the request.
+    host: :class:`str`
+        The host of the request.
+    headers: :class:`dict`
+        The headers of the request.
+    body: :class:`str`
+        The body of the request.
+    """
     def __init__(self, 
                 method: str, 
                 path: str, 
@@ -42,6 +58,9 @@ class HTTPRequest:
         return '<Request method={0.method!r} host={0.host!r} path={0.path!r}>'.format(self)
 
     def encode(self):
+        """
+        Encodes the request into a bytes object.
+        """
         request = [f'{self.method} {self.path} HTTP/1.1']
 
         request.extend(f'{k}: {v}' for k, v in self.headers.items())

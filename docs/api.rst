@@ -4,13 +4,16 @@
 
    <br />
 
+API Reference
+===============
+
 Applications
 ------------------
 
 Application
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.app.Application
+.. autoclass:: Application
     :members:
     :exclude-members: event, route, resource, view, middleware, websocket, get, post, put, head, options, delete, patch
 
@@ -57,14 +60,14 @@ Application
 IPv6 Applications
 ~~~~~~~~~~~~~~~~~~
 
-For IPv6 applications, you can pass in ``ipv6=True`` into the :class:`~railway.app.Appliaction` constructor
+For IPv6 applications, you can pass in ``ipv6=True`` into the :class:`~app.Appliaction` constructor
 and an optional ``host`` argument which defaults to the local host if not given (in this case it is ::1).
 
 
 Dual-Stack Applications
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autofunction:: railway.app.dualstack_ipv6
+.. autofunction:: dualstack_ipv6
     
 
 Settings
@@ -73,15 +76,15 @@ Settings
 Settings
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.settings.Settings
+.. autoclass:: Settings
     :members:
 
 
 Settings helpers
 ~~~~~~~~~~~~~~~~~~
 
-.. autofunction:: railway.settings.settings_from_file
-.. autofunction:: railway.settings.settings_from_env
+.. autofunction:: settings_from_file
+.. autofunction:: settings_from_env
     
 
 Objects
@@ -90,81 +93,87 @@ Objects
 Object
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.objects.Object
+.. autoclass:: Object
     :members:
 
 
 PartialRoute
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.objects.PartialRoute
+.. autoclass:: PartialRoute
     :members:
 
 
 Route
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.objects.Route
+.. autoclass:: Route
     :members:
 
 
 WebsocketRoute
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.objects.WebsocketRoute
+.. autoclass:: WebsocketRoute
     :members:
 
 
 Middleware
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.objects.Middleware
+.. autoclass:: Middleware
     :members:
 
 
 Listener
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.objects.Listener
+.. autoclass:: Listener
     :members:
 
 
 Helper functions
 ~~~~~~~~~~~~~~~~~~
 
-.. autofunction:: railway.objects.route
-.. autofunction:: railway.objects.websocket_route
-.. autofunction:: railway.objects.middleware
-.. autofunction:: railway.objects.listener
+.. autofunction:: route
+.. autofunction:: websocket_route
+.. autofunction:: middleware
+.. autofunction:: listener
 
 
 Responses
 -----------------------
 
+
+HTTPStatus
+~~~~~~~~~~~~
+
+.. autoenum:: HTTPStatus
+
 Response
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.response.Response
+.. autoclass:: Response
     :members:
 
 
 HTMLResponse
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.response.HTMLResponse
+.. autoclass:: HTMLResponse
     :members:
-
+    :undoc-members:
 
 JSONResponse
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.response.JSONResponse
+.. autoclass:: JSONResponse
     :members:
 
 FileResponse
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.response.FileResponse
+.. autoclass:: FileResponse
     :members:
 
 The following classes and their descriptions are taken from https://developer.mozilla.org/en-US/docs/Web/HTTP/Status.
@@ -173,420 +182,420 @@ The following classes and their descriptions are taken from https://developer.mo
 Continue
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.Continue
+.. autoclass:: Continue
     :members:
 
 
 SwitchingProtocols
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.SwitchingProtocols
+.. autoclass:: SwitchingProtocols
     :members:
 
 
 Processing
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.Processing
+.. autoclass:: Processing
     :members:
 
 
 EarlyHints
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.EarlyHints
+.. autoclass:: EarlyHints
     :members:
 
 
 OK
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.OK
+.. autoclass:: OK
     :members:
 
 
 Created
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.Created
+.. autoclass:: Created
     :members:
 
 
 Accepted
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.Accepted
+.. autoclass:: Accepted
     :members:
 
 
 NonAuthoritativeInformation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.NonAuthoritativeInformation
+.. autoclass:: NonAuthoritativeInformation
     :members:
 
 
 NoContent
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.NoContent
+.. autoclass:: NoContent
     :members:
 
 
 ResetContent
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.ResetContent
+.. autoclass:: ResetContent
     :members:
 
 
 PartialContent
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.PartialContent
+.. autoclass:: PartialContent
     :members:
 
 
 MultiStatus
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.MultiStatus
+.. autoclass:: MultiStatus
     :members:
 
 
 AlreadyReported
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.AlreadyReported
+.. autoclass:: AlreadyReported
     :members:
 
 
 IMUsed
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.IMUsed
+.. autoclass:: IMUsed
     :members:
 
 
 MultipleChoice
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.MultipleChoice
+.. autoclass:: MultipleChoice
     :members:
 
 
 MovedPermanently
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.MovedPermanently
+.. autoclass:: MovedPermanently
     :members:
 
 
 Found
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.Found
+.. autoclass:: Found
     :members:
 
 
 SeeOther
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.SeeOther
+.. autoclass:: SeeOther
     :members:
 
 
 NotModified
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.NotModified
+.. autoclass:: NotModified
     :members:
 
 
 TemporaryRedirect
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.TemporaryRedirect
+.. autoclass:: TemporaryRedirect
     :members:
 
 
 PermanentRedirect
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.PermanentRedirect
+.. autoclass:: PermanentRedirect
     :members:
 
 
 BadRequest
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.BadRequest
+.. autoclass:: BadRequest
     :members:
 
 
 Unauthorized
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.Unauthorized
+.. autoclass:: Unauthorized
     :members:
 
 
 PaymentRequired
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.PaymentRequired
+.. autoclass:: PaymentRequired
     :members:
 
 
 Forbidden
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.Forbidden
+.. autoclass:: Forbidden
     :members:
 
 
 NotFound
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.EarlyHints
+.. autoclass:: EarlyHints
     :members:
 
 
 MethodNotAllowed
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.MethodNotAllowed
+.. autoclass:: MethodNotAllowed
     :members:
 
 
 NotAcceptable
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.NotAcceptable
+.. autoclass:: NotAcceptable
     :members:
 
 
 ProxyAuthenticationRequired
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.ProxyAuthenticationRequired
+.. autoclass:: ProxyAuthenticationRequired
     :members:
 
 
 RequestTimeout
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.RequestTimeout
+.. autoclass:: RequestTimeout
     :members:
 
 
 Conflict
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.Conflict
+.. autoclass:: Conflict
     :members:
 
 
 Gone
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.Gone
+.. autoclass:: Gone
     :members:
 
 
 LengthRequired
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.LengthRequired
+.. autoclass:: LengthRequired
     :members:
 
 
 PayloadTooLarge
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.PayloadTooLarge
+.. autoclass:: PayloadTooLarge
     :members:
 
 
 URITooLong
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.URITooLong
+.. autoclass:: URITooLong
     :members:
 
 
 UnsupportedMediaType
 ~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.UnsupportedMediaType
+.. autoclass:: UnsupportedMediaType
     :members:
 
 
 RangeNotSatisfiable
 ~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.RangeNotSatisfiable
+.. autoclass:: RangeNotSatisfiable
     :members:
 
 
 ExpectationFailed
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.ExpectationFailed
+.. autoclass:: ExpectationFailed
     :members:
 
 
 ImATeapot
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.ImATeapot
+.. autoclass:: ImATeapot
     :members:
 
 
 MisdirectedRequest
 ~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.MisdirectedRequest
+.. autoclass:: MisdirectedRequest
     :members:
 
 
 UnprocessableEntity
 ~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.UnprocessableEntity
+.. autoclass:: UnprocessableEntity
     :members:
 
 
 Locked
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.Locked
+.. autoclass:: Locked
     :members:
 
 
 FailedDependency
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.FailedDependency
+.. autoclass:: FailedDependency
     :members:
 
 
 TooEarly
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.TooEarly
+.. autoclass:: TooEarly
     :members:
 
 
 UpgradeRequired
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.UpgradeRequired
+.. autoclass:: UpgradeRequired
     :members:
 
 
 PreconditionRequired
 ~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.PreconditionRequired
+.. autoclass:: PreconditionRequired
     :members:
 
 
 TooManyRequests
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.TooManyRequests
+.. autoclass:: TooManyRequests
     :members:
 
 
 RequestHeaderFieldsTooLarge
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.RequestHeaderFieldsTooLarge
+.. autoclass:: RequestHeaderFieldsTooLarge
     :members:
 
 
 UnavailableForLegalReasons
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.UnavailableForLegalReasons
+.. autoclass:: UnavailableForLegalReasons
     :members:
 
 
 InternalServerError
 ~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.InternalServerError
+.. autoclass:: InternalServerError
     :members:
 
 
 NotImplemented
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.NotImplemented
+.. autoclass:: NotImplemented
     :members:
 
 
 BadGateway
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.BadGateway
+.. autoclass:: BadGateway
     :members:
 
 
 ServiceUnavailable
 ~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.ServiceUnavailable
+.. autoclass:: ServiceUnavailable
     :members:
 
 
 GatewayTimeout
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.GatewayTimeout
+.. autoclass:: GatewayTimeout
     :members:
 
 
 HTTPVersionNotSupported
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.HTTPVersionNotSupported
+.. autoclass:: HTTPVersionNotSupported
     :members:
 
 
 VariantAlsoNegotiates
 ~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.VariantAlsoNegotiates
+.. autoclass:: VariantAlsoNegotiates
     :members:
 
 
 InsufficientStorage
 ~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.InsufficientStorage
+.. autoclass:: InsufficientStorage
     :members:
 
 
 LoopDetected
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.LoopDetected
+.. autoclass:: LoopDetected
     :members:
 
 
 NotExtended
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.NotExtended
+.. autoclass:: NotExtended
     :members:
 
 
 NetworkAuthenticationRequired
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.responses.NetworkAuthenticationRequired
+.. autoclass:: NetworkAuthenticationRequired
     :members:
 
 Requests
@@ -595,7 +604,7 @@ Requests
 Request
 ~~~~~~~~
 
-.. autoclass:: railway.request.Request
+.. autoclass:: Request
     :members:
 
 
@@ -605,14 +614,14 @@ Form-Data
 Disposition
 ~~~~~~~~~~~~
 
-.. autoclass:: railway.formdata.Disposition
+.. autoclass:: Disposition
     :members:
 
 
 FormData
 ~~~~~~~~~
 
-.. autoclass:: railway.formdata.FormData
+.. autoclass:: FormData
     :members:
 
 
@@ -622,13 +631,13 @@ Cookies
 CookieJar
 ~~~~~~~~~~
 
-.. autoclass:: railway.cookies.CookieJar
+.. autoclass:: CookieJar
     :members:
 
 Cookie
 ~~~~~~~~~~
 
-.. autoclass:: railway.cookies.Cookie
+.. autoclass:: Cookie
     :members:
 
 Files
@@ -637,7 +646,7 @@ Files
 File
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.file.File
+.. autoclass:: File
     :members:
     :exclude-members: stream
 
@@ -651,19 +660,19 @@ Data Structures
 ImmutableMapping
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.datastructures.ImmutableMapping
+.. autoclass:: ImmutableMapping
     :members:
 
 MultiDict
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.datastructures.MultiDict
+.. autoclass:: MultiDict
     :members:
 
 URL
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.datastructures.URL
+.. autoclass:: URL
     :members:
 
 
@@ -673,14 +682,14 @@ Views
 ViewMeta
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.views.ViewMeta
+.. autoclass:: ViewMeta
     :members:
 
 
 HTTPView
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.views.HTTPView
+.. autoclass:: HTTPView
     :members:
 
 
@@ -690,13 +699,13 @@ Injectables
 InjectableMeta
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.injectables.InjectableMeta
+.. autoclass:: InjectableMeta
     :members:
 
 Injectable
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.injectables.Injectable
+.. autoclass:: Injectable
     :members:
 
 Resources
@@ -705,13 +714,13 @@ Resources
 ResourceMeta
 ~~~~~~~~~~~~~
 
-.. autoclass:: railway.resources.ResourceMeta
+.. autoclass:: ResourceMeta
     :members:
 
 Resource
 ~~~~~~~~~~
 
-.. autoclass:: railway.resources.Resource
+.. autoclass:: Resource
     :members:
 
 
@@ -721,19 +730,19 @@ Models
 Field
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.models.Field
+.. autoclass:: Field
     :members:
 
 ModelMeta
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.models.ModelMeta
+.. autoclass:: ModelMeta
     :members:
 
 Model
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.models.Model
+.. autoclass:: Model
     :members:
 
 Routers
@@ -742,7 +751,7 @@ Routers
 Router
 ~~~~~~~~~~
 
-.. autoclass:: railway.router.Router
+.. autoclass:: Router
     :members:
     :exclude-members: route, middleware, websocket, get, post, put, head, options, delete, patch
 
@@ -782,19 +791,19 @@ Ratelimits
 RatelimitHandler
 ~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.ratelimits.RatelimitHandler
+.. autoclass:: RatelimitHandler
     :members:
 
 Bucket
 ~~~~~~~~~
 
-.. autoclass:: railway.ratelimits.Bucket
+.. autoclass:: Bucket
     :members:
 
 Key
 ~~~~
 
-.. autoclass:: railway.ratelimits.Key
+.. autoclass:: Key
     :members:
 
 Sessions
@@ -803,7 +812,7 @@ Sessions
 CookieSession
 ~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.sessions.CookieSession
+.. autoclass:: CookieSession
     :members:
 
 Templates
@@ -812,16 +821,16 @@ Templates
 TemplateContext
 ~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.templates.TemplateContext
+.. autoclass:: TemplateContext
     :members:
 
 Template
 ~~~~~~~~~
 
-.. autoclass:: railway.templates.Template
+.. autoclass:: Template
     :members:
 
-.. autofunction:: railway.templates.render
+.. autofunction:: render
 
 Workers
 --------
@@ -829,7 +838,7 @@ Workers
 Worker
 ~~~~~~~
 
-.. autoclass:: railway.workers.Worker
+.. autoclass:: Worker
     :members:
 
 Locks
@@ -838,13 +847,13 @@ Locks
 Semaphore
 ~~~~~~~~~~
 
-.. autoclass:: railway.locks.Semaphore
+.. autoclass:: Semaphore
     :members:
 
 Lock
 ~~~~~
 
-.. autoclass:: railway.locks.Lock
+.. autoclass:: Lock
     :members:
 
 Streams
@@ -853,28 +862,28 @@ Streams
 StreamReader
 ~~~~~~~~~~~~
 
-.. autoclass:: railway.streams.StreamReader
+.. autoclass:: StreamReader
     :members:
 
 StreamWriter
 ~~~~~~~~~~~~~
 
-.. autoclass:: railway.streams.StreamWriter
+.. autoclass:: StreamWriter
     :members:
 
 StreamTransport
 ~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.streams.StreamTransport
+.. autoclass:: StreamTransport
     :members:
 
 Utility functions
 --------------------
 
-.. autofunction:: railway.utils.maybe_coroutine
-.. autofunction:: railway.utils.has_dualstack_ipv6
-.. autofunction:: railway.utils.has_ipv6
-.. autofunction:: railway.utils.is_ipv6
-.. autofunction:: railway.utils.is_ipv4
-.. autofunction:: railway.utils.validate_ip
-.. autofunction:: railway.utils.jsonify
+.. autofunction:: maybe_coroutine
+.. autofunction:: has_dualstack_ipv6
+.. autofunction:: has_ipv6
+.. autofunction:: is_ipv6
+.. autofunction:: is_ipv4
+.. autofunction:: validate_ip
+.. autofunction:: jsonify

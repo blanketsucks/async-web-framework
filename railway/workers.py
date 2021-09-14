@@ -195,7 +195,7 @@ class Worker:
 
         Parameters
         ----------
-        ws: :class:`~railway.websockets.ServerWebsocket`
+        ws: :class:`~railway.websockets.websocket.ServerWebsocket`
             The websocket to save.
         connection: :class:`~railway.server.ClientConnection`
             The connection to save the websocket for.

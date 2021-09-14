@@ -54,9 +54,9 @@ class Address:
 
 class HappyEyeballs:
     """
-    An implementation of the RFC 6555 protocol.\n
-    Reference: [https://tools.ietf.org/html/rfc6555](https://tools.ietf.org/html/rfc6555)\n
-    Wikipedia: [https://en.wikipedia.org/wiki/Happy_eyeballs](https://en.wikipedia.org/wiki/Happy_eyeballs)
+    An implementation of the RFC 6555 protocol.
+    Reference: https://tools.ietf.org/html/rfc6555
+    Wikipedia: [https://en.wikipedia.org/wiki/Happy_eyeballs
     
     """
     def __init__(self) -> None:
@@ -142,19 +142,20 @@ class HappyEyeballs:
         Connects to the given host and port.
         
         It tries to priotize IPv6 over IPv4, and will try to connect to the first of both protocols.
-        The way those addresses are filtered is by using [socket.getaddrinfo](https://docs.python.org/3/library/socket.html#socket.getaddrinfo).
+        The way those addresses are filtered is by using :func:`socket.getaddrinfo`.
 
         If both connections fail, it will try to connect to the originally given host and port from this method,
-        if the connections to the original host and port fail too, it will raise a `ConnectionTimeout` exception. 
-        Otherwise it returns a socket.
+        if the connections to the original host and port fail too, it will raise a :exc:`ConnectionTimeout` exception. 
+        Otherwise it returns a :class:`socket.socket`.
 
-        Parameters:
-            host: The host to connect to.
-            port: The port to connect to.
-            socket_type: The socket type to use.
-
-        Returns:
-            A `socket.socket`.
+        Parameters
+        -----------
+        host: :class:`str`
+            The host to connect to.
+        port: :class:`int`
+            The port to connect to.
+        socket_type: :class:`socket.SocketKind`
+            The socket type to use.
         """
         if not socket_type:
             socket_type = socket.SOCK_STREAM
@@ -170,11 +171,14 @@ class HappyEyeballs:
         """
         Sends data to the connected socket.
 
-        Parameters:
-            data: The data to send.
+        Parameters
+        -----------
+        data: :class:`bytes`
+            The data to send.
 
-        Raises:
-            ConnectionError: If the socket is not connected.
+        Raises
+        -------
+        ConnectionError: If the socket is not connected.
         """
         self._ensure_connection()
         self._connected_sock.send(data)
@@ -183,14 +187,14 @@ class HappyEyeballs:
         """
         Recieves data from the connected socket.
 
-        Parameters:
-            size: The number of bytes to receive.
+        Parameters
+        -----------
+        size: :class:`int`
+            The number of bytes to receive.
         
-        Returns:
-            The read data.
-
-        Raises:
-            ConnectionError: If the socket is not connected.
+        Raises
+        -------
+        ConnectionError: If the socket is not connected.
         """
         self._ensure_connection()
         return self._connected_sock.recv(size)
@@ -199,8 +203,9 @@ class HappyEyeballs:
         """
         Closes the connection.
 
-        Raises:
-            ConnectionError: If the socket is not connected.
+        Raises
+        -------
+        ConnectionError: If the socket is not connected.
         """
         self._ensure_connection()
         self._connected_sock.close()

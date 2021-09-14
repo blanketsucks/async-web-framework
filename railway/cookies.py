@@ -27,6 +27,11 @@ from typing import Dict, List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from .request import Request
 
+__all__ = (
+    'Cookie',
+    'CookieJar'
+)
+
 class Cookie:
     """
     Parameters

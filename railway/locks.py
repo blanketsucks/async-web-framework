@@ -1,6 +1,6 @@
 import asyncio
 import collections
-from typing import Deque
+from typing import Deque, Optional
 
 __all__ = (
     'Semaphore',
@@ -242,3 +242,15 @@ class Lock(_LockMixin):
         """
         self._is_locked = False
         self.wakeup()
+
+class _MaybeSemaphore:
+    def __init__(self, value: Optional[int]):
+        self.semaphore = Semaphore(value) if value else None
+
+    async def __aenter__(self):
+        if self.semaphore:
+            await self.semaphore.acquire()
+
+    async def __aexit__(self):
+        if self.semaphore:
+            self.semaphore.release()

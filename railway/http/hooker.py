@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Optional
 from railway.utils import find_headers
 from railway.websockets import (
     ClientWebsocket as Websocket,
-    WebSocketCloseCode, 
+    WebsocketCloseCode, 
 )
 from railway.client import Client
 from railway.response import HTTPStatus
@@ -132,13 +132,12 @@ class WebsocketHooker(TCPHooker):
         return base64.b64encode(os.urandom(16))
 
     def create_websocket(self):
-        reader = self._client._protocol.reader # type: ignore
-        writer = self._client._protocol.writer # type: ignore
+        transport = self._client._protocol.transport # type: ignore
 
-        if not reader or not writer:
+        if not transport:
             return
 
-        return Websocket(reader, writer)
+        return Websocket(transport)
     
     async def handshake(self, path: str, host: str):
         key = self.generate_websocket_key().decode()
@@ -196,12 +195,12 @@ class WebsocketHooker(TCPHooker):
         await self.close()
         raise exc
 
-    async def close(self, *, data: Optional[bytes]=None, code: Optional[WebSocketCloseCode]=None) -> None:
+    async def close(self, *, data: Optional[bytes]=None, code: Optional[WebsocketCloseCode]=None) -> None:
         if not self.websocket:
             return
 
         if not code:
-            code = WebSocketCloseCode.NORMAL
+            code = WebsocketCloseCode.NORMAL
 
         if not data:
             data = b''

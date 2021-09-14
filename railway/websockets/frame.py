@@ -27,7 +27,7 @@ import os
 import json
 import enum
 
-class WebSocketOpcode(enum.IntEnum):
+class WebsocketOpcode(enum.IntEnum):
     CONTINUATION = 0x0
     TEXT = 0x1
     BINARY = 0x2
@@ -35,7 +35,7 @@ class WebSocketOpcode(enum.IntEnum):
     PING = 0x9
     PONG = 0xA
 
-class WebSocketCloseCode(enum.IntEnum):
+class WebsocketCloseCode(enum.IntEnum):
     NORMAL = 1000
     GOING_AWAY = 1001
     PROTOCOL_ERROR = 1002
@@ -55,45 +55,62 @@ class WebSocketCloseCode(enum.IntEnum):
 
 __all__ = (
     'Data',
-    'WebSocketFrame',
-    'WebSocketCloseCode',
-    'WebSocketOpcode',
+    'WebsocketFrame',
+    'WebsocketCloseCode',
+    'WebsocketOpcode',
 )
 
 class Data:
-    def __init__(self, raw: bytearray, frame: 'WebSocketFrame') -> None:
+    """
+    Returned by :meth:`~railway.websockets.websocket.receive`.
+
+    Attributes
+    -----------
+    frame: :class:`~railway.websockets.frame.WebsocketFrame`
+        The frame received.
+    raw: :class:`bytearray`
+        The raw data received.
+    """
+    def __init__(self, raw: bytearray, frame: 'WebsocketFrame') -> None:
         self.raw = raw
         self.frame = frame
 
     @property
-    def opcode(self):
+    def opcode(self) -> WebsocketOpcode:
+        """
+        The opcode of the frame.
+        """
         return self.frame.opcode
 
     @property
-    def data(self):
+    def data(self) -> bytes:
+        """
+        The data received as bytes.
+        """
         return self.frame.data
 
-    def encode(self, opcode: Optional[WebSocketOpcode]=None, *, masked: bool=False):
-        frame = WebSocketFrame(
-            opcode=WebSocketOpcode.TEXT if opcode is None else opcode,
-            data=self.data
-        )   
-
-        return frame.encode(masked)
-
     def as_string(self):
+        """
+        The data received as a string.
+        """
         return self.data.decode()
 
     def as_json(self) -> Dict[str, Any]:
+        """
+        The data recevied as a JSON object.
+        """
         string = self.as_string()
         return json.loads(string)
 
-class WebSocketFrame:
+class WebsocketFrame:
+    """
+    Represents a websocket data frame.
+    """
     SHORT_LENGTH = struct.Struct('!H')
     LONGLONG_LENGTH = struct.Struct('!Q')
 
     def __init__(self, *, 
-                opcode: WebSocketOpcode, 
+                opcode: WebsocketOpcode, 
                 fin: bool=True,
                 rsv1: bool=False, 
                 rsv2: bool=False, 
@@ -155,7 +172,7 @@ class WebSocketFrame:
     # but with some modifications
 
     @classmethod
-    async def decode(cls, read: Callable[[int], Coroutine[None, None, bytes]], mask: bool=True) -> Tuple[WebSocketOpcode, bytearray, 'WebSocketFrame']:
+    async def decode(cls, read: Callable[[int], Coroutine[None, None, bytes]], mask: bool=True) -> Tuple[WebsocketOpcode, bytearray, 'WebsocketFrame']:
         raw = bytearray()
 
         data = await read(2)
@@ -169,7 +186,7 @@ class WebSocketFrame:
         rsv2 = True if head1 & 0b00100000 else False
         rsv3 = True if head1 & 0b00010000 else False
 
-        opcode = WebSocketOpcode(head1 & 0b00001111)
+        opcode = WebsocketOpcode(head1 & 0b00001111)
         length = head2 & 0b01111111
 
         if length == 126:

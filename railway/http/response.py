@@ -32,6 +32,18 @@ if TYPE_CHECKING:
     from .hooker import TCPHooker
 
 class HTTPResponse:
+    """
+    An HTTP Response.
+
+    Attributes
+    ----------
+    status: :class:`railway.response.HTTPStatus`
+        The status of the response.
+    version: :class:`str`
+        The HTTP version of the response.
+    headers: :class:`dict`
+        The headers of the response.
+    """
     def __init__(self,
                 *,
                 hooker: Union[TCPHooker, Hooker], 
@@ -48,12 +60,21 @@ class HTTPResponse:
         self._body: bytes = body
 
     def read(self) -> bytes:
+        """
+        The raw body of the response.
+        """
         return self._body
 
     def text(self) -> str:
+        """
+        The body of the response as a string.
+        """
         body = self.read()
         return body.decode()
 
     def json(self) -> Dict[str, Any]:
+        """
+        The body of the response as a JSON object.
+        """
         text = self.text()
         return json.loads(text)

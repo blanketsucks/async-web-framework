@@ -28,7 +28,7 @@ from . import utils
 
 __all__ = (
     'ImmutableMapping',
-    'Headers',
+    'MultiDict',
     'URL',
 )
 

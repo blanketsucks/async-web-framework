@@ -44,9 +44,12 @@ class AsyncContextManager(Generic[T]):
         from .hooker import Websocket
 
         if isinstance(self._resp, Websocket):
-            await self._resp.close(b'')
+            if not self._resp.is_closed():
+                await self._resp.close(b'')
         else:
-            await self._resp._hooker.close() # type: ignore
+
+            if not self._resp._hooker.closed:
+                await self._resp._hooker.close() # type: ignore
             
         return self
 

@@ -38,6 +38,38 @@ __all__ = (
 )
 
 class HTTPSession:
+    """
+    A class representing an HTTP session.
+
+    Parameters
+    ----------
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop to use.
+
+    Attributes
+    ----------
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop used by the session.
+
+    Example
+    -------
+    .. code-block:: python3
+
+        from railway import http
+
+        session = http.HTTPSession()
+
+        async def request():
+            async with session.request('https://example.com/') as response:
+                text = response.text()
+                print(text)
+
+                headers = response.headers
+                print(headers)
+
+        session.loop.run_until_complete(request())
+
+    """
     def __init__(self, loop: Optional[asyncio.AbstractEventLoop]=None) -> None:
         self.loop = loop or compat.get_event_loop()
 
@@ -60,9 +92,63 @@ class HTTPSession:
                 await hooker.close()
 
     def request(self, method: str, url: str, **kwargs: Any):
+        """
+        Sends an HTTP request with the given method.
+
+        Parameters
+        ----------
+        method: :class:`str`
+            The HTTP method to use.
+        url: :class:`str`
+            The URL to request.
+        \*\*kwargs: Any
+            The keyword arguments to pass to the request.
+
+        Example
+        -------
+        .. code-block:: python3
+
+            async with session.request('https://example.com/') as response:
+                print(response.text())
+
+            # or you could use it without a context manager
+
+            response = await session.request('https://example.com/')
+            print(response.text())
+
+        """
         return AsyncContextManager(self._request(url, method, **kwargs))
 
     def ws_connect(self, url: str, **kwargs: Any) -> AsyncContextManager[Optional[Websocket]]:
+        """
+        Connects to a URL using websockets.
+
+        Parameters
+        ----------
+        url: :class:`str`
+            The URL to connect to.
+        \*\*kwargs: Any
+            The keyword arguments to pass to the websocket request.
+
+        Example
+        -------
+        .. code-block:: python3
+
+            async with session.ws_connect('ws://echo.websocket.org') as ws:
+                await ws.send(b'Hello, world!')
+
+                data = await ws.receive()
+                print(data.data)
+
+            # or, once again, without a context manager
+
+            ws = await session.ws_connect('ws://echo.websocket.org')
+            await ws.send(b'Hello, world!')
+
+            data = await ws.receive()
+            print(data.data)
+        
+        """
         return AsyncContextManager(self._connect(url))
 
     def get(self, url: str, **kwargs: Any):
@@ -148,6 +234,8 @@ class HTTPSession:
                 )
 
         self._hookers.append(hooker)
+        await hooker.close()
+
         return response
 
     async def _connect(self, url: str) -> Optional[Websocket]:
@@ -164,7 +252,7 @@ class HTTPSession:
 
 def request(url: str, method: str, **kwargs: Any):
     client = HTTPSession(kwargs.pop('loop', None))
-    return client.request(url, method)
+    return client.request(url, method, **kwargs)
 
 def ws_connect(url: str, **kwargs: Any):
     client = HTTPSession(kwargs.pop('loop', None))

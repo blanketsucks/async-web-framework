@@ -52,7 +52,7 @@ from .websockets import ServerWebsocket as Websocket
 from .workers import Worker
 from .models import Model
 from .datastructures import URL
-from .locks import Semaphore
+from .locks import Semaphore, _MaybeSemaphore
 
 log = logging.getLogger(__name__)
 
@@ -60,18 +60,6 @@ __all__ = (
     'dualstack_ipv6',
     'Application',
 )
-
-class _MaybeSemaphore:
-    def __init__(self, value: Optional[int]):
-        self.semaphore = Semaphore(value) if value else None
-
-    async def __aenter__(self):
-        if self.semaphore:
-            await self.semaphore.acquire()
-
-    async def __aexit__(self):
-        if self.semaphore:
-            self.semaphore.release()
 
 class Application(Injectable, metaclass=InjectableMeta):
     """
@@ -128,6 +116,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         An integer representing the maximum number of concurrent requests. This is used with a :class:`~railway.locks.Semaphore`. 
         This doesn't really limit the amount of requests though, it just limits the amount of requests that can be processed at the same time, 
         clients will still be able to send requests but they will be stalled until the semaphore is released.
+        It is also possible to have route specific semaphores, see :meth:`~railway.objects.Route.add_semaphore`.
     max_pending_connections: :class:`int`
         An integer represting the maximun number of pending connections. Again, this isn't really limiting the amount of connections,
         it just limits the amount of connections that can be queued up before getting processed by the server.
@@ -513,7 +502,7 @@ class Application(Injectable, metaclass=InjectableMeta):
                         websocket=websocket,
                     )
 
-                resp = await utils.maybe_coroutine(route.callback, request, **kwargs)
+                resp = await route(request, **kwargs)
             except Exception as exc:
                 if not route:
                     route = PartialRoute(
