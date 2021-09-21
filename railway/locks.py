@@ -251,6 +251,6 @@ class _MaybeSemaphore:
         if self.semaphore:
             await self.semaphore.acquire()
 
-    async def __aexit__(self):
+    async def __aexit__(self, *args):
         if self.semaphore:
             self.semaphore.release()

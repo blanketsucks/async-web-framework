@@ -23,126 +23,20 @@ SOFTWARE.
 """
 
 from typing import Any, Dict, Union, Optional
-import asyncio
 import pathlib
-import re
-import ast
+import jinja2
 
-from . import compat
 from .response import HTMLResponse
 
-__all__ = ('TemplateContext', 'Template', 'render')
+__all__ = ('render',)
 
-def _wrap(text: str, start: str, end: str):
-    return start + text + end
-
-def _is_valid_python(text: str) -> bool:
-    try:
-        ast.parse(text)
-        return True
-    except SyntaxError:
-        return False
-
-def _include(fn: str):
-    with open(fn, 'r') as f:
-        return f.read()
-
-class TemplateContext:
-    """
-    Helper for rendering templates.
-
-    Parameters
-    -----------
-    template: :class:`~railway.templates.Template`
-        The template to render.
-    \*\*kwargs:
-        The variables to pass to the template.
-    """
-    regex = re.compile(r'(?<={{).+?(?=}})', re.MULTILINE)
-
-    def __init__(self, template: 'Template', kwargs: Dict[str, Any]) -> None:
-        self.template = template
-
-        self.variables = {
-            'include': _include,
-            **kwargs
-        }
-
-    def findall(self, text: str):
-        matches = self.regex.finditer(text)
-
-        for match in matches:
-            yield match.group()
-
-    async def render(self) -> str:
-        """
-        Renders a template.
-        """
-        source = await self.template.read()
-
-        for match in self.findall(source):
-            original = match
-            match = match.strip(' ')
-
-            wrapped = _wrap(original, r'{{', r'}}')
-
-            if _is_valid_python(match):
-                ret = eval(match, self.variables)
-                source = source.replace(wrapped, str(ret))
-
-                continue
-
-            source = source.replace(wrapped, str(self.variables[match]))
-
-        return source
-
-class Template:
-    """
-    A template object used as a helper for rendering HTML.
-
-    Parameters
-    -----------
-    path: Union[:class:`str`, :class:`pathlib.Path`]
-        The path to the template file.
-    loop: :class:`asyncio.AbstractEventLoop`
-        The event loop to use for async operations.
-
-    Attributes
-    -----------
-    path: Union[:class:`str`, :class:`pathlib.Path`]
-        The path to the template file.
-    loop: :class:`asyncio.AbstractEventLoop`
-        The event loop to use for async operations.
-    """
-    def __init__(self, path: Union[str, pathlib.Path, Any], loop: Optional[asyncio.AbstractEventLoop]=None) -> None:
-        if isinstance(path, str):
-            self.path: str = path
-        elif isinstance(path, pathlib.Path):
-            self.path: str = str(path)
-        else:
-            raise TypeError('path must be a string or pathlib.Path')
-
-        self.fp = open(self.path, 'r')
-        self.loop: asyncio.AbstractEventLoop = loop or compat.get_event_loop()
-
-    async def read(self) -> str:
-        """
-        Reads the template file.
-        """
-        source = await self.loop.run_in_executor(None, self.fp.read)
-        return source
-
-    def close(self) -> None:
-        """
-        Closes the template file.
-        """
-        self.fp.close()
+environement = jinja2.Environment(enable_async=True)
 
 async def render(
     path: Union[str, pathlib.Path],
-    loop: asyncio.AbstractEventLoop=None,
-    __globals: Optional[Dict[str, Any]]=None, 
-    __locals: Optional[Dict[str, Any]]=None, 
+    env: jinja2.Environment=None,
+    globals: Optional[Dict[str, Any]]=None, 
+    locals: Optional[Dict[str, Any]]=None, 
     **kwargs: Any
 ) -> HTMLResponse:
     """
@@ -161,19 +55,21 @@ async def render(
     \*\*kwargs: 
         The variables to use for the template.
     """
-    if not __globals:
-        __globals = {}
+    env = env or environement
 
-    if not __locals:
-        __locals = {}
+    if not env.is_async:
+        raise TypeError('The jinja2 env passed in must have async enabled')
 
-    vars = {**__globals, **__locals, **kwargs}
+    if not globals:
+        globals = {}
 
-    template = Template(path, loop)
-    context = TemplateContext(template, vars)
+    if not locals:
+        locals = {}
 
-    body = await context.render()
-    template.close()
+    vars = {**globals, **locals, **kwargs}
+
+    template = env.get_template(str(path))
+    body = await template.render_async(**vars)
 
     response = HTMLResponse(body)
     return response

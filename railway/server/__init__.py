@@ -22,11 +22,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import asyncio
-from asyncio.streams import StreamReader
 import pathlib
 import io
 import sys
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 import ssl
 import socket
 
@@ -48,12 +47,17 @@ class ServerProtocol(asyncio.Protocol):
     """
     A subclass of `asyncio.Protocol` that implements the server side of a connection.
 
-    Attributes:
-        loop: The event loop.
-        pending: An `asyncio.Queue` of pending connections.
-        readers: A mapping of peername to `StreamReader` objects.
-        writers: A mapping of peername to `StreamWriter` objects.
-        waiters: A mapping of peername to `asyncio.Future` objects.
+    Attributes
+    ----------
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop.
+    pending: :class:`asyncio.Queue`
+        Pending connections. If you passed in ``max_pending_connections`` to the :class:`~railway.Application`,
+        the queue's max size is set to that value.
+    transports: :class:`dict`
+        A dictionary of :class:`~railway.streams.StreamTransport` objects.
+    waiters: :class:`dict`
+        A dictionary of :class:`~asyncio.Future` objects.
     """
     def __init__(self, loop: asyncio.AbstractEventLoop, max_connections: int) -> None:
         self.loop = loop
@@ -142,9 +146,10 @@ class ClientConnection:
     A class representing a client connection to a server.
     This class should not be instantiated directly by the user.
     
-    Attributes:
-        loop: The event loop used.
-
+    Attributes
+    ----------
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop used.
     """
     def __init__(self, 
                 protocol: ServerProtocol, 
@@ -167,47 +172,44 @@ class ClientConnection:
     @property
     def protocol(self) -> ServerProtocol:
         """
-        Returns:
-            The protocol used by the connection.
+        The protocol used by the connection.
         """
         return self._protocol
 
     @property
     def peername(self) -> Tuple[str, int]:
         """
-        Returns:
-            The peername of the connection.
+        The peername of the connection.
         """
         return self._transport.get_extra_info('peername')
 
     @property
     def sockname(self) -> Tuple[str, int]:
         """
-        Returns:
-            The sockname of the connection.
+        The sockname of the connection.
         """
         return self._transport.get_extra_info('sockname')
 
     def is_closed(self) -> bool:
         """
-        Returns:
-            True if the connection is closed.
+        True if the connection is closed.
         """
         return self._closed
 
-    async def receive(self, nbytes: Optional[int]=None, *, timeout: Optional[int]=None) -> bytes:
+    async def receive(self, nbytes: Optional[int]=None, *, timeout: Optional[float]=None) -> bytes:
         """
         Receives data from the connection.
 
-        Parameters:
-            nbytes: The number of bytes to receive..
-            timeout: The maximum time to wait for the data to be received.
+        Parameters
+        ----------
+        nbytes: :class:`int`
+            The number of bytes to receive..
+        timeout: :class:`float`
+            The maximum time to wait for the data to be received.
 
-        Returns:
-            The received data.
-
-        Raises:
-            asyncio.TimeoutError: If the data could not be received in time.
+        Raises
+        ------
+        asyncio.TimeoutError: If the data could not be received in time.
         """
         data = await self._transport.receive(nbytes=nbytes, timeout=timeout)
         return data
@@ -216,12 +218,10 @@ class ClientConnection:
         """
         Writes data to the connection.
 
-        Parameters:
-            data: The data to write.
-
-        Returns:
-            The number of bytes written.
-
+        Parameters
+        ----------
+        data: :class:`bytes`
+            The data to write.
         """
         await self._transport.write(data)
         return len(data)
@@ -230,11 +230,10 @@ class ClientConnection:
         """
         Writes a list of data to the connection.
 
-        Parameters:
-            data: The data to write.
-
-        Returns:
-            The number of bytes written.
+        Parameters
+        ----------
+        data: :class:`List[bytes]`
+            The data to write.
         """
         await self._transport.writelines(data)
         return len(b''.join(data))
@@ -248,14 +247,16 @@ class ClientConnection:
         """
         Sends a file to the client.
 
-        Parameters:
-            path: The path to the file to send.
-            offset: The offset in the file to start sending from.
-            count: The number of bytes to send.
-            fallback: Whether to fallback to sending the file in chunks if the file is too large to fit in one message.
-        
-        Returns:
-            The number of bytes sent.
+        Parameters
+        ----------
+        path: Union[:class:`str`, :class:`pathlib.Path`]
+            The path to the file to send.
+        offset: :class:`int`
+            The offset in the file to start sending from.
+        count: :class:`int`
+            The number of bytes to send.
+        fallback: :class:`bool`
+            Whether to fallback to sending the file in chunks if the file is too large to fit in one message.
         """
         if isinstance(path, pathlib.Path):
             path = path.name
@@ -309,9 +310,23 @@ class BaseServer:
     """
     A base server class, All server classes should inherit from this class.
 
-    Attributes:
-        loop: The event loop used.
-        max_connections: The maximum number of connections to keep pending.
+    Parameters
+    ----------
+    max_connections: :class:`int`
+        The maximum number of connections to keep pending.
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop used.
+    is_ssl: :class:`bool`
+        Whether to use SSL.
+    ssl_context: :class:`ssl.SSLContext`
+        The SSL context to use.
+
+    Attributes
+    ----------
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop used.
+    max_connections: :class:`int`
+        The maximum number of connections to keep pending.
     """
     def __init__(self,
                 *,                 
@@ -319,13 +334,6 @@ class BaseServer:
                 loop: Optional[asyncio.AbstractEventLoop]=None, 
                 is_ssl: Optional[bool]=False,
                 ssl_context: Optional[ssl.SSLContext]=None) -> None:
-        """
-        Parameters:
-            max_connections: The maximum number of connections to keep pending.
-            loop: The event loop used.
-            is_ssl: Whether to use SSL.
-            ssl_context: The SSL context to use.
-        """
         self.loop: asyncio.AbstractEventLoop = _get_event_loop(loop)
         self.max_connections: int = max_connections or 254
 
@@ -343,31 +351,25 @@ class BaseServer:
     def create_ssl_context(self) -> ssl.SSLContext:
         """
         Creates a default SSL context.
-
-        Returns:
-            The SSL context.
         """
         context = ssl.create_default_context()
         return context
 
     def is_ssl(self) -> bool:
         """
-        Returns:
-            True if the server is using SSL.
+        True if the server is using SSL.
         """
         return self._is_ssl and isinstance(self._ssl_context, ssl.SSLContext)
 
     def is_serving(self) -> bool:
         """
-        Returns:
-            True if the server is serving.
+        True if the server is serving.
         """
         return self._server is not None
 
     def is_closed(self) -> bool:
         """
-        Returns:
-            True if the server is closed.
+        True if the server is closed.
         """
         return self._closed
 
@@ -398,14 +400,14 @@ class BaseServer:
         """
         Accepts an incoming connection.
 
-        Parameters:
-            timeout: The timeout to wait for a connection.
+        Parameters
+        ----------
+        timeout: :class:`int`
+            The timeout to wait for a connection.
 
-        Returns:
-            The client connection if one is available.
-
-        Raises:
-            asyncio.TimeoutError: If the timeout is reached.
+        Raises
+        ------
+        asyncio.TimeoutError: If the timeout is reached.
         """
         protocol = self._protocol
 
@@ -422,15 +424,17 @@ class BaseServer:
         if transport is None:
             return None
 
-        # if self.is_ssl() and self._ssl_context is not None:
-        #     transport = await self.loop.start_tls(
-        #         transport=transport,
-        #         protocol=protocol,
-        #         sslcontext=self._ssl_context,
-        #         server_side=True
-        #     )
+        if self.is_ssl() and self._ssl_context is not None:
+            trans = await self.loop.start_tls(
+                transport=transport._transport,
+                protocol=protocol,
+                sslcontext=self._ssl_context,
+                server_side=True
+            )
 
-        # print('?')
+            trans = cast(asyncio.Transport, trans)
+            transport = StreamTransport(trans)
+
         return ClientConnection(
             protocol=protocol, 
             transport=transport,
@@ -441,12 +445,33 @@ class TCPServer(BaseServer):
     """
     A TCP server
 
-    Attributes:
-        loop: The event loop used.
-        max_connections: The maximum number of connections to keep pending.
-        host: The host to listen on.
-        port: The port to listen on.
-        ipv6: Whether to use IPv6.
+    Parameters
+    ----------
+    host: :class:`str`
+        The host to listen on.
+    port: :class:`int`
+        The port to listen on.
+    max_connections: :class:`int`
+        The maximum number of connections to keep pending.
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop used.
+    is_ssl: :class:`bool`
+        Whether to use SSL.
+    ssl_context: :class:`ssl.SSLContext`
+        The SSL context to use.
+
+    Attributes
+    ----------
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop used.
+    max_connections: :class:`int`
+        The maximum number of connections to keep pending.
+    host: :class:`str`
+        The host to listen on.
+    port: :class:`int`
+        The port to listen on.
+    ipv6: :class:`bool`
+        Whether to use IPv6.
     """
     def __init__(self, 
                 host: Optional[str]=None, 
@@ -488,11 +513,10 @@ class TCPServer(BaseServer):
         """
         Starts the server.
 
-        Parameters:
-            sock: The socket to use.
-
-        Returns:
-            A future that will be resolved when the server is closed.
+        Parameters
+        ----------
+        sock: :class:`socket.socket`
+            The socket to use.
         """
         if sock:
             self._server = server = await self.loop.create_server(
@@ -523,16 +547,34 @@ def create_server(
     ssl_context: Optional[ssl.SSLContext]=None
 ):
     """
-    A helper function to create a server.
+    A helper function to create TCP a server.
 
-    Parameters:
-        host: The host to listen on.
-        port: The port to listen on.
-        ipv6: Whether to use IPv6.
-        max_connections: The maximum number of connections to keep pending.
-        loop: The event loop used.
-        is_ssl: Whether to use SSL.
-        ssl_context: The SSL context to use.
+    Parameters
+    ----------
+    host: :class:`str`
+        The host to listen on.
+    port: :class:`int`
+        The port to listen on.
+    max_connections: :class:`int`
+        The maximum number of connections to keep pending.
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop used.
+    is_ssl: :class:`bool`
+        Whether to use SSL.
+    ssl_context: :class:`ssl.SSLContext`
+        The SSL context to use.
+
+    Example
+    ---------
+    .. code-block:: python3
+
+        server = await create_server(*args, **kwargs)
+
+        # or, alternatively
+
+        async with create_server(*args, **kwargs) as server:
+            ...
+
     """
     return TCPServer(
         host=host,

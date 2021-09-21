@@ -66,10 +66,11 @@ class Settings(TypedDict):
     """
     host: str
     port: int
+    url_prefix: str
     use_ipv6: bool
     ssl_context: Optional[ssl.SSLContext]
     worker_count: int
-    session_cookie_name: Optional[str]
+    session_cookie_name: str
     backlog: int
     max_concurrent_requests: Optional[int]
     max_pending_connections: int

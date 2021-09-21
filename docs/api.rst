@@ -7,6 +7,27 @@
 API Reference
 ===============
 
+Data Structures
+--------------------
+
+ImmutableMapping
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: ImmutableMapping
+    :members:
+
+MultiDict
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: MultiDict
+    :members:
+
+URL
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: URL
+    :members:
+
 Applications
 ------------------
 
@@ -15,7 +36,7 @@ Application
 
 .. autoclass:: Application
     :members:
-    :exclude-members: event, route, resource, view, middleware, websocket, get, post, put, head, options, delete, patch
+    :exclude-members: event, route, resource, view, middleware, websocket, get, post, put, head, options, delete, patch, status_code_handler
 
     .. automethod:: Application.event
         :decorator:
@@ -56,6 +77,9 @@ Application
     .. automethod:: Application.middleware
         :decorator:
 
+    .. automethod:: Application.status_code_handler
+        :decorator:
+
 
 IPv6 Applications
 ~~~~~~~~~~~~~~~~~~
@@ -68,7 +92,115 @@ Dual-Stack Applications
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 .. autofunction:: dualstack_ipv6
-    
+
+
+Event Reference
+-----------------
+
+This section is all the events that are dispatches within the application's runtime.
+Of course, you can dispatch your own events using :meth:`.Application.dispatch`.
+
+.. function:: on_startup()
+
+    This event is called when the application has finished starting up and is ready to handle requests.
+
+.. function:: on_worker_startup(worker)
+
+    This event is like :func:`on_startup` but is called for each worker.
+
+    :param worker: The worker that has just started.
+    :type worker: :class:`~.Worker`
+
+.. function:: on_shutdown()
+
+    Called whenever the application has shutdown and finished background cleanup.
+
+.. function:: on_worker_shutdown(worker)
+
+    Called whenever a worker has finished shutting down.
+
+    :param worker: The worker that has just shutdown.
+    :type worker: :class:`~.Worker`
+
+.. function:: on_raw_request(data, worker)
+
+    Called whenever a request is received.
+
+    :param data: The request data.
+    :type data: :class:`bytes`
+    :param worker: The worker that received the data.
+    :type worker: :class:`~.Worker`
+
+
+.. function:: on_request(request, worker)
+
+    Called whenever a request is received.
+
+    :param request: The request that has just been received.
+    :type request: :class:`~.Request`
+    :param worker: The worker that recevied the request.
+    :type worker: :class:`~.Worker`
+
+
+.. function:: on_websocket_data_receive(data, worker)
+
+    Called whenever websocket data is received.
+
+    :param data: The data that has just been received.
+    :type data: :class:`bytes`
+    :param worker: The worker that received the data.
+    :type worker: :class:`~.Worker`
+
+.. function:: on_error(route, request, error)
+
+    Called whenever an error occurs during the request handling process.
+
+    :param route: The route that was being handled.
+    :type route: Union[:class:`~.PartialRoute`, :class:`~.Route`]
+    :param request: The request that was being handled.
+    :type request: :class:`~.Request`
+    :param error: The error that was raised.
+    :type error: :exc:Exception
+
+Routers
+---------------------
+
+Router
+~~~~~~~~~~
+
+.. autoclass:: Router
+    :members:
+    :exclude-members: route, middleware, websocket, get, post, put, head, options, delete, patch
+
+    .. automethod:: Router.route
+        :decorator:
+
+    .. automethod:: Router.get
+        :decorator:
+
+    .. automethod:: Router.put
+        :decorator:
+
+    .. automethod:: Router.post
+        :decorator:
+
+    .. automethod:: Router.delete
+        :decorator:
+
+    .. automethod:: Router.head
+        :decorator:
+
+    .. automethod:: Router.options
+        :decorator:
+
+    .. automethod:: Router.patch
+        :decorator:
+
+    .. automethod:: Router.websocket
+        :decorator:
+
+    .. automethod:: Router.middleware
+        :decorator:
 
 Settings
 -----------------------
@@ -87,63 +219,8 @@ Settings helpers
 .. autofunction:: settings_from_env
     
 
-Objects
------------------------
-
-Object
-~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: Object
-    :members:
-
-
-PartialRoute
-~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: PartialRoute
-    :members:
-
-
-Route
-~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: Route
-    :members:
-
-
-WebsocketRoute
-~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: WebsocketRoute
-    :members:
-
-
-Middleware
-~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: Middleware
-    :members:
-
-
-Listener
-~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: Listener
-    :members:
-
-
-Helper functions
-~~~~~~~~~~~~~~~~~~
-
-.. autofunction:: route
-.. autofunction:: websocket_route
-.. autofunction:: middleware
-.. autofunction:: listener
-
-
 Responses
 -----------------------
-
 
 HTTPStatus
 ~~~~~~~~~~~~
@@ -564,6 +641,7 @@ HTTPVersionNotSupported
     :members:
 
 
+
 VariantAlsoNegotiates
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -608,20 +686,67 @@ Request
     :members:
 
 
-Form-Data
---------------------
+Objects
+-----------------------
 
-Disposition
-~~~~~~~~~~~~
+Object
+~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: Disposition
+.. autoclass:: Object
     :members:
 
 
-FormData
-~~~~~~~~~
+PartialRoute
+~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: FormData
+.. autoclass:: PartialRoute
+    :members:
+
+
+Route
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: Route
+    :members:
+
+
+WebsocketRoute
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: WebsocketRoute
+    :members:
+
+
+Middleware
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: Middleware
+    :members:
+
+
+Listener
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: Listener
+    :members:
+
+
+Helper functions
+~~~~~~~~~~~~~~~~~~
+
+.. autofunction:: route
+.. autofunction:: websocket_route
+.. autofunction:: middleware
+.. autofunction:: listener
+
+
+Sessions
+---------
+
+CookieSession
+~~~~~~~~~~~~~~~
+
+.. autoclass:: CookieSession
     :members:
 
 
@@ -653,26 +778,36 @@ File
     .. automethod:: File.stream
         :async-for:
 
-
-Data Structures
+Form-Data
 --------------------
 
-ImmutableMapping
-~~~~~~~~~~~~~~~~~~
+Disposition
+~~~~~~~~~~~~
 
-.. autoclass:: ImmutableMapping
+.. autoclass:: Disposition
     :members:
 
-MultiDict
-~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: MultiDict
+FormData
+~~~~~~~~~
+
+.. autoclass:: FormData
     :members:
 
-URL
+
+Injectables
+--------------------------
+
+InjectableMeta
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: URL
+.. autoclass:: InjectableMeta
+    :members:
+
+Injectable
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: Injectable
     :members:
 
 
@@ -692,21 +827,6 @@ HTTPView
 .. autoclass:: HTTPView
     :members:
 
-
-Injectables
---------------------------
-
-InjectableMeta
-~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: InjectableMeta
-    :members:
-
-Injectable
-~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: Injectable
-    :members:
 
 Resources
 -----------
@@ -745,45 +865,6 @@ Model
 .. autoclass:: Model
     :members:
 
-Routers
----------------------
-
-Router
-~~~~~~~~~~
-
-.. autoclass:: Router
-    :members:
-    :exclude-members: route, middleware, websocket, get, post, put, head, options, delete, patch
-
-    .. automethod:: Router.route
-        :decorator:
-
-    .. automethod:: Router.get
-        :decorator:
-
-    .. automethod:: Router.put
-        :decorator:
-
-    .. automethod:: Router.post
-        :decorator:
-
-    .. automethod:: Router.delete
-        :decorator:
-
-    .. automethod:: Router.head
-        :decorator:
-
-    .. automethod:: Router.options
-        :decorator:
-
-    .. automethod:: Router.patch
-        :decorator:
-
-    .. automethod:: Router.websocket
-        :decorator:
-
-    .. automethod:: Router.middleware
-        :decorator:
 
 Ratelimits
 --------------
@@ -806,29 +887,8 @@ Key
 .. autoclass:: Key
     :members:
 
-Sessions
----------
-
-CookieSession
-~~~~~~~~~~~~~~~
-
-.. autoclass:: CookieSession
-    :members:
-
 Templates
 ----------
-
-TemplateContext
-~~~~~~~~~~~~~~~~
-
-.. autoclass:: TemplateContext
-    :members:
-
-Template
-~~~~~~~~~
-
-.. autoclass:: Template
-    :members:
 
 .. autofunction:: render
 
@@ -876,6 +936,7 @@ StreamTransport
 
 .. autoclass:: StreamTransport
     :members:
+
 
 Utility functions
 --------------------

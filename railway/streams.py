@@ -259,7 +259,7 @@ class StreamTransport:
         return self._writer.get_extra_info(name, default)
 
     @utils.copy_docstring(asyncio.Transport.get_protocol)
-    def get_protocol(self) -> asyncio.Protocol:
+    def get_protocol(self) -> asyncio.BaseProtocol:
         return self._transport.get_protocol()
 
     def close(self):

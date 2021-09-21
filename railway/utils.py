@@ -46,7 +46,7 @@ __all__ = (
     'validate_ip',
     'jsonify',
     'SETTING_ENV_PREFIX',
-    'VALID_METHODS'
+    'VALID_METHODS',
 )
 
 LOCALHOST = '127.0.0.1'
@@ -95,7 +95,6 @@ async def maybe_coroutine(func: MaybeCoroFunc[Any], *args: Any, **kwargs: Any) -
         return await func(*args, **kwargs)
 
     return func(*args, **kwargs)
-
 
 def has_ipv6() -> bool:
     """

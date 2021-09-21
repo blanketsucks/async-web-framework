@@ -27,6 +27,10 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 if TYPE_CHECKING:
     from .request import Request
 
+__all__ = (
+    'CookieSession',
+)
+
 class CookieSession(Dict[str, Any]):
     """
     A session that is managed by a cookie.

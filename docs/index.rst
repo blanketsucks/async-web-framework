@@ -6,7 +6,7 @@
 Welcome to the Railway web framework
 ======================================
 
-pog
+pog/
 
 Indices and tables
 ==================
@@ -21,7 +21,8 @@ Contents
 .. toctree::
   :maxdepth: 1
 
+
   api
   http
   websockets
-  rfc6555
+  server-client

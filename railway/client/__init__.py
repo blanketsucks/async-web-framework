@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import asyncio
+import os
 import ssl
 from typing import Any, Union, List, Optional
 import socket
@@ -129,7 +130,7 @@ class Client:
         self._protocol = None
 
         self._closed = False
-        self._connected = False
+        self._connected = False 
 
     def __repr__(self) -> str:
         reprs: List[str] = ['<Client']

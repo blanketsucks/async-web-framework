@@ -32,14 +32,14 @@ import multiprocessing
 import socket
 import uuid
 import asyncio
+import os
 import traceback
 
-from ._types import CoroFunc
+from ._types import CoroFunc, MaybeCoroFunc, Coro
 from .resources import Resource
 from . import compat, utils
-from .server import ClientConnection
 from .request import Request
-from .responses import NotFound, MethodNotAllowed, redirects
+from .responses import NotFound, MethodNotAllowed, redirects, HTTPException
 from .errors import *
 from .router import Router
 from .settings import Settings, settings_from_file, settings_from_env, DEFAULT_SETTINGS
@@ -116,7 +116,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         An integer representing the maximum number of concurrent requests. This is used with a :class:`~railway.locks.Semaphore`. 
         This doesn't really limit the amount of requests though, it just limits the amount of requests that can be processed at the same time, 
         clients will still be able to send requests but they will be stalled until the semaphore is released.
-        It is also possible to have route specific semaphores, see :meth:`~railway.objects.Route.add_semaphore`.
+        It is also possible to have route specific semaphores, see :meth:`Route.add_semaphore`.
     max_pending_connections: :class:`int`
         An integer represting the maximun number of pending connections. Again, this isn't really limiting the amount of connections,
         it just limits the amount of connections that can be queued up before getting processed by the server.
@@ -165,6 +165,13 @@ class Application(Injectable, metaclass=InjectableMeta):
     cookie_session_callback: Callable[[:class:`~railway.request.Request`, :class:`~railway.response.Response`], :class:`str`]
         A callback that gets called whenever there is a need to generate a cookie header value for responses.
     """
+    WILDCARD_METHODS = [
+        'GET',
+        'POST',
+        'PUT',
+        'DELETE',
+    ]
+
     def __init__(
         self,
         host: Optional[str]=None,
@@ -185,13 +192,13 @@ class Application(Injectable, metaclass=InjectableMeta):
         max_concurent_requests: Optional[int]=None,
         connection_timeout: Optional[int]=None,
         backlog: Optional[int]=None,
-        reuse_host: Optional[bool]=True,
-        reuse_port: Optional[bool]=False
+        reuse_host: bool=True,
+        reuse_port: bool=False
     ):
         if ipv6:
             has_ipv6 = utils.has_ipv6()
             if not has_ipv6:
-                raise IPv6NotSupported('IPv6 is not supported')
+                raise RuntimeError('IPv6 is not supported on this system')
 
         if reuse_port:
             if not hasattr(socket, 'SO_REUSEPORT'):
@@ -205,7 +212,7 @@ class Application(Injectable, metaclass=InjectableMeta):
                 settings = settings_from_env()
     
             if not settings:
-                settings = Settings(**DEFAULT_SETTINGS)
+                settings = self.create_default_settings()
 
         self.settings: Settings = settings
         self._verify_settings()
@@ -240,6 +247,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         self._active_listeners: List[asyncio.Task[Any]] = []
         self._websocket_tasks: List[asyncio.Task[Any]] = []
         self._worker_tasks: List[asyncio.Task[None]] = []
+        self._status_code_handlers: Dict[int, Callable[[Request, HTTPException, Route], Coro]] = {}
         self._loop = loop or compat.get_event_loop()
         self._closed = False
         self._reuse_host = reuse_host
@@ -249,8 +257,7 @@ class Application(Injectable, metaclass=InjectableMeta):
             self.worker_count = 1
 
         if self._use_ssl and self.ssl_context is None:
-            self.ssl_context = ssl.create_default_context()
-            self.ssl_context.check_hostname = False
+            self.ssl_context = self.create_default_ssl_context()
 
         if sock:
             if not isinstance(sock, socket.socket):
@@ -261,8 +268,8 @@ class Application(Injectable, metaclass=InjectableMeta):
                 raise RuntimeError('socket does not have SO_REUSEADDR enabled')
 
         self._socket = sock or (
-            self._make_ipv6_socket(self.host, self.port) if self._ipv6 
-            else self._make_ipv4_socket(self.host, self.port)
+            self.create_ipv6_socket(self.host, self.port) if self._ipv6 
+            else self.create_ipv4_socket(self.host, self.port)
         )
         self._workers = self._add_workers()
 
@@ -336,12 +343,13 @@ class Application(Injectable, metaclass=InjectableMeta):
         if path not in self.paths:
             raise ValueError(f'Path {path!r} does not exist')
 
-        if self.is_ipv6():
-            return path
-
         scheme = 'ws' if is_websocket else 'http'
 
-        base = f'{scheme}://{self.host}:{self.port}'
+        if self.is_ipv6():
+            base = f'{scheme}://[{self.host}]:{self.port}'
+        else:
+            base = f'{scheme}://{self.host}:{self.port}'
+
         return URL(base + path)
 
     def _add_workers(self):
@@ -353,33 +361,6 @@ class Application(Injectable, metaclass=InjectableMeta):
         
         return workers
 
-    def _make_ipv6_socket(self, host: str, port: int):
-        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-
-        if self._reuse_host:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-        if self._reuse_port:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-
-        sock.bind((host, port))
-        sock.listen(self._backlog)
-        return sock
-
-    def _make_ipv4_socket(self, host: str, port: int):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-        if self._reuse_host:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-        if self._reuse_port:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-
-        sock.bind((host, port))
-        sock.listen(self._backlog)
-        return sock
-
     def _ensure_listeners(self):
         for task in self._active_listeners:
             if task.done():
@@ -390,7 +371,7 @@ class Application(Injectable, metaclass=InjectableMeta):
             if ws.done():
                 self._websocket_tasks.remove(ws)
 
-    def _convert(self, func: CoroFunc, args: Dict[str, Any], request: 'Request') -> Dict[str, Any]:
+    def _convert(self, func: MaybeCoroFunc, args: Dict[str, Any], request: 'Request') -> Dict[str, Any]:
         kwargs: Dict[str, Any] = {}
         params = inspect.signature(func)
 
@@ -474,11 +455,20 @@ class Application(Injectable, metaclass=InjectableMeta):
         kwargs = self._convert(route.callback, args, request)
         return kwargs, route
 
-    async def _request_handler(self, 
-                        request: Request, 
-                        connection: ClientConnection, 
-                        websocket: Websocket,
-                        worker: Worker):
+    async def _dispatch_error(self, route: Route, request: Request, exc: Exception):
+        dispatched = await route._dispatch_error(request, exc)
+        if dispatched:
+            return
+
+        if getattr(exc, 'status', None):
+            callback = self._status_code_handlers.get(exc.status)
+            if callback:
+                await callback(request, exc, route)
+                return
+
+        self.dispatch('on_error', request, exc, route)
+
+    async def _request_handler(self, request: Request, websocket: Websocket):
         resp = None
         route = None
 
@@ -510,8 +500,11 @@ class Application(Injectable, metaclass=InjectableMeta):
                         method=request.method
                     )
 
-                self.dispatch('error', route, request, worker, exc)
-                return 
+                return await self._dispatch_error(
+                    route=route,
+                    request=request,
+                    exc=exc
+                )
 
             resp = await self.parse_response(resp)
             response = self.set_default_cookie(request, resp)
@@ -520,6 +513,78 @@ class Application(Injectable, metaclass=InjectableMeta):
 
             if route._after_request:
                 await utils.maybe_coroutine(route._after_request, request, response, **kwargs)
+
+    def create_default_settings(self) -> Settings:
+        """
+        Create a default settings object.
+        """
+        settings = Settings(
+            **DEFAULT_SETTINGS,
+        )
+        return settings
+
+    def create_ipv6_socket(self, host: str, port: int):
+        """
+        Same as :meth:`create_ipv4_socket` but for IPv6, meaning it sets the socket family to ``AF_INET6``.
+
+        Parameters
+        ----------
+        host: :class:`str`
+            The host to bind the socket to.
+        port: :class:`int`
+            The port to bind the socket to.
+        """
+        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+
+        if self._reuse_host:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        if self._reuse_port:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+
+        sock.bind((host, port))
+        sock.listen(self._backlog)
+        return sock
+
+    def create_ipv4_socket(self, host: str, port: int):
+        """
+        Creates a :class:`socket.socket` with the :const:`socket.AF_INET` family and the :const:`socket.SOCK_STREAM` type.
+        The socket is also bound to the given host and port.
+
+        Parameters
+        ----------
+        host: :class:`str`
+            The host to bind the socket to.
+        port: :class:`int`
+            The port to bind the socket to.
+        """
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        if self._reuse_host:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        if self._reuse_port:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+
+        sock.bind((host, port))
+        sock.listen(self._backlog)
+        return sock
+
+    def create_default_ssl_context(self) -> ssl.SSLContext:
+        """
+        Creates a default ssl context.
+
+        Note
+        -----
+        This ssl context is valid for localhost.
+        """
+        cert = os.path.join(os.path.dirname(__file__), 'bin', 'cert.pem')
+        key = os.path.join(os.path.dirname(__file__), 'bin', 'key.pem')
+
+        context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
+        context.load_cert_chain(certfile=cert, keyfile=key)
+
+        return context
 
     async def parse_response(self, 
         response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, Any], File, Response, URL, Any]
@@ -537,6 +602,7 @@ class Application(Injectable, metaclass=InjectableMeta):
             ValueError: If the response is not parsable.
         """
         status = 200
+        resp = None
 
         if isinstance(response, File):
             response = FileResponse(response, status=status)  
@@ -552,16 +618,16 @@ class Application(Injectable, metaclass=InjectableMeta):
                     ret = f'{status!r} is not a valid redirect status code'
                     raise ValueError(ret)
 
-                cls = redirects.get(status)
+                cls = redirects[status]
                 return cls(location=str(response))
 
             else:
                 status = self._validate_status_code(status)
 
         elif isinstance(response, URL):
-            cls = redirects.get(302)
-            resp = cls(location=str(response))
-
+            cls = redirects[302]
+            return cls(location=str(response))
+            
         elif isinstance(response, Response):
             if isinstance(response, FileResponse):
                 await response.read()
@@ -645,7 +711,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         The timeout for a connection.
         """
-        return self._connection_timeout
+        return self._connection_timeout or float('inf')
 
     @property
     def workers(self) -> List[Worker]:
@@ -680,7 +746,10 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         A list of all listeners.
         """
-        return list(self._listeners.values())
+        listeners = []
+        listeners.extend(*self._listeners.values())
+
+        return listeners
 
     @property
     def resources(self) -> List[Resource]:
@@ -824,7 +893,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         Returns whether or not the application is serving SSL requests.
         """
-        return self._use_ssl and isinstance(self.ssl_context, ssl.SSLContext)
+        return self._use_ssl is True and isinstance(self.ssl_context, ssl.SSLContext)
 
     def get_worker(self, id: int) -> Optional[Worker]:
         """
@@ -955,13 +1024,24 @@ class Application(Injectable, metaclass=InjectableMeta):
             @app.route('/', 'GET')
             async def index(request: railway.Request):
                 return 'Hello, world!'
-            
+
+        Note
+        -----
+        You can also pass in the ``method`` as ``*``, this will register a route to accept a list of pre-defined
+        methods which default to ``GET``, ``POST``, ``PUT`` and ``DELETE``.
+        You can edit these method by editing the ``WILDCARD_METHODS`` class variable.
+
         """
         actual = method or 'GET'
 
         def decorator(func: CoroFunc) -> Route:
+            if actual == '*':
+                for method in utils.WILDCARD_METHODS:
+                    route = Route(path, method, func, router=self.router)
+                    self.add_route(route)
+
             route = Route(path, actual, func, router=self.router)
-            return self.add_route(route)
+            return route
         return decorator
 
     def add_route(self, route: Union[Route, WebsocketRoute, Any]) -> Union[Route, WebsocketRoute]:
@@ -1202,7 +1282,90 @@ class Application(Injectable, metaclass=InjectableMeta):
             return self.add_event_listener(func, name)
         return decorator
 
+    def add_status_code_handler(
+        self, 
+        status: int, 
+        callback: Callable[[Request, HTTPException, Route], Coro]
+    ):
+        """
+        Adds a specific status code handler to the application.
+        This applies to only error status codes for obvious reasons.
+
+        Parameters
+        ----------
+        status: :class:`int`
+            The status code to handle.
+        callback: Callable[[:class:`~railway.objects.Request`, :class:`~railway.exceptions.HTTPException`, :class:`~railway.objects.Route`], Coro]
+            The callback to handle the status code.
+        """
+        if not inspect.iscoroutinefunction(callback):
+            raise RegistrationError('Status code handlers must be coroutine functions')
+
+        self._status_code_handlers[status] = callback
+        return callback
+
+    def remove_status_code_handler(self, status: int):
+        """
+        Removes a status code handler from the application.
+
+        Parameters
+        ----------
+        status: :class:`int`
+            The status code to remove.
+        """
+        callback = self._status_code_handlers.pop(status, None)
+        return callback
+
+    def status_code_handler(self, status: int) -> Callable[[Callable[[Request, HTTPException, Route], Coro]], Callable[[Response, HTTPException, Route], Coro]]:
+        """
+        A decorator that adds a status code handler to the application.
+
+        Parameters
+        ----------
+        status: :class:`int`
+            The status code to handle.
+
+        Example
+        ---------
+        .. code-block :: python3
+
+            import railway
+
+            app = railway.Application()
+
+            @app.status_code_handler(404)
+            async def handle_404(
+                request: railway.Request, 
+                exception: railway.HTTPException, 
+                route: railway.Route
+            ):
+                return await request.send(
+                    {
+                        'message': 'Page not found.',
+                        'status': 404
+                    }
+                )
+
+            app.run()
+        
+        """
+        def decorator(func: Callable[[Request, HTTPException, Route], Coro]):
+            return self.add_status_code_handler(status, func)
+        return decorator
+
     def dispatch(self, name: str, *args: Any, **kwargs: Any):
+        """
+        Dispatches an event.
+
+        Parameters
+        -----------
+        name: :class:`str`
+            The name of the event to dispatch.
+        *args: Any
+            The args to pass in to the event listeners.
+        **kwargs: Any
+            The kwargs to pass in to the event listeners.
+        """
         loop = self.loop
         if not loop:
             return
@@ -1391,7 +1554,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         callback: Callable[..., Coroutine[Any, Any, Any]]
             The middleware callback.
         """
-        middleware = Middleware(callback, router=self)
+        middleware = Middleware(callback, router=self.router)
         middleware._is_global = True
 
         self._middlewares.append(middleware)
@@ -1435,12 +1598,13 @@ class Application(Injectable, metaclass=InjectableMeta):
         self._middlewares.remove(middleware)
         return middleware
 
-    async def on_error(self, 
-                    route: Union[Route, PartialRoute], 
-                    request: Request,
-                    worker: Worker, 
-                    exception: Exception):
-        traceback.print_exception(type(exception), exception, exception.__traceback__)
+    async def on_error(
+        self, 
+        request: Request,
+        exc: Exception,
+        route: Union[PartialRoute, Route]
+    ):
+        traceback.print_exception(type(exc), exc, exc.__traceback__)
     
 def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) -> Application:
     """
@@ -1483,8 +1647,8 @@ def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) 
     If ``reuse_host`` is set to ``True``, it will create a two workers, one for IPv4 and one for IPv6.
     """
     if not utils.has_dualstack_ipv6():
-        raise DualStackNotSupported('Dualstack support is not available')
-
+        raise RuntimeError('Dualstack support is not available on this system')
+    
     worker_count = kwargs.pop('worker_count', multiprocessing.cpu_count() + 1)
     reuse_host = kwargs.pop('reuse_host', True)
 
@@ -1496,8 +1660,8 @@ def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) 
     ipv4 = utils.validate_ip(ipv4)
     ipv6 = utils.validate_ip(ipv6, ipv6=True)
 
-    ipv4_socket = app._make_ipv4_socket(ipv4, app.port)
-    ipv6_socket = app._make_ipv6_socket(ipv6, app.port)
+    ipv4_socket = app.create_ipv4_socket(ipv4, app.port)
+    ipv6_socket = app.create_ipv6_socket(ipv6, app.port)
 
     workers = []
     id: int = 0
@@ -1517,8 +1681,6 @@ def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) 
         workers.append(worker)
         id += 1
 
-    print(id, workers)
-
     for i in range(worker_count):
         id += 1
         kwargs['id'] = id
@@ -1527,8 +1689,6 @@ def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) 
         worker.socket = ipv6_socket
 
         workers.append(worker)
-
-    print(workers)
 
     for worker in workers:
         app.add_worker(worker)

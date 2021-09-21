@@ -151,6 +151,9 @@ class Worker:
 
         while True:
             connection = await self.server.accept()
+            if not connection:
+                continue
+
             self.loop.create_task(
                 coro=self.handler(connection),
                 name=f'Worker-{self.id}-{connection.peername}'
@@ -325,7 +328,7 @@ class Worker:
         This function gets called whenever a new connection gets made.
         """
         self._working = True
-        
+
         data = await connection.receive(timeout=self.connection_timeout)
         created_at = datetime.datetime.utcnow()
         
@@ -341,6 +344,7 @@ class Worker:
                 return
 
             self.app.dispatch('websocket_data_receive', data, self)
+            return
 
         self.app.dispatch('raw_request', data, self)
         self.app.dispatch('request', request, self)
@@ -356,8 +360,6 @@ class Worker:
         await self.app._request_handler( # type: ignore
             request=request,
             websocket=websocket,
-            connection=connection,
-            worker=self
         )
 
         self._working = False

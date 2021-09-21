@@ -10,6 +10,24 @@ class Builder:
         self.docs = os.path.join(self.base, 'docs')
         self.build = os.path.join(self.docs, '_build', 'html')
 
+        self.requirements = {
+            'docs': [
+                'sphinx',
+                'sphinx_autodoc_typehints',
+                'sphinx_copybutton',
+                'sphinxcontrib_trio',
+                'furo'
+            ]
+        }
+
+    def update_requirements(self, type: str):
+        requirements = self.requirements[type]
+        prefix = sys.executable
+
+        process = subprocess.run([prefix, '-m', 'pip', 'install', '-U', *requirements])
+        if process.returncode != 0:
+            raise SystemError('Failed to update requirements')
+
     def get_pyx_files(self):
         pending = []
 
@@ -31,12 +49,10 @@ class Builder:
             raise SystemError('Failed to build pyx files')
 
     def build_extensions(self):
-        prefix = ['python3.8']
-        if sys.platform == 'win32':
-            prefix = ['py', '-3.9']
+        prefix = sys.executable
 
         setup = f'{self.base}/setup.py'
-        process = subprocess.run(prefix + [setup, 'build_ext', '--inplace'])
+        process = subprocess.run([prefix, setup, 'build_ext', '--inplace'])
 
         if process.returncode != 0:
             raise SystemError('Failed to build extensions')
@@ -49,11 +65,8 @@ class Builder:
             raise SystemError('Failed to build docs')
 
     def run_docs(self):
-        prefix = ['python3.8']
-        if sys.platform == 'win32':
-            prefix = ['py', '-3.9']
-
-        process = subprocess.run(prefix + ['-m', 'http.server'], cwd=self.build)
+        prefix = sys.executable
+        process = subprocess.run([prefix, '-m', 'http.server'], cwd=self.build)
 
         if process.returncode != 0:
             raise SystemError('Failed to run docs')
@@ -62,6 +75,7 @@ class Builder:
 if __name__ == '__main__':
     # build_extensions(path)
     builder = Builder()
+    builder.update_requirements('docs')
 
     builder.build_docs()
     builder.run_docs()

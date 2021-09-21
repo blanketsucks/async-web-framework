@@ -21,7 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-from typing import Any
+from typing import Any, Optional
 from . import http
 from .app import Application
 
@@ -33,14 +33,14 @@ class TestClient:
     """
     Test client for the application.
 
-    Attributes:
-        app: The application to test.
-        session: The HTTP session used.
+    Attributes
+    ----------
+    app: 
+        The application to test.
+    session: 
+        The HTTP session used.
     """
     def __init__(self, app: Application) -> None:
-        """
-        
-        """
         self.app: Application = app
         self.session: http.HTTPSession = http.HTTPSession()
 
@@ -52,7 +52,7 @@ class TestClient:
     def port(self) -> int:
         return self.app.port
 
-    def ws_connect(self, path: str) -> http.AsyncContextManager[http.Websocket]:
+    def ws_connect(self, path: str) -> http.AsyncContextManager[Optional[http.Websocket]]:
         """
         Performs a websocket connection.
 
@@ -90,7 +90,7 @@ class TestClient:
             ```
         """
         url = self.app.url_for(path, is_websocket=True)
-        return self.session.ws_connect(url)
+        return self.session.ws_connect(str(url))
 
     def request(self, path: str, method: str, **kwargs: Any) -> http.AsyncContextManager[http.HTTPResponse]:
         """
@@ -127,7 +127,7 @@ class TestClient:
             ```
         """
         url = self.app.url_for(path)
-        return self.session.request(url=url, method=method, **kwargs)
+        return self.session.request(url=str(url), method=method, **kwargs)
 
     def get(self, path: str, **kwargs: Any):
         return self.request(path, 'GET', **kwargs)

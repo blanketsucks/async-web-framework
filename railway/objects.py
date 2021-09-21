@@ -23,12 +23,15 @@ SOFTWARE.
 """
 from __future__ import annotations
 import functools
-from typing import TYPE_CHECKING, Callable, List, Any, Optional, Union
+from re import L
+from typing import TYPE_CHECKING, Callable, List, Any, Optional, Union, Dict
 import inspect
 import asyncio
 
-from ._types import CoroFunc, Func, MaybeCoroFunc
+from ._types import CoroFunc, Func, MaybeCoroFunc, Coro
 from .utils import maybe_coroutine
+from .responses import HTTPException
+from .request import Request
 from .errors import RegistrationError
 from .locks import _MaybeSemaphore, Semaphore
 
@@ -127,9 +130,24 @@ class Route(Object):
         self.method: str = method
         self.callback: MaybeCoroFunc = callback
 
+        self._error_handler = None
+        self._status_code_handlers: Dict[int, Callable[[Request, HTTPException, Route], Coro]] = {}
         self._middlewares: List[Middleware] = []
         self._after_request = None
         self._limiter = _MaybeSemaphore(None)
+
+    async def _dispatch_error(self, request: Request, exc: Exception):
+        if getattr(exc, 'status', None):
+            callback = self._status_code_handlers.get(exc.status)
+            if callback:
+                await callback(request, exc, self)
+                return True
+
+        if self._error_handler:
+            await self._error_handler(request, exc, self)
+            return True
+
+        return False
 
     @property
     def middlewares(self) -> List[Middleware]:
@@ -139,7 +157,7 @@ class Route(Object):
         return self._middlewares
 
     @property
-    def router(self) -> 'Router':
+    def router(self) -> Optional['Router']:
         """
         The router used to register the route with.
         """
@@ -150,6 +168,93 @@ class Route(Object):
         Clears all the middlewares registered with the route.
         """
         self._middlewares.clear()
+
+    def add_status_code_handler(
+        self, 
+        status: int, 
+        callback: Callable[[Request, HTTPException, Route], Coro]
+    ):
+        """
+        Adds a specific status code handler to the route.
+        This applies to only error status codes for obvious reasons.
+
+        Parameters
+        ----------
+        status: :class:`int`
+            The status code to handle.
+        callback: Callable[[:class:`~railway.objects.Request`, :class:`~railway.exceptions.HTTPException`, :class:`~railway.objects.Route`], Coro]
+            The callback to handle the status code.
+        """
+        if not inspect.iscoroutinefunction(callback):
+            raise RegistrationError('Status code handlers must be coroutine functions')
+
+        self._status_code_handlers[status] = callback
+        return callback
+
+    def remove_status_code_handler(self, status: int):
+        """
+        Removes a status code handler from the route.
+
+        Parameters
+        ----------
+        status: :class:`int`
+            The status code to remove.
+        """
+        callback = self._status_code_handlers.pop(status, None)
+        return callback
+
+    def status_code_handler(self, status: int):
+        """
+        A decorator that adds a status code handler to the route.
+
+        Parameters
+        ----------
+        status: :class:`int`
+            The status code to handle.
+
+        Example
+        ---------
+        .. code-block :: python3
+
+            import railway
+
+            app = railway.Application()
+            app.users = {}
+
+            @app.route('/users/{id}', 'GET')
+            async def get_user(request: railway.Request, id: int):
+                user = app.users.get(id)
+                if not user:
+                    raise railway.NotFound()
+
+                return user
+
+            @get_user.status_code_handler(404)
+            async def handle_404(
+                request: railway.Request, 
+                exception: railway.HTTPException, 
+                route: railway.Route
+            ):
+                return await request.send(
+                    {
+                        'message': 'User not found.',
+                        'status': 404
+                    }
+                )
+
+            app.run()
+        
+        """
+        def decorator(func: Callable[[Request, HTTPException, Route], Coro]):
+            return self.add_status_code_handler(status, func)
+        return decorator
+
+    def on_error(self, callback: Callable[[Request, Exception, Route], Coro]):
+        if not inspect.iscoroutinefunction(callback):
+            raise RegistrationError('Error handlers must be coroutine functions')
+
+        self._error_handler = callback
+        return callback
 
     def add_middleware(self, callback: CoroFunc) -> Middleware:
         """
@@ -189,6 +294,25 @@ class Route(Object):
         ----------
             callback: Callable[..., Coroutine[Any, Any, Any]]
                 The coroutine function used by the middleware.
+
+        Example
+        --------
+        .. code-block:: python3
+
+            import railway
+
+            app = railway.Application()
+
+            @app.route('/')
+            async def index(request: railway.Request):
+                return 'Hello, world!'
+
+            @index.middleware
+            async def middleware(request: railway.Request, route: railway.Route, **kwargs):
+                print('Middleware called')
+
+            app.run()
+
         """
         return self.add_middleware(callback)
 
@@ -406,10 +530,6 @@ def route(path: str, method: str) -> Callable[[CoroFunc], Route]:
         The HTTP method to register the route with.
     """
     def decorator(func: CoroFunc) -> Route:
-        
-        if getattr(func, '__self__', None):
-            func = functools.partial(func, func.__self__)
-
         return Route(path, method, func, router=None)
     return decorator
 

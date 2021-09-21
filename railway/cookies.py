@@ -105,7 +105,7 @@ class CookieJar:
         request: :class:`~railway.request.Request`
             The request to build the cookie jar from.
         """
-        header: str = request.headers.get('Cookie')
+        header = request.headers.get('Cookie')
         if not header:
             return cls()
 

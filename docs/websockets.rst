@@ -12,6 +12,7 @@ WebsocketOpCode
 .. autoenum:: WebsocketOpcode
     :hex:
 
+
 WebsocketCloseCode
 ~~~~~~~~~~~~~~~~~~~~
 

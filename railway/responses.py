@@ -237,7 +237,7 @@ class IMUsed(HTTPResponse):
 class Redirection(HTTPResponse):
     def __init__(self, location: str, body: Any=None, content_type: Optional[str]=None, headers: Optional[Dict[str, Any]]=None):
         super().__init__(body=body, content_type=content_type, headers=headers)
-        self.add_header("Location", location)
+        self.add_header(key="Location", value=location)
 
 @status(300)
 class MultipleChoice(Redirection):
@@ -334,7 +334,7 @@ class MethodNotAllowed(HTTPException):
 @status(406)
 class NotAcceptable(HTTPException):
     """
-    This response is sent when the web server, after performing (server-driven content negotiation)[https://developer.mozilla.org/en-US/docs/Web/HTTP/Content_negotiation#server-driven_negotiation], 
+    This response is sent when the web server, after performing `server-driven content negotiation <https://developer.mozilla.org/en-US/docs/Web/HTTP/Content_negotiation#server-driven_negotiation>`_, 
     doesn't find any content that conforms to the criteria given by the user agent.
     """
 

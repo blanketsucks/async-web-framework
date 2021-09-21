@@ -2,7 +2,9 @@ from setuptools import setup
 import sys
 from Cython.Build import cythonize
 
-requirements = []
+requirements = [
+    'jinja2'
+]
 
 if sys.platform != 'win32':
     requirements.append('uvloop')
@@ -19,4 +21,5 @@ setup(
         'railway-stubs'
     ],
     python_requires='>=3.8.0',
+    install_requires=requirements,
 )

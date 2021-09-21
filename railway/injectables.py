@@ -34,6 +34,10 @@ class InjectableMeta(type):
     """
     A meta class for injectable classes.
     """
+    __routes__: List[Route]
+    __listeners__: List[Listener]
+    __middlewares__: List[Middleware]
+
     def __new__(cls, name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any], **kwargs):
         routes = []
         listeners = []

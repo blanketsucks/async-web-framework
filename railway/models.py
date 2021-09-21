@@ -22,7 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, Type, TypedDict, Union, get_origin, get_type_hints
+from typing_extensions import get_args
 
 __all__ = (
     'Field',
@@ -84,8 +85,6 @@ def _make_init(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) -> s
     actual = ', '.join(args)
     bdy = '\n'.join(f'  {b}' for b in body)
     
-    print(actual)
-    print(bdy)
     return f'def __init__(self, *, {actual}) -> None:\n{bdy}'
 
 def _make_fields(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) -> Tuple[Field, ...]:
@@ -154,6 +153,7 @@ class ModelMeta(type):
 
         if annotations:
             for key, _ in annotations.items():
+                print(get_args(eval(_)))
                 value = attrs.get(key, _default)
 
                 if not isinstance(value, _Default):
@@ -163,6 +163,7 @@ class ModelMeta(type):
             body = _make_init(annotations, defaults)
 
             fn = _make_fn('__init__', body)
+
             fn.__qualname__ = f'{name}.__init__'
 
             attrs['__fields__'] = fields
@@ -197,9 +198,6 @@ class Model(metaclass=ModelMeta):
     """
     if TYPE_CHECKING:
         __fields__: Tuple[Field]
-
-    def __init__(self, **kwargs: Any) -> None:
-        pass
 
     def __repr__(self) -> str:
         attrs = [_get_repr(self, field.name) for field in self.__fields__]
@@ -254,3 +252,8 @@ class Model(metaclass=ModelMeta):
                 kwargs[field.name] = field.default
 
         return cls(**kwargs)
+
+class User(Model):
+    name: str
+
+print(get_args(get_origin(User.__annotations__['name'])))

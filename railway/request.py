@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING, Union, Dict, Any, Optional, Tuple, List, Type
 import urllib.parse
 import datetime
 
-from .objects import Route, WebsocketRoute
 from .response import Response
 from .utils import find_headers
 from .cookies import CookieJar
@@ -39,6 +38,7 @@ from .server import ClientConnection
 from .file import File
 
 if TYPE_CHECKING:
+    from .objects import Route, WebsocketRoute
     from .workers import Worker
     from .app import Application
 
@@ -91,7 +91,7 @@ class Request:
         self.method: str = method
         self.connection = connection
         self.worker = worker
-        self.headers: Dict[str, Any] = headers
+        self.headers: Dict[str, str] = headers
         self.route: Optional[Union[Route, WebsocketRoute]] = None
         self.created_at: datetime.datetime = created_at
 
@@ -114,6 +114,9 @@ class Request:
         """
         if convert:
             response = await self.app.parse_response(response)
+        else:
+            if not isinstance(response, Response):
+                raise ValueError('When convert is passed in as False, response must be a Response object')
 
         await self.worker.write(
             data=response,
@@ -176,21 +179,21 @@ class Request:
         return CookieSession.from_request(self)
 
     @property
-    def user_agent(self) -> str:
+    def user_agent(self) -> Optional[str]:
         """
         The user agent of the request.
         """
         return self.headers.get('User-Agent')
 
     @property
-    def content_type(self) -> str:
+    def content_type(self) -> Optional[str]:
         """
         The content type of the request.
         """
         return self.headers.get('Content-Type')
 
     @property
-    def host(self) -> str:
+    def host(self) -> Optional[str]:
         """
         The host of the request.
         """

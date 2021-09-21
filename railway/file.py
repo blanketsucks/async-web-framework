@@ -124,4 +124,4 @@ class File:
         Closes the file
         """
         loop = compat.get_running_loop()
-        await loop.run_in_executor(None, self.fd.close())
+        await loop.run_in_executor(None, self.fd.close)

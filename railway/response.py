@@ -40,11 +40,13 @@ __all__ = (
 
 class HTTPStatus(enum.IntEnum):
     _description_: str
+    
     def __new__(cls, value: int, description: str):
         self = int.__new__(cls, value)
 
         self._value_ = value
         self._description_ = description
+        self.__doc__ = description
 
         return self
 
@@ -266,6 +268,7 @@ class Response:
         Encodes the response into a sendable bytes object.
         """
         response = [f'HTTP/{self.version} {self.status} {self.status.description}']
+        print(self.cookies)
 
         response.extend(f'{k}: {v}' for k, v in self.headers.items())
         if self.cookies:
