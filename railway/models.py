@@ -22,8 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, Type, TypedDict, Union, get_origin, get_type_hints
-from typing_extensions import get_args
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, Type, Union
 
 __all__ = (
     'Field',
@@ -73,9 +72,9 @@ def _make_init(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) -> s
         names.append(name)
 
         if isinstance(default, _Default):
-            args.append(f'{name}: {annotation}')
+            args.append(f'{name}: {annotation.__name__}')
         else:
-            args.append(f'{name}: {annotation}={default!r}')
+            args.append(f'{name}: {annotation.__name__}={default!r}')
 
     body: List[str] = []
 
@@ -91,8 +90,6 @@ def _make_fields(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) ->
     fields: List[Field] = []
 
     for name, annotation in annotations.items():
-        annotation = eval(annotation)
-
         if origin := getattr(annotation, '__origin__', None):
             if origin is Union:
                 types = annotation.__args__
@@ -153,7 +150,6 @@ class ModelMeta(type):
 
         if annotations:
             for key, _ in annotations.items():
-                print(get_args(eval(_)))
                 value = attrs.get(key, _default)
 
                 if not isinstance(value, _Default):
@@ -252,8 +248,3 @@ class Model(metaclass=ModelMeta):
                 kwargs[field.name] = field.default
 
         return cls(**kwargs)
-
-class User(Model):
-    name: str
-
-print(get_args(get_origin(User.__annotations__['name'])))

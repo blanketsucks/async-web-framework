@@ -81,8 +81,6 @@ class StreamWriter:
         asyncio.TimeoutError: if the timeout expires.
         """
         self._transport.write(data)
-
-        self._waiter = self._loop.create_future()
         await self._wait_for_drain(timeout)
 
     async def writelines(self, data: List[Union[bytearray, bytes]], *, timeout: float=None) -> None:

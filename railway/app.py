@@ -456,9 +456,10 @@ class Application(Injectable, metaclass=InjectableMeta):
         return kwargs, route
 
     async def _dispatch_error(self, route: Route, request: Request, exc: Exception):
-        dispatched = await route._dispatch_error(request, exc)
-        if dispatched:
-            return
+        if isinstance(route, Route):
+            dispatched = await route._dispatch_error(request, exc)
+            if dispatched:
+                return
 
         if getattr(exc, 'status', None):
             callback = self._status_code_handlers.get(exc.status)
@@ -573,17 +574,8 @@ class Application(Injectable, metaclass=InjectableMeta):
     def create_default_ssl_context(self) -> ssl.SSLContext:
         """
         Creates a default ssl context.
-
-        Note
-        -----
-        This ssl context is valid for localhost.
         """
-        cert = os.path.join(os.path.dirname(__file__), 'bin', 'cert.pem')
-        key = os.path.join(os.path.dirname(__file__), 'bin', 'key.pem')
-
         context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
-        context.load_cert_chain(certfile=cert, keyfile=key)
-
         return context
 
     async def parse_response(self, 
@@ -1036,11 +1028,15 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         def decorator(func: CoroFunc) -> Route:
             if actual == '*':
-                for method in utils.WILDCARD_METHODS:
+                for method in self.WILDCARD_METHODS:
                     route = Route(path, method, func, router=self.router)
                     self.add_route(route)
 
-            route = Route(path, actual, func, router=self.router)
+                route = Route(path, '*', func, router=self.router)
+            else:
+                route = Route(path, actual, func, router=self.router)
+                self.add_route(route)
+
             return route
         return decorator
 

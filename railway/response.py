@@ -161,13 +161,13 @@ class Response:
         if not headers:
             headers = {}
 
-        self._headers: MultiDict[str, Any] = MultiDict(headers)
+        self._headers = MultiDict[str, Any](headers)
 
         if body:
             self._headers['Content-Type'] = content_type
             self._headers['Content-Lenght'] = len(body)
 
-        self.cookies: CookieJar = CookieJar()
+        self.cookies = CookieJar()
 
     @property
     def body(self) -> Any:
@@ -268,7 +268,6 @@ class Response:
         Encodes the response into a sendable bytes object.
         """
         response = [f'HTTP/{self.version} {self.status} {self.status.description}']
-        print(self.cookies)
 
         response.extend(f'{k}: {v}' for k, v in self.headers.items())
         if self.cookies:

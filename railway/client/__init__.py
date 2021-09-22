@@ -22,7 +22,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import asyncio
-import os
 import ssl
 from typing import Any, Union, List, Optional
 import socket
@@ -240,7 +239,7 @@ class Client:
             asyncio.TimeoutError: If the timeout is exceeded.
         """
         self._ensure_connection()
-        return await self._protocol.transport.read(nbytes, timeout=timeout) # type: ignore
+        return await self._protocol.transport.receive(nbytes, timeout=timeout) # type: ignore
 
     async def close(self) -> None:
         """
