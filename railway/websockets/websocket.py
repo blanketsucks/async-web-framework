@@ -95,7 +95,7 @@ class ServerWebsocket:
 
     async def send(self, data: bytes, *, opcode: Optional[WebsocketOpcode]=None):
         """
-        An alias for :meth:`~railway.websockets.server.ServerWebsocket.send_bytes`.
+        An alias for :meth:`~railway.websockets.websocket.ServerWebsocket.send_bytes`.
         """
         return await self.send_bytes(data, opcode=opcode)
 
