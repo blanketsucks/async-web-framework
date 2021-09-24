@@ -160,7 +160,16 @@ Of course, you can dispatch your own events using :meth:`.Application.dispatch`.
     :param request: The request that was being handled.
     :type request: :class:`~.Request`
     :param error: The error that was raised.
-    :type error: :exc:Exception
+    :type error: :exc:`Exception`
+
+.. function:: on_event_error(listener, error)
+
+    Called whenever an error occrus within an event listener during dispatch.
+
+    :param listener: The listener that was being dispatched.
+    :type listener: :class:`~.Listener`
+    :param error: The error that was raised.
+    :type error: :exc:`Exception`
 
 Routers
 ---------------------
@@ -948,3 +957,13 @@ Utility functions
 .. autofunction:: is_ipv4
 .. autofunction:: validate_ip
 .. autofunction:: jsonify
+
+
+Extensions 
+------------
+
+ngrok
+~~~~~~~
+
+.. autoclass:: railway.extensions.ngrok.Application
+    :members:

@@ -393,12 +393,7 @@ class Application(Injectable, metaclass=InjectableMeta):
                 if issubclass(value.annotation, Model):
                     data = request.json()
 
-                    if data:
-                        model = value.annotation.from_json(data)
-
-                    else:
-                        raise ValueError
-
+                    model = value.annotation(**data)
                     kwargs[key] = model
 
         return kwargs
@@ -1237,11 +1232,13 @@ class Application(Injectable, metaclass=InjectableMeta):
         actual = name if name else coro.__name__
         listener = Listener(coro, actual)
 
-        if actual in self._listeners.keys():
-            self._listeners[actual].append(listener)
+        if actual == 'on_event_error':
+            setattr(self, 'on_event_error', coro)
             return listener
 
-        self._listeners[actual] = [listener]
+        listeners = self._listeners.setdefault(actual, [])
+        listeners.append(listener)
+
         return listener
 
     def remove_event_listener(self, listener: Listener) -> Listener:
@@ -1349,6 +1346,29 @@ class Application(Injectable, metaclass=InjectableMeta):
             return self.add_status_code_handler(status, func)
         return decorator
 
+    async def _run_listener(self, listener: Listener, *args, **kwargs):
+        try:
+            await listener(*args, **kwargs)
+        except Exception as e:
+            try:
+                listeners = self._get_listeners('on_event_error')
+                await asyncio.gather(*[callback(listener, e) for callback in listeners], return_exceptions=True)
+            except:
+                pass
+
+    def _get_listeners(self, name: str) -> Optional[List[Listener]]:
+        try:
+            listeners = self._listeners[name]
+        except KeyError:
+            coro = getattr(self, name, None)
+            if not coro:
+                return
+
+            listeners = [coro]
+
+        return listeners
+
+
     def dispatch(self, name: str, *args: Any, **kwargs: Any):
         """
         Dispatches an event.
@@ -1371,16 +1391,14 @@ class Application(Injectable, metaclass=InjectableMeta):
         self._ensure_listeners()
         name = 'on_' + name
 
-        try:
-            listeners = self._listeners[name]
-        except KeyError:
-            coro = getattr(self, name, None)
-            if not coro:
-                return
+        listeners = self._get_listeners(name)
+        if not listeners:
+            return
 
-            listeners = [coro]
-
-        tasks = [loop.create_task(listener(*args, **kwargs), name=f'Event-{name}') for listener in listeners]
+        tasks = [
+            loop.create_task(self._run_listener(listener, *args, **kwargs), name=f'Event-{name}') 
+            for listener in listeners
+        ]
         self._active_listeners.extend(tasks)
 
     def add_view(self, view: Union[HTTPView, Any]) -> HTTPView:
@@ -1600,6 +1618,9 @@ class Application(Injectable, metaclass=InjectableMeta):
         exc: Exception,
         route: Union[PartialRoute, Route]
     ):
+        traceback.print_exception(type(exc), exc, exc.__traceback__)
+
+    async def on_event_error(self, listener: Listener, exc: Exception):
         traceback.print_exception(type(exc), exc, exc.__traceback__)
     
 def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) -> Application:

@@ -1,7 +1,19 @@
-from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union, TypedDict
 
 KT = TypeVar('KT')
 VT = TypeVar('VT')
+
+class URLDict(TypedDict):
+    scheme: str
+    netloc: str
+    host: str
+    port: int
+    path: str
+    params: str
+    query: ImmutableMapping[str, str]
+    fragment: str
+    username: Optional[str]
+    password: Optional[str]
 
 class ImmutableMapping(Dict[KT, VT]):
     def setdefault(self, key: Any, default: Any=...) -> Any: ...
@@ -48,3 +60,18 @@ class URL:
     def password(self) -> Optional[str]: ...
     @property
     def port(self) -> Optional[int]: ...
+    def replace(
+        self, 
+        *, 
+        scheme: str=..., 
+        netloc: str=..., 
+        path: str=..., 
+        hostname: str=..., 
+        port: int=...,
+        query: str=...,
+        fragement: str=...,
+        username: str=...,
+        password: str=...
+    ) -> URL:
+        ...
+    def as_dict(self) -> URLDict: ...

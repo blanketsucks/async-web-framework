@@ -73,6 +73,8 @@ def _make_init(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) -> s
 
         if isinstance(default, _Default):
             args.append(f'{name}: {annotation.__name__}')
+        elif hasattr(annotation, '__origin__'):
+            args.append(f'{name}: {annotation}={default!r}')
         else:
             args.append(f'{name}: {annotation.__name__}={default!r}')
 

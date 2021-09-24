@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union
-from urllib.parse import urlparse, parse_qsl
+from urllib.parse import urlparse, parse_qsl, urlsplit
 
 from . import utils
 
@@ -156,7 +156,7 @@ class URL:
             url = url.decode()
 
         self.value = url
-        self.components = urlparse(url)
+        self.components = urlsplit(url)
 
     def __str__(self) -> str:
         return self.value
@@ -238,3 +238,48 @@ class URL:
         The port of the URL.
         """
         return self.components.port
+    
+    def replace(
+        self, 
+        *, 
+        scheme: str=None, 
+        netloc: str=None, 
+        path: str=None, 
+        hostname: str=None, 
+        port: int=None,
+        query: str=None,
+        fragement: str=None,
+        username: str=None,
+        password: str=None
+    ):
+        kwargs = {}
+        if scheme:
+            kwargs['scheme'] = scheme
+        if netloc:
+            kwargs['netloc'] = netloc
+        if path:
+            kwargs['path'] = path
+        if query:
+            kwargs['query'] = query
+        if fragement:
+            kwargs['fragement'] = fragement
+        if port:
+            kwargs['port'] = port
+
+        components = self.components._replace(**kwargs)
+
+        self.components = components
+        self.value = components.geturl()
+
+        return self
+
+    def as_dict(self):
+        data = self.components._asdict()
+
+        data['hostname'] = self.hostname
+        data['port'] = self.port
+        data['username'] = self.username
+        data['password'] = self.password
+        data['query'] = self.query
+
+        return data
