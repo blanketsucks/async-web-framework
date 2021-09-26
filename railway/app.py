@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import functools
+import sys
 import ssl
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 import pathlib
@@ -32,7 +33,7 @@ import multiprocessing
 import socket
 import uuid
 import asyncio
-import os
+import json
 import traceback
 
 from ._types import CoroFunc, MaybeCoroFunc, Coro
@@ -50,7 +51,7 @@ from .response import Response, JSONResponse, FileResponse, HTMLResponse
 from .file import File
 from .websockets import ServerWebsocket as Websocket
 from .workers import Worker
-from .models import Model
+from .models import Model, IncompatibleType, MissingField
 from .datastructures import URL
 from .locks import Semaphore, _MaybeSemaphore
 
@@ -384,16 +385,20 @@ class Application(Injectable, metaclass=InjectableMeta):
                     try:
                         param = value.annotation(param)
                     except ValueError:
-                        fut = 'Failed conversion to {0!r} for parameter {1!r}.'.format(value.annotation.__name__, key)
-                        raise BadConversion(fut) from None
+                        fut = 'Failed conversion to {0!r} for parameter {1!r}.'.format(value.annotation, key)
+                        raise FailedConversion(fut) from None
                     else:
                         kwargs[key] = param
 
             else:
                 if issubclass(value.annotation, Model):
-                    data = request.json()
+                    try:
+                        data = request.json()
+                        model = value.annotation.from_json(data)
+                    except (IncompatibleType, MissingField, json.JSONDecodeError):
+                        fut = 'Failed conversion to {0!r} for parameter {1!r}.'.format(value.annotation, key)
+                        raise FailedConversion(fut) from None
 
-                    model = value.annotation(**data)
                     kwargs[key] = model
 
         return kwargs
@@ -462,7 +467,8 @@ class Application(Injectable, metaclass=InjectableMeta):
                 await callback(request, exc, route)
                 return
 
-        self.dispatch('on_error', request, exc, route)
+        listeners = self._get_listeners('on_error')
+        await asyncio.gather(*[listener(request, exc, route) for listener in listeners], return_exceptions=True)
 
     async def _request_handler(self, request: Request, websocket: Websocket):
         resp = None
@@ -1232,10 +1238,6 @@ class Application(Injectable, metaclass=InjectableMeta):
         actual = name if name else coro.__name__
         listener = Listener(coro, actual)
 
-        if actual == 'on_event_error':
-            setattr(self, 'on_event_error', coro)
-            return listener
-
         listeners = self._listeners.setdefault(actual, [])
         listeners.append(listener)
 
@@ -1618,10 +1620,18 @@ class Application(Injectable, metaclass=InjectableMeta):
         exc: Exception,
         route: Union[PartialRoute, Route]
     ):
-        traceback.print_exception(type(exc), exc, exc.__traceback__)
+        if self._listeners.get('on_error', []):
+            return
+
+        print(f'Ignoring exception in route {route.path!r}:', file=sys.stderr)
+        traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
 
     async def on_event_error(self, listener: Listener, exc: Exception):
-        traceback.print_exception(type(exc), exc, exc.__traceback__)
+        if self._listeners.get('on_event_error', []):
+            return
+
+        print(f'Ignoring exception in {listener.event!r}:', file=sys.stderr)
+        traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
     
 def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) -> Application:
     """

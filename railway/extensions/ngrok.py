@@ -11,6 +11,7 @@ __all__ = (
 
 log = logging.getLogger(__name__)
 
+
 class Application(app.Application):
     """
     A :class:`~railway.Application` subclass that runs a local ngrok tunnel.
@@ -41,7 +42,6 @@ class Application(app.Application):
 
         if not isinstance(ngrok, (str, pathlib.Path)):
             raise TypeError('ngrok argument must be a str or pathlib.Path')
-
         self.ngrok = str(ngrok)
         self._process = None
 

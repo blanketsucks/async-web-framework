@@ -22,14 +22,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Tuple, Type, Union, Iterator, Optional
+import json
+import inspect
+
+from .utils import get_union_args
 
 __all__ = (
     'Field',
     'Model',
     'IncompatibleType',
     'MissingField',
-    'ModelMeta'
+    'ModelMeta',
+    'ModelOptions'
 )
 
 class _Default:
@@ -44,7 +49,9 @@ class IncompatibleType(Exception):
         self.data = data
         self.argument = argument
 
-        message = f'Incompatible type {argument} for argument {field.name!r} which accepts {field.type}'
+        types = [f'{type.__name__!r}' for type in field.types]
+
+        message = f'Incompatible type {argument.__name__!r} for {field.name!r} which accepts {", ".join(types)}'
         super().__init__(message)
 
 class MissingField(Exception):
@@ -55,6 +62,13 @@ class MissingField(Exception):
         message = f'Missing field {field.name!r}'
         super().__init__(message)
 
+class ObjectNotSerializable(Exception):
+    def __init__(self, obj: Any) -> None:
+        self.obj = obj
+
+        message = f'Object {obj!r} is not JSON serializable'
+        super().__init__(message)
+
 def _make_fn(name: str, body: str) -> Callable[..., None]:
     txt = f"def __create_fn__():\n {body}\n return {name}"
 
@@ -63,20 +77,25 @@ def _make_fn(name: str, body: str) -> Callable[..., None]:
 
     return ns['__create_fn__']()
 
-def _make_init(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) -> str:
+def _make_init(fields: Tuple[Field, ...], defaults: Dict[str, Any]) -> str:
     names: List[str] = []
     args: List[str] = []
 
-    for name, annotation in annotations.items():
-        default = defaults.get(name, _default)
-        names.append(name)
+    for field in fields:
+        default = defaults.get(field.name, _default)
+        names.append(field.name)
+
+        actual = [type.__name__ for type in field.types]
+
+        if len(actual) == 1:
+            annotation = actual[0]
+        else:
+            annotation = f'typing.Union[{", ".join(actual)}]'
 
         if isinstance(default, _Default):
-            args.append(f'{name}: {annotation.__name__}')
-        elif hasattr(annotation, '__origin__'):
-            args.append(f'{name}: {annotation}={default!r}')
+            args.append(f'{field.name}: {annotation}')
         else:
-            args.append(f'{name}: {annotation.__name__}={default!r}')
+            args.append(f'{field.name}: {annotation}={default!r}')
 
     body: List[str] = []
 
@@ -92,18 +111,14 @@ def _make_fields(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) ->
     fields: List[Field] = []
 
     for name, annotation in annotations.items():
-        if origin := getattr(annotation, '__origin__', None):
-            if origin is Union:
-                types = annotation.__args__
-
-                if type(None) in types:
-                    defaults[name] = None
+        if type(None) in annotation:
+            defaults[name] = None
 
         default = defaults.get(name, _default)
 
         field = Field(name, annotation, default)
         fields.append(field)
-
+    
     return tuple(fields)
 
 def _getattr(obj: Any, name: str):
@@ -114,12 +129,37 @@ def _getattr(obj: Any, name: str):
 
     return attr
 
+def _is_json_serializable(obj: Any) -> bool:
+    try:
+        json.dumps(obj)
+        return True
+    except (TypeError, ValueError):
+        return False
+
 def _get_repr(obj: Any, name: str):
     attr = getattr(obj, name)
     if isinstance(attr, Model):
         return f'{name}={repr(attr)}'
 
     return f'{name}={attr!r}'
+
+def _transform(field: Field, data: Dict[str]):
+    value = data[field.name]
+    transformed = None
+
+    for type in field.types:
+        try:
+            if issubclass(type, Model):
+                transformed = type.from_json(value)
+            else:
+                transformed = type(value)
+        except (ValueError, TypeError, MissingField):
+            continue
+
+    if transformed is None:
+        raise IncompatibleType(field, value.__class__, data)
+
+    return transformed
 
 class Field:
     """
@@ -134,31 +174,59 @@ class Field:
     default: Any
         The default value of the field.
     """
-    def __init__(self, name: str, type: Type[Any], default: Any):
+    def __init__(self, name: str, types: Tuple[Type], default: Any):
         self.name = name
-        self.type = type
+        self.types = types
         self.default = default
 
     def __repr__(self) -> str:
-        return '<Field type={0.type} name={0.name!r}>'.format(self)
+        return '<Field name={0.name!r}>'.format(self)
 
     def __str__(self):
         return self.name
 
+    def __iter__(self):
+        return iter(self.types)
+
+class ModelOptions:
+    """
+    Options for a model.
+
+    Attributes
+    ----------
+    include_null_fields: :class:`bool`
+        Whether to include null fields in the serialized output.
+    repr: :class:`bool`
+        Whether or not to return a custom repr.
+    """
+    def __init__(self, **options) -> None:
+        self.include_null_fields: bool = options.get('include_null_fields', True)
+        self.repr = options.get('repr', True)
+
 class ModelMeta(type):
-    def __new__(cls, name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any]):
-        annotations = attrs.get('__annotations__')
+    def __new__(cls, name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any], **kwargs):
+        old = attrs.get('__annotations__', {})
+        annotations = {}
+
+        for key, value in old.items():
+            if isinstance(value, str):
+                annotations[key] = eval(value)
+            else:
+                annotations[key] = get_union_args(value)
+
         defaults: Dict[str, Any] = {}
 
         if annotations:
+            parent = bases[0]
+
             for key, _ in annotations.items():
                 value = attrs.get(key, _default)
 
                 if not isinstance(value, _Default):
                     defaults[key] = value
 
-            fields = _make_fields(annotations, defaults)
-            body = _make_init(annotations, defaults)
+            fields = _make_fields(annotations, defaults) + parent.__fields__
+            body = _make_init(fields, defaults)
 
             fn = _make_fn('__init__', body)
 
@@ -166,15 +234,25 @@ class ModelMeta(type):
 
             attrs['__fields__'] = fields
             attrs['__init__'] = fn
+            attrs['__parent__'] = parent
+            attrs['__children__'] = []
+            attrs['__options__'] = ModelOptions(**kwargs)
 
-            return super().__new__(cls, name, bases, attrs)
+            self = super().__new__(cls, name, bases, attrs)
+            if hasattr(parent, '__children__'):
+                parent.__children__.append(self)
+
+            return self
 
         attrs['__fields__'] = ()
         return super().__new__(cls, name, bases, attrs)
 
+    def __iter__(self):
+        return iter(self.__fields__)
+
 class Model(metaclass=ModelMeta):
     """
-    A model that contains fields and methods to serialize and deserialize into JSON objects.
+    A model that contains fields and methods to serialize and deserialize it into JSON objects.
 
     Example
     -------
@@ -196,16 +274,30 @@ class Model(metaclass=ModelMeta):
     """
     if TYPE_CHECKING:
         __fields__: Tuple[Field]
+        __options__: ModelOptions
+        __parent__: Type[Model]
+        __children__: List[Type[Model]]
 
     def __repr__(self) -> str:
+        if not self.options.repr:
+            return super().__repr__()
+
         attrs = [_get_repr(self, field.name) for field in self.__fields__]
         return f'<{self.__class__.__name__} {" ".join(attrs)}>'
 
-    def json(self) -> Dict[str, Any]:
-        """
-        Serializes the model into a JSON object.
-        """
-        return {f.name: _getattr(self, f.name) for f in self.__fields__}
+    def __iter__(self) -> Iterator[Tuple[Field, Any]]:
+        return self._iter()
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        field = self.get_field(name)
+        if not field:
+            raise AttributeError(name)
+
+        if not isinstance(value, field.types):
+            if value != field.default:
+                raise IncompatibleType(field, value.__class__, value)
+            
+        super().__setattr__(name, value)
 
     @classmethod
     def from_json(cls, data: Union[Dict[str, Any], Any]) -> Model:
@@ -213,15 +305,15 @@ class Model(metaclass=ModelMeta):
         Makes the model from a JSON object.
 
         Parameters
-        ----
+        -----------
         data: :class:`dict`
             The JSON object.
 
         Raises
         ------
-            TypeError: If the data passed in is not a dict.
-            MissingField: If a field is missing.
-            IncompatibleType: If the type of the field is incompatible with the type of the data.
+        TypeError: If the data passed in is not a dict.
+        MissingField: If a field is missing.
+        IncompatibleType: If the type of the field is incompatible with the type of the data.
         """
         if not isinstance(data, dict):
             ret = f"Invalid argument type for 'data'. Expected {dict!r} got {data.__class__!r} instead"
@@ -231,18 +323,7 @@ class Model(metaclass=ModelMeta):
 
         for field in cls.__fields__:
             if field.name in data:
-                try:
-                    if issubclass(field.type, Model):
-                        kwargs[field.name] = field.type(**data[field.name])
-
-                    else:
-                        kwargs[field.name] = field.type(data[field.name])
-                except (ValueError, TypeError):
-                    argument = data[field.name]
-                    type = argument.__class__
-
-                    raise IncompatibleType(field, type, data) from None
-
+                kwargs[field.name] = _transform(field, data)
             else:
                 if isinstance(field.default, _Default):
                     raise MissingField(field, data)
@@ -250,3 +331,132 @@ class Model(metaclass=ModelMeta):
                 kwargs[field.name] = field.default
 
         return cls(**kwargs)
+
+    @property
+    def fields(self):
+        """
+        The fields of the model.
+        """
+        return self.__fields__
+
+    @property
+    def options(self):
+        """
+        The options of the model.
+        """
+        return self.__options__
+
+    @property
+    def parent(self) -> Type[Model]:
+        """
+        The parent of the model.
+        """
+        return self.__parent__
+
+    @property
+    def children(self) -> List[Type[Model]]:
+        """
+        The children of the model.
+        """
+        return self.__children__
+
+    @property
+    def signature(self) -> inspect.Signature:
+        """
+        The signature of the model.
+        """
+        return inspect.signature(self.__init__)
+
+    def is_json_serializable(self) -> bool:
+        """
+        Checks if the model is JSON serializable.
+        """
+        for field in self.__fields__:
+            value = _getattr(self, field.name)
+            if not _is_json_serializable(value):
+                return False
+
+        return True
+
+    def get_field(self, name: str) -> Optional[Field]:
+        """
+        Get a field by name.
+
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the field.
+        """
+        for field in self.__fields__:
+            if field.name == name:
+                return field
+
+        return None
+
+    def copy(self) -> 'Model':
+        """
+        Returns a copy of the model.
+        """
+        data = self.json()
+        return self.from_json(data)
+
+    def json(self, *, include: Iterable[str]=None, exclude: Iterable[str]=None) -> Dict[str, Any]:
+        """
+        Serializes the model into a JSON object.
+
+        Parameters
+        -----------
+        include: Tuple[:class:`str`, ...]
+            The names of the fields to include. Defaults to all of the model's fields.
+        exclude: Tuple[:class:`str`, ...]
+            The names of the fields to exclude.
+        """
+        data = {}
+
+        for field, value in self._iter(include, exclude):
+            if not _is_json_serializable(value):
+                raise ObjectNotSerializable(value)
+
+            data[field.name] = value
+
+        return data
+
+    def to_dict(self, *, include: Iterable[str]=None, exclude: Iterable[str]=None) -> Dict[str, Any]:
+        """
+        Serializes the model into a dictionary.
+        The value returned may not be JSON serializable.
+
+        Parameters
+        -----------
+        include: Tuple[:class:`str`, ...]
+            The names of the fields to include. Defaults to all of the model's fields.
+        exclude: Tuple[:class:`str`, ...]
+            The names of the fields to exclude.
+        """
+        data = {}
+
+        for field, value in self._iter(include, exclude):
+            data[field.name] = value
+
+        return data
+
+    def _iter(self, include: Iterable[str]=None, exclude: Iterable[str]=None):
+        if include is None:
+            include = [field.name for field in self.__fields__]
+        
+        if exclude is None:
+            exclude = []
+
+        include_null = self.options.include_null_fields
+
+        for field in self.fields:
+            if field.name in exclude or field.name not in include:
+                continue
+
+            value = _getattr(self, field.name)
+            if not include_null and value is None:
+                continue
+
+            yield field, value
+
+        

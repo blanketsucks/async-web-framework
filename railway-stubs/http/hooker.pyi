@@ -2,8 +2,11 @@ from .abc import Hooker
 from .request import HTTPRequest
 from .response import HTTPResponse
 from .sessions import HTTPSession
-from railway.websockets import ClientWebsocket as Websocket, WebsocketCloseCode
+from railway.websockets import ClientWebsocket, WebsocketCloseCode
 from typing import Any, Optional
+
+class Websocket(ClientWebsocket):
+    pass
 
 class TCPHooker(Hooker):
     connected: bool = ...

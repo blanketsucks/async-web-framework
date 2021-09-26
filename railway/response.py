@@ -154,16 +154,16 @@ class Response:
                 version: Optional[str]=None):
         self.version: str = version or '1.1'
         self._status = HTTPStatus(status or 200) # type: ignore
-        self._body = body or ''
+        self._body = body
         self._content_type = content_type or 'text/html'
         self._encoding = "utf-8"
 
         if not headers:
             headers = {}
 
-        self._headers = MultiDict[str, Any](headers)
+        self._headers: MultiDict[str, Any] = MultiDict()
 
-        if body:
+        if body is not None:
             self._headers['Content-Type'] = content_type
             self._headers['Content-Lenght'] = len(body)
 
@@ -269,7 +269,7 @@ class Response:
         """
         response = [f'HTTP/{self.version} {self.status} {self.status.description}']
 
-        response.extend(f'{k}: {v}' for k, v in self.headers.items())
+        response.extend(f'{k}: {v}' for k, v in self._headers.items())
         if self.cookies:
             response.append(self.cookies.encode())
 
@@ -299,7 +299,6 @@ class HTMLResponse(Response):
             version=version
         )
 
-
 class JSONResponse(Response):
     """
     A class used to build a JSON response
@@ -312,12 +311,13 @@ class JSONResponse(Response):
 
         body = body or {}
         super().__init__(
-            body=json.dumps(body), 
+            body=json.dumps(body, indent=4), 
             status=status, 
             content_type='application/json', 
             headers=headers, 
             version=version
         )
+
 
 class FileResponse(Response):
     """

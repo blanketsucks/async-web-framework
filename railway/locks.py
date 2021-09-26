@@ -3,11 +3,12 @@ import collections
 from typing import Deque, Optional
 
 __all__ = (
+    'LockMixin',
     'Semaphore',
     'Lock'
 )
 
-class _LockMixin:
+class LockMixin:
     def __init__(self, *, loop: asyncio.AbstractEventLoop=None):
         self._waiters: Deque['asyncio.Future[None]']= collections.deque()
         self._loop = loop or asyncio.get_event_loop()
@@ -19,7 +20,7 @@ class _LockMixin:
         """
         return self._loop
 
-    async def acquire(self):
+    async def acquire(self, *, wait: bool=True) -> bool:
         raise NotImplementedError
 
     def release(self):
@@ -31,7 +32,7 @@ class _LockMixin:
     async def __aexit__(self, *args):
         self.release()
 
-class Semaphore(_LockMixin):
+class Semaphore(LockMixin):
     """
     A semaphore, much like :class:`asyncio.Semaphore`
 
@@ -146,7 +147,7 @@ class Semaphore(_LockMixin):
         self._value += 1
         self.wakeup()
 
-class Lock(_LockMixin):
+class Lock(LockMixin):
     """
     A lock, much like :class:`asyncio.Lock`
 

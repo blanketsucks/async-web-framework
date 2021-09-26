@@ -211,7 +211,7 @@ class Request:
         """
         The IP address of the client.
         """
-        return self.connection.peername[0]
+        return self.headers.get('X-Forwarded-For') or self.connection.peername[0]
 
     @property
     def server_ip(self) -> str:

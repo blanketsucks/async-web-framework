@@ -25,7 +25,7 @@ class RailwayException(Exception):
     """Base inheritance class for errors that occur during the Application's runtime."""
     pass
 
-class BadConversion(RailwayException):
+class FailedConversion(RailwayException):
     pass
 
 class RegistrationError(RailwayException):

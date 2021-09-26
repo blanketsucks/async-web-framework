@@ -36,7 +36,7 @@ class AsyncContextManager(Generic[T]):
     def __await__(self):
         return self.coro.__await__()
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> T:
         self._resp = await self.coro
         return self._resp
 

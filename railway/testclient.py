@@ -44,6 +44,12 @@ class TestClient:
         self.app: Application = app
         self.session: http.HTTPSession = http.HTTPSession()
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        await self.session.close()
+
     @property
     def host(self) -> str:
         return self.app.host
@@ -52,7 +58,7 @@ class TestClient:
     def port(self) -> int:
         return self.app.port
 
-    def ws_connect(self, path: str) -> http.AsyncContextManager[Optional[http.Websocket]]:
+    def ws_connect(self, path: str) -> http.AsyncContextManager[http.Websocket]:
         """
         Performs a websocket connection.
 

@@ -136,6 +136,9 @@ class MultiDict(Dict[KT, VT]):
         """
         return self._dict.get(key, [])
 
+    def items(self):
+        return self._list
+
 class Headers(MultiDict[str, str]):
     pass
 
@@ -245,12 +248,8 @@ class URL:
         scheme: str=None, 
         netloc: str=None, 
         path: str=None, 
-        hostname: str=None, 
-        port: int=None,
         query: str=None,
         fragement: str=None,
-        username: str=None,
-        password: str=None
     ):
         kwargs = {}
         if scheme:
@@ -263,8 +262,6 @@ class URL:
             kwargs['query'] = query
         if fragement:
             kwargs['fragement'] = fragement
-        if port:
-            kwargs['port'] = port
 
         components = self.components._replace(**kwargs)
 

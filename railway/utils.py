@@ -26,7 +26,7 @@ import warnings
 import functools
 import socket
 import asyncio
-from typing import TYPE_CHECKING, Any, Callable, Iterator, List, Optional, Type, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Iterator, List, Optional, Type, Tuple, Union
 
 from ._types import MaybeCoroFunc
 
@@ -51,6 +51,18 @@ __all__ = (
 
 LOCALHOST = '127.0.0.1'
 LOCALHOST_V6 = '::1'
+
+def get_union_args(arg: Any) -> Tuple[Type]:
+    origin = getattr(arg, '__origin__', None)
+
+    if origin is Union:
+        args = getattr(arg, '__args__')
+        return args
+
+    elif origin is not None:
+        return (origin,)
+
+    return (arg,)
 
 def copy_docstring(other: Callable[..., Any]) -> Callable[..., Callable[..., Any]]:
     """

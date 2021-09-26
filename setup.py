@@ -2,10 +2,9 @@ from setuptools import setup
 import sys
 from Cython.Build import cythonize
 
-requirements = [
-    'jinja2'
-]
-
+with open('requirements.txt', 'r') as file:
+    requirements = file.readlines()
+    
 if sys.platform != 'win32':
     requirements.append('uvloop')
 

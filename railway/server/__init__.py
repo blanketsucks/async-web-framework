@@ -61,85 +61,43 @@ class ServerProtocol(asyncio.Protocol):
     """
     def __init__(self, loop: asyncio.AbstractEventLoop, max_connections: int) -> None:
         self.loop = loop
-
-        self.transports: Dict[Tuple[str, int], StreamTransport] = {}
-        self.waiters: Dict[Tuple[str, int], asyncio.Future[None]] = {}
-
-        self.pending: asyncio.Queue[asyncio.Transport] = asyncio.Queue(
+        self.pending: asyncio.Queue[Tuple[StreamTransport, 'asyncio.Future[None]']] = asyncio.Queue(
             maxsize=max_connections
         )
 
     def __call__(self):
         return self
 
+
     def connection_made(self, transport: asyncio.Transport) -> None: # type: ignore
-        self.transport = transport
-        peername = transport.get_extra_info('peername')
+        self.transport = StreamTransport(transport)
+        self.waiter = self.loop.create_future()
 
         try:
-            self.pending.put_nowait(transport)
+            self.pending.put_nowait((self.transport, self.waiter))
         except asyncio.QueueFull:
             self.transport.close()
             return
-
-        self.transports[peername] = StreamTransport(transport)
-        self.waiters[peername] = self.loop.create_future()
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
         if exc:
             raise exc
 
-        peername = self.transport.get_extra_info('peername')
-        waiter = self.waiters.pop(peername, None)
-
-        if waiter:
-            waiter.set_result(None)
-
-        self.transports.pop(peername, None)
-
-    def get_transport(self, peername: Tuple[str, int]) -> Optional[StreamTransport]:
-        return self.transports.get(peername)
-
-    def get_waiter(self, peername: Tuple[str, int]) -> Optional['asyncio.Future[None]']:
-        return self.waiters.get(peername)
+        self.waiter.set_result(None)
 
     def data_received(self, data: bytes) -> None:
-        peername = self.transport.get_extra_info('peername')
-        transport = self.get_transport(peername)
-
-        if not transport:
-            return
-
-        transport.feed_data(data)
+        self.transport.feed_data(data)
 
     def pause_writing(self) -> None:
-        peername = self.transport.get_extra_info('peername')
-        transport = self.get_transport(peername)
-
-        if not transport:
-            return
-
-        waiter = transport._writer._waiter
+        waiter = self.transport._writer._waiter
         if not waiter:
-            transport._writer._waiter = self.loop.create_future()
+            self.transport._writer._waiter = self.loop.create_future()
     
     def resume_writing(self) -> None:
-        peername = self.transport.get_extra_info('peername')
-        transport = self.get_transport(peername)
-
-        if not transport:
-            return
- 
-        transport._wakeup_writer() 
+        self.transport._wakeup_writer() 
 
     def eof_received(self) -> None:
-        peername = self.transport.get_extra_info('peername')
-        transport = self.get_transport(peername)
-
-        if not transport:
-            return
-
-        transport.feed_eof()
+        self.transport.feed_eof()
 
 class ClientConnection:
     """
@@ -154,11 +112,13 @@ class ClientConnection:
     def __init__(self, 
                 protocol: ServerProtocol, 
                 transport: StreamTransport,
-                loop: asyncio.AbstractEventLoop) -> None:
+                loop: asyncio.AbstractEventLoop,
+                future: 'asyncio.Future[None]') -> None:
         self._transport = transport
         self._protocol = protocol
         self.loop = loop
         self._closed = False
+        self._waiter = future
 
     def __repr__(self) -> str:
         return '<ClientConnection peername={0.peername}>'.format(self)
@@ -279,9 +239,7 @@ class ClientConnection:
         Closes the connection.
         """
         self._transport.close()
-        waiter = self.protocol.get_waiter(self.peername)
-        if waiter:
-            await waiter
+        await self._waiter
 
         self._closed = True
 
@@ -414,15 +372,10 @@ class BaseServer:
         if self._server is None:
             raise RuntimeError('Server not started')
 
-        original = await asyncio.wait_for(
+        transport, future = await asyncio.wait_for(
             fut=protocol.pending.get(),
             timeout=timeout,
         )
-        peername = original.get_extra_info('peername')
-        transport = protocol.get_transport(peername)
-
-        if transport is None:
-            return None
 
         if self.is_ssl() and self._ssl_context is not None:
             trans = await self.loop.start_tls(
@@ -438,7 +391,8 @@ class BaseServer:
         return ClientConnection(
             protocol=protocol, 
             transport=transport,
-            loop=self.loop
+            loop=self.loop,
+            future=future,
         )
 
 class TCPServer(BaseServer):

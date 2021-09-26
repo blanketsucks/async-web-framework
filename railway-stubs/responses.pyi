@@ -1,8 +1,6 @@
 from .response import Response
 from typing import Any, Dict, Optional, TypeVar, Type
 
-T = TypeVar('T')
-
 class HTTPResponse(Response):
     def __init__(self, body: Any=..., content_type: Optional[str]=..., headers: Optional[Dict[str, Any]]=...) -> None: ...
 
