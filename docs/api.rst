@@ -718,6 +718,16 @@ Route
 
 .. autoclass:: Route
     :members:
+    :exclude-members: status_code_handler, on_error, middleware
+
+    .. automethod:: Route.middleware
+        :decorator:
+
+    .. automethod:: Route.on_error
+        :decorator:
+
+    .. automethod:: Route.status_code_handler
+        :decorator:
 
 
 WebsocketRoute

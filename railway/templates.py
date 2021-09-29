@@ -52,7 +52,7 @@ async def render(
         The global variables to use for the template.
     __locals: Optional[:class:`dict`]
         The local variables to use for the template.
-    \*\*kwargs: 
+    **kwargs: 
         The variables to use for the template.
     """
     env = env or environement

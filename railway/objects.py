@@ -137,10 +137,12 @@ class Route(Object):
         self._limiter = _MaybeSemaphore(None)
 
     async def _dispatch_error(self, request: Request, exc: Exception):
-        if getattr(exc, 'status', None):
+        if isinstance(exc, HTTPException):
             callback = self._status_code_handlers.get(exc.status)
             if callback:
-                await callback(request, exc, self)
+                response = await callback(request, exc, self)
+                await request.send(response)
+
                 return True
 
         if self._error_handler:
@@ -235,12 +237,10 @@ class Route(Object):
                 exception: railway.HTTPException, 
                 route: railway.Route
             ):
-                return await request.send(
-                    {
+                return {
                         'message': 'User not found.',
                         'status': 404
-                    }
-                )
+                        }
 
             app.run()
         
@@ -250,6 +250,14 @@ class Route(Object):
         return decorator
 
     def on_error(self, callback: Callable[[Request, Exception, Route], Coro]):
+        """
+        Registers an error handler for the route.
+
+        Parameters
+        ----------
+        callback: Callable[[:class:`~.Request`, :class:`~.HTTPException`, :class:`~.Route`], Coro]
+            The callback to handle errors.
+        """
         if not inspect.iscoroutinefunction(callback):
             raise RegistrationError('Error handlers must be coroutine functions')
 
@@ -262,9 +270,8 @@ class Route(Object):
 
         Parameters
         ----------
-            callback: Callable[..., Coroutine[Any, Any, Any]]
-                The coroutine function used by the middleware.
-
+        callback: Callable[..., Coroutine[Any, Any, Any]]
+            The coroutine function used by the middleware.
         """
         if not inspect.iscoroutinefunction(callback):
             raise RegistrationError('All middlewares must be async')

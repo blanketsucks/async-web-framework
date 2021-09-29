@@ -138,10 +138,9 @@ class FormData:
                         disposition = None
                         filename = None
 
-                    data = io.BytesIO(body)
-                    file = File(data, filename=filename)
-
+                    file = File(body, filename=filename)
                     form.add_file(file, disposition)
+
                 except ValueError:
                     continue
 

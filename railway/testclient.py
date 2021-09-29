@@ -102,7 +102,8 @@ class TestClient:
         """
         Sends a request to the application.
 
-        Parameters:
+        Parameters
+        
             path: The path to the resource.
             method: The HTTP method.
             **kwargs: Additional arguments to pass to the request.

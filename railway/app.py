@@ -136,15 +136,15 @@ class Application(Injectable, metaclass=InjectableMeta):
 
     Raises
     ------
-    RuntimeError
-        If ``ipv6`` was specified and the system does not support it. |br|
+    RuntimeError:
+        If ``ipv6`` was specified and the system does not support it.
         If ``sock`` was specified and the socket does not have ``SO_REUSEADDR`` enabled.
-    TypeError
-        If ``port`` is not a valid integer. This can from either the constructor or the settings. |br|
+    TypeError:
+        If ``port`` is not a valid integer. This can from either the constructor or the settings.
         If ``worker_count`` is not a valid integer. |br|
         If ``sock`` was specified and it is not a valid :class:`socket.socket` instance.
-    ValueError 
-        If ``host`` is not a valid IP. This can from either the constructor or the settings. |br|
+    ValueError:
+        If ``host`` is not a valid IP. This can from either the constructor or the settings.
         If ``worker_count`` is an integer less than 0.
 
     Attributes
@@ -200,6 +200,7 @@ class Application(Injectable, metaclass=InjectableMeta):
             has_ipv6 = utils.has_ipv6()
             if not has_ipv6:
                 raise RuntimeError('IPv6 is not supported on this system')
+        self._ipv6 = ipv6
 
         if reuse_port:
             if not hasattr(socket, 'SO_REUSEPORT'):
@@ -218,7 +219,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         self.settings: Settings = settings
         self._verify_settings()
 
-        host = host or settings['host']
+        host = host or self.settings['host']
         port = port or settings['port']
 
         self.host: str = utils.validate_ip(host, ipv6=ipv6)
@@ -239,7 +240,6 @@ class Application(Injectable, metaclass=InjectableMeta):
         )
         self._max_pending_connections = max_pending_connections or settings['max_pending_connections']
         self._connection_timeout = connection_timeout or settings['connection_timeout']
-        self._ipv6 = ipv6
         self._use_ssl = use_ssl
         self._listeners: Dict[str, List[Listener]] = {}
         self._resources: Dict[str, Resource] = {}
@@ -248,7 +248,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         self._active_listeners: List[asyncio.Task[Any]] = []
         self._websocket_tasks: List[asyncio.Task[Any]] = []
         self._worker_tasks: List[asyncio.Task[None]] = []
-        self._status_code_handlers: Dict[int, Callable[[Request, HTTPException, Route], Coro]] = {}
+        self._status_code_handlers: Dict[int, Callable[[Request, HTTPException, Union[PartialRoute, Route]], Coro]] = {}
         self._loop = loop or compat.get_event_loop()
         self._closed = False
         self._reuse_host = reuse_host
@@ -362,11 +362,6 @@ class Application(Injectable, metaclass=InjectableMeta):
         
         return workers
 
-    def _ensure_listeners(self):
-        for task in self._active_listeners:
-            if task.done():
-                self._active_listeners.remove(task)
-
     def _ensure_websockets(self):
         for ws in self._websocket_tasks:
             if ws.done():
@@ -455,16 +450,18 @@ class Application(Injectable, metaclass=InjectableMeta):
         kwargs = self._convert(route.callback, args, request)
         return kwargs, route
 
-    async def _dispatch_error(self, route: Route, request: Request, exc: Exception):
+    async def _dispatch_error(self, route: Union[PartialRoute, Route], request: Request, exc: Exception):
         if isinstance(route, Route):
             dispatched = await route._dispatch_error(request, exc)
             if dispatched:
                 return
 
-        if getattr(exc, 'status', None):
+        if isinstance(exc, HTTPException):
             callback = self._status_code_handlers.get(exc.status)
             if callback:
-                await callback(request, exc, route)
+                response = await callback(request, exc, route)
+                await request.send(response)
+
                 return
 
         listeners = self._get_listeners('on_error')
@@ -520,6 +517,9 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         Create a default settings object.
         """
+        defaults = DEFAULT_SETTINGS.copy()
+        defaults.setdefault('use_ipv6', self._ipv6)
+
         settings = Settings(
             **DEFAULT_SETTINGS,
         )
@@ -638,6 +638,9 @@ class Application(Injectable, metaclass=InjectableMeta):
             resp = JSONResponse(response, status=status)
 
         else:
+            raise ValueError(f'Could not parse {response!r} into a response')
+
+        if resp is None:
             raise ValueError(f'Could not parse {response!r} into a response')
 
         return resp
@@ -792,9 +795,12 @@ class Application(Injectable, metaclass=InjectableMeta):
             The path to build a URL for.
         is_websocket: :class:`bool`
             Whether the path is a websocket path.
-        \*\*kwargs: 
+        **kwargs: 
             Additional arguments to build the URL.
         """
+        if path[0] != '/':
+            path = '/' + path
+          
         url = self._build_url(path.format(**kwargs), is_websocket=is_websocket)
         return url
 
@@ -809,7 +815,8 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         Raises
         ------
-        TypeError: If the object is not an instance of :class:`~railway.injectables.Injectable`.   
+        TypeError:
+            If the object is not an instance of :class:`~railway.injectables.Injectable`.   
         """
 
         if not isinstance(obj, Injectable):
@@ -848,7 +855,8 @@ class Application(Injectable, metaclass=InjectableMeta):
 
         Raises
         ------
-            TypeError: If the object is not an instance of :class:`~railway.injectables.Injectable`.   
+        TypeError: 
+            If the object is not an instance of :class:`~railway.injectables.Injectable`.   
         """
         if not isinstance(obj, Injectable):
             raise TypeError('obj must be an Injectable')
@@ -1280,7 +1288,7 @@ class Application(Injectable, metaclass=InjectableMeta):
     def add_status_code_handler(
         self, 
         status: int, 
-        callback: Callable[[Request, HTTPException, Route], Coro]
+        callback: Callable[[Request, HTTPException, Union[PartialRoute, Route]], Coro]
     ):
         """
         Adds a specific status code handler to the application.
@@ -1311,7 +1319,11 @@ class Application(Injectable, metaclass=InjectableMeta):
         callback = self._status_code_handlers.pop(status, None)
         return callback
 
-    def status_code_handler(self, status: int) -> Callable[[Callable[[Request, HTTPException, Route], Coro]], Callable[[Response, HTTPException, Route], Coro]]:
+    def status_code_handler(
+        self, 
+        status: int
+    ) -> Callable[[Callable[[Request, HTTPException, Union[PartialRoute, Route]], Coro]], 
+            Callable[[Response, HTTPException, Union[PartialRoute, Route]], Coro]]:
         """
         A decorator that adds a status code handler to the application.
 
@@ -1334,19 +1346,17 @@ class Application(Injectable, metaclass=InjectableMeta):
                 exception: railway.HTTPException, 
                 route: railway.Route
             ):
-                return await request.send(
-                    {
+                return {
                         'message': 'Page not found.',
                         'status': 404
                     }
-                )
 
             app.run()
         
         """
-        def decorator(func: Callable[[Request, HTTPException, Route], Coro]):
+        def decorator(func: Callable[[Request, HTTPException, Union[PartialRoute, Route]], Coro]):
             return self.add_status_code_handler(status, func)
-        return decorator
+        return decorator # type: ignore
 
     async def _run_listener(self, listener: Listener, *args, **kwargs):
         try:
@@ -1358,20 +1368,19 @@ class Application(Injectable, metaclass=InjectableMeta):
             except:
                 pass
 
-    def _get_listeners(self, name: str) -> Optional[List[Listener]]:
+    def _get_listeners(self, name: str) -> List[Listener]:
         try:
             listeners = self._listeners[name]
         except KeyError:
             coro = getattr(self, name, None)
             if not coro:
-                return
+                return []
 
             listeners = [coro]
 
         return listeners
 
-
-    def dispatch(self, name: str, *args: Any, **kwargs: Any):
+    def dispatch(self, name: str, *args: Any, **kwargs: Any) -> List['asyncio.Task[None]']:
         """
         Dispatches an event.
 
@@ -1386,22 +1395,19 @@ class Application(Injectable, metaclass=InjectableMeta):
         """
         loop = self.loop
         if not loop:
-            return
+            return []
 
         log.debug(f'[Application] Dispatching event: {name!r}.')
-
-        self._ensure_listeners()
         name = 'on_' + name
 
         listeners = self._get_listeners(name)
         if not listeners:
-            return
+            return []
 
-        tasks = [
+        return [
             loop.create_task(self._run_listener(listener, *args, **kwargs), name=f'Event-{name}') 
             for listener in listeners
         ]
-        self._active_listeners.extend(tasks)
 
     def add_view(self, view: Union[HTTPView, Any]) -> HTTPView:
         """
@@ -1645,7 +1651,7 @@ def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) 
         The IPv6 host to use. Defaults to ``::1``
     port: :class:`int`
         The port to listen on. Defaults to ``8080``
-    \*\*kwargs: Any
+    **kwargs: Any
         Additional arguments to pass to the Application constructor.
 
     Raises

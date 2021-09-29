@@ -213,6 +213,9 @@ class Response:
         data: :class:`str`
             The body to append.
         """
+        if not self._body:
+            self._body = ''
+
         self._body += data
 
     def add_header(self, *, key: str, value: str):
@@ -277,7 +280,7 @@ class Response:
 
         response = b'\r\n'.join(part.encode() for part in response)
         if self.body:
-            response += self._body.encode()
+            response += self._body.encode() # type: ignore
 
         return response
 

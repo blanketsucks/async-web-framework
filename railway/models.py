@@ -22,9 +22,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Tuple, Type, Union, Iterator, Optional
+import builtins
+from typing import (
+    TYPE_CHECKING, 
+    Any, 
+    Callable, 
+    Dict, 
+    Iterable, 
+    List, 
+    Tuple, 
+    Type, 
+    Union, 
+    Iterator, 
+    Optional
+)
 import json
 import inspect
+import sys
 
 from .utils import get_union_args
 
@@ -33,8 +47,9 @@ __all__ = (
     'Model',
     'IncompatibleType',
     'MissingField',
+    'ObjectNotSerializable',
     'ModelMeta',
-    'ModelOptions'
+    'ModelOptions',
 )
 
 class _Default:
@@ -143,7 +158,12 @@ def _get_repr(obj: Any, name: str):
 
     return f'{name}={attr!r}'
 
-def _transform(field: Field, data: Dict[str]):
+def _get_model_from_bases(bases: Tuple[Type]):
+    for base in bases:
+        if issubclass(base, Model) or base is Model:
+            return base
+
+def _transform(field: Field, data: Dict[str, Any]):
     value = data[field.name]
     transformed = None
 
@@ -160,6 +180,31 @@ def _transform(field: Field, data: Dict[str]):
         raise IncompatibleType(field, value.__class__, data)
 
     return transformed
+
+def _get_real_annotation(value: str) -> Type:
+    try:
+        ret = eval(value)
+    except NameError:
+        ret = value
+    else:
+        if isinstance(ret, type):
+            return ret
+
+    frame = sys._getframe(2)
+
+    locals = frame.f_locals
+    globals = frame.f_globals
+
+    if (_type := getattr(builtins, ret, None)):
+        return _type
+
+    if ret in locals:
+        return locals[ret]
+
+    if ret in globals:
+        return globals[ret]
+
+    raise RuntimeError(f'Could not parse stringed annotation: {value!r}')
 
 class Field:
     """
@@ -188,6 +233,12 @@ class Field:
     def __iter__(self):
         return iter(self.types)
 
+    def __eq__(self, o: Any) -> bool:
+        if not isinstance(o, Field):
+            return NotImplemented
+
+        return (self.name, self.types, self.default) == (o.name, o.types, o.default)
+
 class ModelOptions:
     """
     Options for a model.
@@ -202,6 +253,7 @@ class ModelOptions:
     def __init__(self, **options) -> None:
         self.include_null_fields: bool = options.get('include_null_fields', True)
         self.repr = options.get('repr', True)
+        self.name = options.get('name', None)
 
 class ModelMeta(type):
     def __new__(cls, name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any], **kwargs):
@@ -210,14 +262,16 @@ class ModelMeta(type):
 
         for key, value in old.items():
             if isinstance(value, str):
-                annotations[key] = eval(value)
+                annotation = _get_real_annotation(value)
             else:
-                annotations[key] = get_union_args(value)
+                annotation = value
+
+            annotations[key] = get_union_args(annotation)
 
         defaults: Dict[str, Any] = {}
 
         if annotations:
-            parent = bases[0]
+            parent = _get_model_from_bases(bases)
 
             for key, _ in annotations.items():
                 value = attrs.get(key, _default)
@@ -225,31 +279,55 @@ class ModelMeta(type):
                 if not isinstance(value, _Default):
                     defaults[key] = value
 
-            fields = _make_fields(annotations, defaults) + parent.__fields__
+            fields = _make_fields(annotations, defaults) + (() if parent is None else parent.__fields__)
             body = _make_init(fields, defaults)
 
             fn = _make_fn('__init__', body)
 
             fn.__qualname__ = f'{name}.__init__'
+            kwargs.setdefault('name', name)
 
             attrs['__fields__'] = fields
+            attrs['__field_mapping__'] = {field.name: field for field in fields}
             attrs['__init__'] = fn
             attrs['__parent__'] = parent
             attrs['__children__'] = []
             attrs['__options__'] = ModelOptions(**kwargs)
+            attrs['__name__'] = kwargs['name']
 
             self = super().__new__(cls, name, bases, attrs)
             if hasattr(parent, '__children__'):
-                parent.__children__.append(self)
+                parent.__children__.append(self) # type: ignore
 
             return self
+        
+        parent = None
+        if name == 'Model' and not bases:
+            attrs['__parent__'] = cls
+        else:
+            parent = _get_model_from_bases(bases)
+            attrs['__parent__'] = parent
+        
+        attrs['__children__'] = []
+        attrs['__fields__'] = parent.__fields__ if parent else ()
+        attrs['__field_mapping__'] = parent.__field_mapping__ if parent else {}
+        attrs['__options__'] = ModelOptions(**kwargs)
 
-        attrs['__fields__'] = ()
-        return super().__new__(cls, name, bases, attrs)
+        self = super().__new__(cls, name, bases, attrs)
+        if hasattr(parent, '__children__'):
+            parent.__children__.append(self) # type: ignore
+
+        return self
 
     def __iter__(self):
-        return iter(self.__fields__)
+        return iter(self.__fields__) # type: ignore
 
+    def __eq__(self, o: Any) -> bool:
+        if not isinstance(o, ModelMeta):
+            return NotImplemented
+
+        return self.__fields__ == o.__fields__ # type: ignore
+ 
 class Model(metaclass=ModelMeta):
     """
     A model that contains fields and methods to serialize and deserialize it into JSON objects.
@@ -274,6 +352,7 @@ class Model(metaclass=ModelMeta):
     """
     if TYPE_CHECKING:
         __fields__: Tuple[Field]
+        __field_mapping__: Dict[str, Field]
         __options__: ModelOptions
         __parent__: Type[Model]
         __children__: List[Type[Model]]
@@ -298,6 +377,19 @@ class Model(metaclass=ModelMeta):
                 raise IncompatibleType(field, value.__class__, value)
             
         super().__setattr__(name, value)
+
+    def __getitem__(self, name: str) -> Tuple[Field, Any]:
+        field = self.get_field(name)
+        if not field:
+            raise KeyError(name)
+
+        return field, getattr(self, name)
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, Model):
+            return NotImplemented
+
+        return self.json() == other.json()
 
     @classmethod
     def from_json(cls, data: Union[Dict[str, Any], Any]) -> Model:
@@ -332,15 +424,27 @@ class Model(metaclass=ModelMeta):
 
         return cls(**kwargs)
 
+    @classmethod
+    def get_field(cls, name: str) -> Optional[Field]:
+        """
+        Get a field by name.
+
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the field.
+        """
+        return cls.__field_mapping__.get(name)
+
     @property
-    def fields(self):
+    def fields(self) -> Tuple[Field]:
         """
         The fields of the model.
         """
         return self.__fields__
 
     @property
-    def options(self):
+    def options(self) -> ModelOptions:
         """
         The options of the model.
         """
@@ -378,21 +482,6 @@ class Model(metaclass=ModelMeta):
 
         return True
 
-    def get_field(self, name: str) -> Optional[Field]:
-        """
-        Get a field by name.
-
-        Parameters
-        ----------
-        name: :class:`str`
-            The name of the field.
-        """
-        for field in self.__fields__:
-            if field.name == name:
-                return field
-
-        return None
-
     def copy(self) -> 'Model':
         """
         Returns a copy of the model.
@@ -414,6 +503,14 @@ class Model(metaclass=ModelMeta):
         data = {}
 
         for field, value in self._iter(include, exclude):
+            if isinstance(value, Model):
+                if not value.is_json_serializable():
+                    raise ObjectNotSerializable(value)
+
+                data[field.name] = value.json()
+                continue
+
+
             if not _is_json_serializable(value):
                 raise ObjectNotSerializable(value)
 
@@ -436,6 +533,9 @@ class Model(metaclass=ModelMeta):
         data = {}
 
         for field, value in self._iter(include, exclude):
+            if isinstance(value, Model):
+                value = value.to_dict()
+
             data[field.name] = value
 
         return data
@@ -453,10 +553,8 @@ class Model(metaclass=ModelMeta):
             if field.name in exclude or field.name not in include:
                 continue
 
-            value = _getattr(self, field.name)
+            value = getattr(self, field.name)
             if not include_null and value is None:
                 continue
 
             yield field, value
-
-        

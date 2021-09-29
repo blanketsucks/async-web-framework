@@ -101,7 +101,7 @@ class HTTPSession:
             The HTTP method to use.
         url: :class:`str`
             The URL to request.
-        \*\*kwargs: Any
+        **kwargs: Any
             The keyword arguments to pass to the request.
 
         Example
@@ -119,7 +119,7 @@ class HTTPSession:
         """
         return AsyncContextManager(self._request(url, method, **kwargs))
 
-    def ws_connect(self, url: str, **kwargs: Any) -> AsyncContextManager[Optional[Websocket]]:
+    def ws_connect(self, url: str, **kwargs: Any) -> AsyncContextManager[Websocket]:
         """
         Connects to a URL using websockets.
 
@@ -127,7 +127,7 @@ class HTTPSession:
         ----------
         url: :class:`str`
             The URL to connect to.
-        \*\*kwargs: Any
+        **kwargs: Any
             The keyword arguments to pass to the websocket request.
 
         Example
@@ -149,7 +149,7 @@ class HTTPSession:
             print(data.data)
         
         """
-        return AsyncContextManager(self._connect(url))
+        return AsyncContextManager(self._connect(url)) # type: ignore
 
     def get(self, url: str, **kwargs: Any):
         return self.request('GET', url, **kwargs)

@@ -35,8 +35,8 @@ class File:
     """
     Parameters
     ----------
-    fp: Union[:class:`str`, :class:`pathlib.Path`, :class:`io.BytesIO`]
-        The path to the file. You can also pass in an instance of :class:`io.BytesIO` into this.
+    fp: Union[:class:`str`, :class:`pathlib.Path`, :class:`io.BytesIO`, :class:`bytes`, :class:`bytearray`, :class:`memoryview`]
+        The path to the file. You can also pass in an instance of :class:`io.BytesIO` into this or a bytes-like object.
     filename: Optional[:class:`str`]
         An optional file name.
 
@@ -47,7 +47,10 @@ class File:
     fd: :class:`io.BufferedReader`
         The file object.
     """
-    def __init__(self, fp: Union[str, pathlib.Path, io.BytesIO], *, filename: Optional[str]=None) -> None:
+    def __init__(self, fp: Union[str, pathlib.Path, io.BytesIO, bytes, bytearray, memoryview], *, filename: Optional[str]=None) -> None:
+        if isinstance(fp, (bytes, bytearray, memoryview)):
+            fp = io.BytesIO(fp)
+
         if isinstance(fp, io.BytesIO):
             self.fd = fp
 
@@ -64,6 +67,9 @@ class File:
             self.fd = open(fp, 'rb')
 
         self.filename: Optional[str] = filename
+
+    def __repr__(self) -> str:
+        return f'<File filename={self.filename!r}>'
     
     async def __aenter__(self):
         return self
@@ -74,7 +80,13 @@ class File:
     def __aiter__(self):
         return self.stream()
 
-    async def save_as(self, name: str):
+    def seek(self):
+        """
+        Seeks to the beginning of the file.
+        """
+        self.fd.seek(0)
+
+    async def save(self, name: str):
         """
         Saves the file as ``name``.
 
@@ -99,6 +111,7 @@ class File:
         loop = compat.get_running_loop()
         data = await loop.run_in_executor(None, self.fd.read)
 
+        self.seek()
         return data
 
     async def readlines(self) -> List[bytes]:
@@ -108,6 +121,7 @@ class File:
         loop = compat.get_running_loop()
         data = await loop.run_in_executor(None, self.fd.readlines)
 
+        self.seek()
         return data
 
     async def stream(self) -> AsyncIterator[bytes]:

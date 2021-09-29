@@ -39,6 +39,8 @@ class ViewMeta(type):
     """
     The meta class used for views.
     """
+    __routes__: List[CoroFunc]
+    
     def __new__(cls, name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any], **kwargs: Any):
         attrs['__url_route__'] = kwargs.get('path', '')
 

@@ -98,9 +98,9 @@ async def maybe_coroutine(func: MaybeCoroFunc[Any], *args: Any, **kwargs: Any) -
     ----------
     func: Union[Callable[..., Coroutine], Callable[..., Any]]
         The function or coroutine to run.
-    \*args: Any
+    *args: Any
         Positional arguments to pass to the function or coroutine.
-    \*\*kwargs: Any
+    **kwargs: Any
         Keyword arguments to pass to the function or coroutine.
     """
     if asyncio.iscoroutinefunction(func):
@@ -234,7 +234,7 @@ def jsonify(**kwargs: Any) -> 'Response':
 
     Parameters
     ----------
-    \*\*kwargs: 
+    **kwargs: 
         Keyword arguments to pass to :func:`json.dumps`.
     """
     from .response import Response

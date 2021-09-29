@@ -78,7 +78,7 @@ class Request:
                 url: str,
                 headers: Dict[str, str],
                 version: str,
-                body: Union[str, bytes],
+                body: bytes,
                 app: Application,
                 connection: ClientConnection,
                 worker: Worker,
@@ -219,6 +219,9 @@ class Request:
         The IP address of the server.
         """
         return self.connection.sockname[0]
+
+    def read(self):
+        return self._body
 
     def text(self) -> str:
         """
