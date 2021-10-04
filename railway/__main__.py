@@ -23,10 +23,21 @@ SOFTWARE.
 """
 import importlib
 import sys
+from typing import Any, List
 
 from .app import Application
+from .utils import get_application_instance
+
+def get(iterable: List[str], index: int) -> str:
+    try:
+        return iterable[index]
+    except IndexError:
+        return ''
 
 def import_from_string(string: str):
+    if (app := get_application_instance()):
+        return app
+
     if len(string.split(':')) > 2:
         raise ValueError('Invalid input. {file}:{app_variable}')
 
@@ -44,7 +55,7 @@ def import_from_string(string: str):
     return app
 
 def main():
-    app = import_from_string(sys.argv[1])
+    app = import_from_string(get(sys.argv, 1))
 
     try:
         app.run()

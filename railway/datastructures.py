@@ -35,51 +35,14 @@ __all__ = (
 KT = TypeVar('KT')
 VT = TypeVar('VT')
 
-def is_immutable(obj: Any):
-    raise TypeError(f'{obj.__class__.__name__!r} is immutable')
+def is_immutable(self, *args):
+    raise TypeError(f'{self.__class__.__name__!r} is immutable')
 
 class ImmutableMapping(Dict[KT, VT]):
     """
     A :class:`dict` that cannot be modified once initialized.
     """
-
-    @utils.clear_docstring
-    def setdefault(self, key: Any, default: Any=None):
-        is_immutable(self)
-
-    @utils.clear_docstring
-    def update(self, **kwargs: VT) -> None:
-        is_immutable(self)
-
-    @utils.clear_docstring
-    def pop(self, key: Any, default: Any=None):
-        is_immutable(self)
-
-    @utils.clear_docstring
-    def popitem(self) -> Tuple[KT, VT]:
-        is_immutable(self)
-
-    @utils.clear_docstring
-    def clear(self) -> None:
-        is_immutable(self)
-    
-    @utils.clear_docstring
-    def __setitem__(self, key: Any, value: Any) -> None:
-        is_immutable(self)
-
-    @utils.clear_docstring
-    def __delitem__(self, key: Any) -> None:
-        is_immutable(self)
-
-    def __repr__(self):
-        return super().__repr__()
-
-    @utils.clear_docstring
-    def copy(self):
-        return dict(self)
-
-    def __copy__(self):
-        return self
+    setdeafult = update = pop = popitem = clear = __setitem__ = __delitem__ = copy = is_immutable # type: ignore
 
 class MultiDict(Dict[KT, VT]):
     """

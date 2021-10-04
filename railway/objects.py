@@ -22,14 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 from __future__ import annotations
-import functools
-from re import L
-from typing import TYPE_CHECKING, Callable, List, Any, Optional, Union, Dict
+from typing import TYPE_CHECKING, Callable, List, Any, Optional, Dict
 import inspect
 import asyncio
 
-from ._types import CoroFunc, Func, MaybeCoroFunc, Coro
-from .utils import maybe_coroutine
+from ._types import CoroFunc, MaybeCoroFunc, Coro
 from .responses import HTTPException
 from .request import Request
 from .errors import RegistrationError
@@ -57,21 +54,21 @@ class Object:
 
     Parameters
     ----------
-    callback: Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
+    callback: Callable[..., Coroutine[Any, Any, Any]]]
         the function used by the object.
 
     Attributes
     ----------
-    callback: Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
-        The coroutine(?) function used by the object.
+    callback: Callable[..., Coroutine[Any, Any, Any]]]
+        The coroutine function used by the object.
     """
-    callback: MaybeCoroFunc
+    callback: CoroFunc
 
-    def __init__(self, callback: MaybeCoroFunc) -> None:
+    def __init__(self, callback: CoroFunc) -> None:
         self.callback = callback
 
     async def __call__(self, *args: Any, **kwds: Any) -> Any:
-        return await maybe_coroutine(self.callback, *args, **kwds)
+        return await self.callback(*args, **kwds)
 
 class PartialRoute:
     """
@@ -108,7 +105,7 @@ class Route(Object):
         The path of the route.
     method: :class:`str`
         The method of the route.
-    callback: Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
+    callback: Callable[..., Coroutine[Any, Any, Any]]
         The function used by the route.
     router: Optional[:class:`~railway.router.Router`]
         The router to register the route with.
@@ -120,8 +117,8 @@ class Route(Object):
         The path of the route.
     method: :class:`str`
         The method of the route.
-    callback: Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
-        The coroutine(?) function used by the route.
+    callback:  Callable[..., Coroutine[Any, Any, Any]]
+        The coroutine function used by the route.
     """
     def __init__(self, path: str, method: str, callback: MaybeCoroFunc, *, router: Optional['Router']) -> None:
         self._router = router
@@ -150,6 +147,13 @@ class Route(Object):
             return True
 
         return False
+
+    @property
+    def signature(self) -> inspect.Signature:
+        """
+        The signature of the route.
+        """
+        return inspect.signature(self.callback)
 
     @property
     def middlewares(self) -> List[Middleware]:
@@ -274,7 +278,7 @@ class Route(Object):
             The coroutine function used by the middleware.
         """
         if not inspect.iscoroutinefunction(callback):
-            raise RegistrationError('All middlewares must be async')
+            raise RegistrationError('All middlewares must be coroutine functions')
 
         middleware = Middleware(callback, route=self)
         self._middlewares.append(middleware)
@@ -323,15 +327,18 @@ class Route(Object):
         """
         return self.add_middleware(callback)
 
-    def after_request(self, callback: MaybeCoroFunc) -> MaybeCoroFunc:
+    def after_request(self, callback: CoroFunc) -> CoroFunc:
         """
         Registers a callback to be called after the route is handled.
 
         Parameters
         ----------
-            callback: Union[Callable[..., Any], Callable[..., Coroutine[Any, Any, Any]]]
-                The coroutine(?) function or a function to be called.
+            callback: Callable[..., Coroutine[Any, Any, Any]]]
+                The coroutine function or a function to be called.
         """
+        if not inspect.iscoroutinefunction(callback):
+            raise RegistrationError('After request callbacks must be coroutine functions')
+
         self._after_request = callback
         return callback
 
@@ -339,11 +346,22 @@ class Route(Object):
         """
         Destroys the route.
         """
+        self.clear()
+
         if not self._router:
             return
 
         self._router.remove_route(self)
         return self
+
+    def clear(self):
+        """
+        Clears the route's attached callbacks.
+        """
+        self._after_request = None
+        self._error_handler = None
+        self._middlewares.clear()
+        self._status_code_handlers.clear()
 
     def add_semaphore(self, semaphore: Semaphore):
         """
@@ -396,8 +414,8 @@ class Middleware(Object):
 
     Parameters
     ----------
-    callback: CoroFunc
-        The coroutine(?) function used by the middleware.
+    callback: Callable[..., Coroutine[Any, Any, Any]]]
+        The coroutine function used by the middleware.
     route: Optional[:class:`~railway.objects.Route`]
         The route to register the middleware with.
     router: Optional[:class:`~railway.router.Router`]
@@ -405,7 +423,7 @@ class Middleware(Object):
 
     Attributes
     ----------
-    callback: CoroFunc
+    callback: Callable[..., Coroutine[Any, Any, Any]]]
         The coroutine(?) function used by the middleware.
     """
     def __init__(self, callback: CoroFunc, route: Optional[Route]=None, router: Optional['Router']=None) -> None:
@@ -480,8 +498,8 @@ class Middleware(Object):
 
         Parameters
         ----------
-            route: :class:`~railway.objects.Route`
-                The route to attach the middleware to.
+        route: :class:`~railway.objects.Route`
+            The route to attach the middleware to.
         """
         if self.is_global():
             raise RegistrationError('Global middlewares can not be attached to a route')
@@ -506,21 +524,21 @@ class Listener(Object):
 
     Parameters
     ----------
-        callback: Callable[..., Coroutine[Any, Any, Any]]
-            The coroutine(?) function used by the listener.
-        event: :class:`str`
-            The event the listener is registered to.
+    callback: Callable[..., Coroutine[Any, Any, Any]]
+        The coroutine function used by the listener.
+    event: :class:`str`
+        The event the listener is registered to.
 
     Attributes
     ----------
-        callback: Callable[..., Coroutine[Any, Any, Any]]
-            The coroutine(?) function used by the listener.
-        event: :class:`str`
-            The event the listener is registered to.
+    callback: Callable[..., Coroutine[Any, Any, Any]]
+        The coroutine function used by the listener.
+    event: :class:`str`
+        The event the listener is registered to.
     """
     def __init__(self, callback: CoroFunc, name: str) -> None:
         self.event: str = name
-        self.callback: CoroFunc = callback
+        self.callback = callback
 
     def __repr__(self) -> str:
         return '<Listener event={0.event!r}>'.format(self)
@@ -548,7 +566,6 @@ def websocket_route(path: str) -> Callable[[CoroFunc], WebsocketRoute]:
     ----------
     path: :class:`str`
         The path to register the route with.
-    
     """
     def decorator(func: CoroFunc) -> WebsocketRoute:
         return WebsocketRoute(path, 'GET', func, router=None)

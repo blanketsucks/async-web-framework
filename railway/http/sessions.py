@@ -22,14 +22,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import json as _json
 
 from .hooker import TCPHooker, WebsocketHooker, Websocket
 from .response import HTTPResponse
 from .utils import AsyncContextManager
 
-from railway import compat
+from railway import compat, URL
 
 __all__ = (
     'HTTPSession',
@@ -91,7 +91,7 @@ class HTTPSession:
             if not hooker.closed:
                 await hooker.close()
 
-    def request(self, method: str, url: str, **kwargs: Any):
+    def request(self, method: str, url: Union[str, URL], **kwargs: Any):
         """
         Sends an HTTP request with the given method.
 
@@ -119,7 +119,7 @@ class HTTPSession:
         """
         return AsyncContextManager(self._request(url, method, **kwargs))
 
-    def ws_connect(self, url: str, **kwargs: Any) -> AsyncContextManager[Websocket]:
+    def ws_connect(self, url: Union[str, URL], **kwargs: Any) -> AsyncContextManager[Websocket]:
         """
         Connects to a URL using websockets.
 
@@ -151,19 +151,19 @@ class HTTPSession:
         """
         return AsyncContextManager(self._connect(url)) # type: ignore
 
-    def get(self, url: str, **kwargs: Any):
+    def get(self, url: Union[str, URL], **kwargs: Any):
         return self.request('GET', url, **kwargs)
 
-    def post(self, url: str, **kwargs: Any):
+    def post(self, url: Union[str, URL], **kwargs: Any):
         return self.request('POST', url, **kwargs)
 
-    def put(self, url: str, **kwargs: Any):
+    def put(self, url: Union[str, URL], **kwargs: Any):
         return self.request('PUT', url, **kwargs)
 
-    def delete(self, url: str, **kwargs: Any):
+    def delete(self, url: Union[str, URL], **kwargs: Any):
         return self.request('DELETE', url, **kwargs)
 
-    def head(self, url: str, **kwargs: Any) :
+    def head(self, url: Union[str, URL], **kwargs: Any) :
         return self.request('HEAD', url, **kwargs)
 
     async def redirect(self, hooker: TCPHooker, response: HTTPResponse, method: str) -> HTTPResponse:
@@ -176,7 +176,7 @@ class HTTPSession:
         return await self._request(location, method, hooker=copy)
 
     async def _request(self, 
-                    url: str, 
+                    url: Union[str, URL], 
                     method: str, 
                     *,
                     headers: Optional[Dict[str, Any]]=None,
@@ -185,6 +185,7 @@ class HTTPSession:
                     ignore_redirects: bool=False, 
                     hooker: Optional[TCPHooker]=None):
         self._ensure_hookers()
+        url = str(url)
 
         if not hooker:
             hooker = TCPHooker(self)
@@ -238,7 +239,9 @@ class HTTPSession:
 
         return response
 
-    async def _connect(self, url: str) -> Optional[Websocket]:
+    async def _connect(self, url: Union[str, URL]) -> Optional[Websocket]:
+        url = str(url)
+
         hooker = WebsocketHooker(self)
         is_ssl, host, path = hooker.parse_host(url)
 

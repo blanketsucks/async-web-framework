@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 from __future__ import annotations
-from typing import Any, Dict, Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, Union, TYPE_CHECKING
 import json
 
 from railway.response import HTTPStatus

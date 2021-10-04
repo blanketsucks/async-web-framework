@@ -25,7 +25,7 @@ import asyncio
 import pathlib
 import io
 import sys
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, List, Optional, Tuple, Union, cast
 import ssl
 import socket
 
@@ -59,42 +59,42 @@ class ServerProtocol(asyncio.Protocol):
     waiters: :class:`dict`
         A dictionary of :class:`~asyncio.Future` objects.
     """
-    def __init__(self, loop: asyncio.AbstractEventLoop, max_connections: int) -> None:
+    def __init__(self, loop: asyncio.AbstractEventLoop, max_connections: Optional[int]) -> None:
         self.loop = loop
         self.pending: asyncio.Queue[Tuple[StreamTransport, 'asyncio.Future[None]']] = asyncio.Queue(
-            maxsize=max_connections
+            maxsize=0 if max_connections is None else max_connections
         )
 
     def __call__(self):
         return self
 
-
     def connection_made(self, transport: asyncio.Transport) -> None: # type: ignore
-        self.transport = StreamTransport(transport)
         self.waiter = self.loop.create_future()
+        self.transport = StreamTransport(transport, self.waiter)
 
         try:
             self.pending.put_nowait((self.transport, self.waiter))
         except asyncio.QueueFull:
-            self.transport.close()
+            self.transport.abort()
             return
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
         if exc:
             raise exc
 
-        self.waiter.set_result(None)
+        try:
+            self.waiter.set_result(None)
+        except asyncio.InvalidStateError:
+            pass
 
     def data_received(self, data: bytes) -> None:
         self.transport.feed_data(data)
 
     def pause_writing(self) -> None:
-        waiter = self.transport._writer._waiter
-        if not waiter:
-            self.transport._writer._waiter = self.loop.create_future()
+        self.transport.pause_writing()
     
     def resume_writing(self) -> None:
-        self.transport._wakeup_writer() 
+        self.transport.resume_writing()
 
     def eof_received(self) -> None:
         self.transport.feed_eof()
@@ -112,13 +112,12 @@ class ClientConnection:
     def __init__(self, 
                 protocol: ServerProtocol, 
                 transport: StreamTransport,
-                loop: asyncio.AbstractEventLoop,
-                future: 'asyncio.Future[None]') -> None:
+                loop: asyncio.AbstractEventLoop
+                ) -> None:
         self._transport = transport
         self._protocol = protocol
         self.loop = loop
         self._closed = False
-        self._waiter = future
 
     def __repr__(self) -> str:
         return '<ClientConnection peername={0.peername}>'.format(self)
@@ -238,9 +237,7 @@ class ClientConnection:
         """
         Closes the connection.
         """
-        self._transport.close()
-        await self._waiter
-
+        await self._transport.close()
         self._closed = True
 
     def __aiter__(self):
@@ -290,10 +287,10 @@ class BaseServer:
                 *,                 
                 max_connections: Optional[int]=None, 
                 loop: Optional[asyncio.AbstractEventLoop]=None, 
-                is_ssl: Optional[bool]=False,
+                is_ssl: bool=False,
                 ssl_context: Optional[ssl.SSLContext]=None) -> None:
         self.loop: asyncio.AbstractEventLoop = _get_event_loop(loop)
-        self.max_connections: int = max_connections or 254
+        self.max_connections: Optional[int] = max_connections
 
         self._is_ssl = is_ssl
         self._ssl_context = ssl_context
@@ -354,7 +351,7 @@ class BaseServer:
 
         self._closed = True
 
-    async def accept(self, *, timeout: Optional[int]=None) -> Optional[ClientConnection]:
+    async def accept(self, *, timeout: Optional[int]=None) -> ClientConnection:
         """
         Accepts an incoming connection.
 
@@ -379,20 +376,19 @@ class BaseServer:
 
         if self.is_ssl() and self._ssl_context is not None:
             trans = await self.loop.start_tls(
-                transport=transport._transport,
+                transport=transport._transport, # type: ignore
                 protocol=protocol,
                 sslcontext=self._ssl_context,
                 server_side=True
             )
 
             trans = cast(asyncio.Transport, trans)
-            transport = StreamTransport(trans)
+            transport = StreamTransport(trans, future)
 
         return ClientConnection(
             protocol=protocol, 
             transport=transport,
             loop=self.loop,
-            future=future,
         )
 
 class TCPServer(BaseServer):
@@ -434,15 +430,15 @@ class TCPServer(BaseServer):
                 ipv6: bool=False,
                 max_connections: Optional[int]=None, 
                 loop: Optional[asyncio.AbstractEventLoop]=None, 
-                is_ssl: Optional[bool]=False,
+                is_ssl: bool=False,
                 ssl_context: Optional[ssl.SSLContext]=None) -> None:
         if ipv6:
             if not utils.has_ipv6():
                 raise RuntimeError('IPv6 is not supported')
 
-        self.host: str = host
-        self.port: int = port or 8080
-        self.ipv6: bool = ipv6
+        self.host = host
+        self.port = port or 8080
+        self.ipv6 = ipv6
 
         super().__init__(
             max_connections=max_connections,
@@ -483,6 +479,7 @@ class TCPServer(BaseServer):
                 host=self.host, 
                 port=self.port,
                 family=socket.AF_INET6 if self.ipv6 else socket.AF_INET,
+                ssl=self._ssl_context,
             )
 
         await server.start_serving()
@@ -540,88 +537,98 @@ def create_server(
         ssl_context=ssl_context
     )
 
-if sys.platform != 'win32':
+class UnixServer(BaseServer):
+    """
+    A Unix server
 
-    class UnixServer(BaseServer):
-        """
-        A Unix server
+    Attributes
+    ----------
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop used.
+    max_connections: :class:`int`
+        The maximum number of connections to keep pending.
+    path: :class:`str`
+        The path of the socket to listen on.
 
-        Attributes:
-            loop: The event loop used.
-            max_connections: The maximum number of connections to keep pending.
-            path: The path of the socket to listen on.
-        """
-        def __init__(self, 
-                    path: str,
-                    *,
-                    max_connections: Optional[int]=None, 
-                    loop: Optional[asyncio.AbstractEventLoop]=None, 
-                    is_ssl: bool=None, 
-                    ssl_context: Optional[ssl.SSLContext]=None) -> None:
-            """
-            Parameters:
-                path: The path of the socket to listen on.
-                max_connections: The maximum number of connections to keep pending.
-                loop: The event loop used.
-                is_ssl: Whether to use SSL.
-                ssl_context: The SSL context to use.
-            """
-            self.path = path
+    Parameters
+    ------------
+    path: :class:`str`
+        The path of the socket to listen on.
+    max_connections: :class:`int`
+        The maximum number of connections to keep pending.
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop used.
+    is_ssl: :class:`bool`
+        Whether to use SSL.
+    ssl_context: :class:`ssl.SSLContext`
+        The SSL context to use.
+    """
+    def __init__(self, 
+                path: str,
+                *,
+                max_connections: Optional[int]=None, 
+                loop: Optional[asyncio.AbstractEventLoop]=None, 
+                is_ssl: bool=False, 
+                ssl_context: Optional[ssl.SSLContext]=None) -> None:
+        self.path = path
 
-            super().__init__(
-                max_connections=max_connections, 
-                loop=loop, 
-                is_ssl=is_ssl, 
-                ssl_context=ssl_context
-            )
-
-        def __repr__(self) -> str:
-            repr = ['<UnixServer']
-
-            for attr in ('path', 'max_connections', 'is_ssl', 'is_closed', 'is_serving'):
-                value = getattr(self, attr)
-                if callable(value):
-                    value = value()
-
-                repr.append(f'{attr}={value!r}')
-
-            return ' '.join(repr) + '>'
-
-        async def serve(self):
-            """
-            Starts the UNIX server.
-
-            Returns:
-                A future that will be resolved when the server is closed.
-            """
-            self._server = server = await self.loop.create_unix_server(self._protocol, self.path)
-            await server.start_serving()
-
-            self._waiter = self.loop.create_future()
-            return self._waiter
-
-    def create_unix_server(
-        path: str,
-        *,
-        max_connections: Optional[int]=None, 
-        loop: Optional[asyncio.AbstractEventLoop]=None, 
-        is_ssl: bool=None, 
-        ssl_context: Optional[ssl.SSLContext]=None
-    ):
-        """
-        A helper function to create a UNIX server.
-
-        Parameters:
-            path: The path of the socket to listen on.
-            max_connections: The maximum number of connections to keep pending.
-            loop: The event loop used.
-            is_ssl: Whether to use SSL.
-            ssl_context: The SSL context to use.
-        """
-        return UnixServer(
-            path=path,
-            max_connections=max_connections,
-            loop=loop,
-            is_ssl=is_ssl,
+        super().__init__(
+            max_connections=max_connections, 
+            loop=loop, 
+            is_ssl=is_ssl, 
             ssl_context=ssl_context
         )
+
+    def __repr__(self) -> str:
+        repr = ['<UnixServer']
+
+        for attr in ('path', 'max_connections', 'is_ssl', 'is_closed', 'is_serving'):
+            value = getattr(self, attr)
+            if callable(value):
+                value = value()
+
+            repr.append(f'{attr}={value!r}')
+
+        return ' '.join(repr) + '>'
+
+    async def serve(self):
+        """
+        Starts the UNIX server.
+        """
+        self._server = server = await self.loop.create_unix_server(self._protocol, self.path)
+        await server.start_serving()
+
+        self._waiter = self.loop.create_future()
+        return self._waiter
+
+def create_unix_server(
+    path: str,
+    *,
+    max_connections: Optional[int]=None, 
+    loop: Optional[asyncio.AbstractEventLoop]=None, 
+    is_ssl: bool=False, 
+    ssl_context: Optional[ssl.SSLContext]=None
+):
+    """
+    A helper function to create a UNIX server.
+
+    Parameters
+    ------------
+    path: :class:`str`
+        The path of the socket to listen on.
+    max_connections: :class:`int`
+        The maximum number of connections to keep pending.
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop used.
+    is_ssl: :class:`bool`
+        Whether to use SSL.
+    ssl_context: :class:`ssl.SSLContext`
+        The SSL context to use.
+    """
+    return UnixServer(
+        path=path,
+        max_connections=max_connections,
+        loop=loop,
+        is_ssl=is_ssl,
+        ssl_context=ssl_context
+    )

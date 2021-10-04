@@ -16,7 +16,6 @@ from .formdata import *
 from .templates import *
 from .models import *
 from .workers import *
-from .testclient import *
 from .streams import *
 from .ratelimits import * 
 from .injectables import *
@@ -26,3 +25,6 @@ from .cookies import *
 from .websockets import *
 from .server import *
 from .client import *
+from .testclient import *
+
+from . import compat

@@ -26,11 +26,12 @@ import warnings
 import functools
 import socket
 import asyncio
-from typing import TYPE_CHECKING, Any, Callable, Iterator, List, Optional, Type, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Iterator, List, Optional, Type, Tuple, TypeVar, Union
 
 from ._types import MaybeCoroFunc
 
 if TYPE_CHECKING:
+    from .app import Application
     from .response import Response
 
 __all__ = (
@@ -44,6 +45,8 @@ __all__ = (
     'is_ipv6',
     'is_ipv4',
     'validate_ip',
+    'get_application_instance',
+    'create_unique_application',
     'jsonify',
     'SETTING_ENV_PREFIX',
     'VALID_METHODS',
@@ -53,6 +56,9 @@ LOCALHOST = '127.0.0.1'
 LOCALHOST_V6 = '::1'
 
 def get_union_args(arg: Any) -> Tuple[Type]:
+    """
+    Gets the union types of a given argument. If the argument isn't an union, it returns a single element tuple.
+    """
     origin = getattr(arg, '__origin__', None)
 
     if origin is Union:
@@ -182,18 +188,66 @@ def validate_ip(ip: str=None, *, ipv6: bool=False) -> str:
 
         return ip
 
-class Deprecated:
-    def __init__(self, func: Callable[..., Any]) -> None:
-        self.__repr = '<Deprecated name={0.__name__!r}>'.format(func)
+def get_application_instance():
+    """
+    A helper function that returns the application instance.
+    Returns ``None`` if no instance is found.
 
-    def __call__(self, *args, **kwargs):
-        return None
+    Returns
+    ---------
+    Optional[:class:`~.Application`]
+        The application instance.
+    """
+    from .app import Application
 
-    def __bool__(self):
-        return False
+    return Application._instance
 
-    def __repr__(self) -> str:
-        return self.__repr
+def create_unique_application(*args, **kwargs):
+    """
+    A helper function that creates a unique application instance.
+
+    Note
+    ----
+    You cannot get the instance created by this function by calling :func:`~.get_application_instance`.
+
+    Example
+    --------
+    .. code-block:: python3
+
+        import railway
+
+        app = railway.Application()
+        instance = railway.get_application_instance()
+
+        print(app is instance) # True
+
+        unique = railway.create_unique_application()
+        instance = railway.get_application_instance()
+
+        print(unique is instance) # False
+        print(unique is app) # False
+
+    Parameters
+    ----------
+    *args: Any
+        Positional arguments to pass to the application constructor.
+    **kwargs: Any
+        Keyword arguments to pass to the application constructor.
+
+    Returns
+    -------
+    :class:`~.Application`
+        The unique application that was created.
+    """
+    from .app import Application
+
+    instance = Application._instance
+    Application._instance = None
+
+    app = Application(*args, **kwargs)
+
+    Application._instance = instance
+    return app
 
 
 SETTING_ENV_PREFIX = 'railway_'
@@ -217,25 +271,30 @@ def warn(message: str, category: Type[Warning]):
 def deprecated(other: Optional[str]=None):
     def decorator(func: Callable[..., Any]):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Deprecated:
+        def wrapper(*args, **kwargs):
             if other:
                 warning = f'{func.__name__} is deprecated, use {other} instead.'
             else:
                 warning = f'{func.__name__} is deprecated.'
 
             warn(warning, DeprecationWarning)
-            return Deprecated(func)
+            return func(*args, **kwargs)
         return wrapper
     return decorator
 
 def jsonify(**kwargs: Any) -> 'Response':
     """
-    Kinda like :py:func:`flask.jsonify`.
+    Kinda like :func:`flask.jsonify`.
 
     Parameters
     ----------
     **kwargs: 
         Keyword arguments to pass to :func:`json.dumps`.
+
+    Returns
+    -------
+    :class:`~.Response`
+        A response object with the JSON data.
     """
     from .response import Response
     data = json.dumps(kwargs, indent=4)

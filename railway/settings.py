@@ -21,7 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-from typing import Union, Optional, TypedDict
+from typing import Any, Dict, Union, Optional, TypedDict
 import importlib
 import os
 import pathlib
@@ -56,7 +56,7 @@ DEFAULT_SETTINGS = {
     'session_cookie_name': '__railway',
     'backlog': 200,
     'max_concurrent_requests': None,
-    'max_pending_connections': 200,
+    'max_pending_connections': None,
     'connection_timeout': None    
 }
 
@@ -90,7 +90,7 @@ def settings_from_file(path: Union[str, pathlib.Path]) -> Settings:
 
     module = importlib.import_module(path)
 
-    kwargs = {}
+    kwargs: Dict[str, Any] = {}
     
     for key, default in DEFAULT_SETTINGS.items():
         value = getattr(module, key.casefold(), default)

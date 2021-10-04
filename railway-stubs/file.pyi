@@ -1,8 +1,9 @@
 import io
 import pathlib
-from typing import Any, List, Optional, Union, AsyncIterator
+from typing import TYPE_CHECKING, Any, List, Optional, Union, AsyncIterator
 
-BytesLike = Union[bytes, bytearray, memoryview]
+if TYPE_CHECKING:
+    BytesLike = Union[bytes, bytearray, memoryview]
 
 class File:
     fp: io.TextIOWrapper

@@ -1,4 +1,4 @@
-.. currentmodule:: railway
+.. currentmodule:: railway.server
 
 Server/Client API Documentation
 ======================================
@@ -9,28 +9,52 @@ Servers
 ServerProtocol
 ~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.server.ServerProtocol
+.. autoclass:: ServerProtocol
     :members:
 
 ClientConnection
 ~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.server.ClientConnection
+.. autoclass:: ClientConnection
     :members:
 
 BaseServer
 ~~~~~~~~~~~
 
-.. autoclass:: railway.server.BaseServer
+.. autoclass:: BaseServer
     :members:
 
 TCPServer
 ~~~~~~~~~~~
 
-.. autoclass:: railway.server.TCPServer
+.. autoclass:: TCPServer
+    :members:
+
+UnixServer
+~~~~~~~~~~~~
+
+.. autoclass:: UnixServer
     :members:
 
 Helper Functions
 ~~~~~~~~~~~~~~~~~
 
-.. autoclass:: railway.server.create_server
+.. autofunction:: create_server
+.. autofunction:: create_unix_server
+
+
+.. currentmodule:: railway.client
+
+Clients
+---------
+
+Client
+~~~~~~~
+
+.. autoclass:: Client
+    :members:
+
+Helper Functions
+~~~~~~~~~~~~~~~~~~
+
+.. autofunction:: create_connection

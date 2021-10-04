@@ -26,12 +26,12 @@ import base64
 
 from typing import TYPE_CHECKING, Optional
 
+import railway
 from railway.utils import find_headers
 from railway.websockets import (
     ClientWebsocket as Websocket,
     WebsocketCloseCode, 
 )
-from railway.client import Client
 from railway.response import HTTPStatus
 from .request import HTTPRequest
 from .abc import Hooker
@@ -59,11 +59,14 @@ class TCPHooker(Hooker):
         except ValueError:
             port = 80
 
-        self._client = Client(host, int(port))
-        await self._client.connect()
+        port = int(port)
+        self.stream = await railway.open_connection(
+            host=host,
+            port=port
+        )
 
         self.connected = True
-        return self._client
+        return self.stream
     
     async def _create_ssl_connection(self, host: str):
         self.ensure()
@@ -74,11 +77,15 @@ class TCPHooker(Hooker):
         except ValueError:
             port = 443
 
-        self._client = Client(host, int(port), ssl_context=context)
-        await self._client.connect()
+        port = int(port)
+        self.stream = await railway.open_connection(
+            host=host,
+            port=port,
+            ssl=context
+        )
 
         self.connected = True
-        return self._client
+        return self.stream
 
     async def create_ssl_connection(self, host: str):
         client = await self._create_ssl_connection(host)
@@ -88,24 +95,24 @@ class TCPHooker(Hooker):
         client = await self._create_connection(host)
         return client
 
-    async def write(self, data: HTTPRequest):
-        await self._client.write(data.encode())
+    async def write(self, request: HTTPRequest):
+        if not self.stream:
+            raise RuntimeError('Not connected')
+
+        await self.stream.write(request.encode())
 
     async def read(self) -> bytes:
-        if not self._client:
+        if not self.stream:
             return b''
 
-        data = await self._client.receive()
+        data = await self.stream.receive()
         return data
 
-    async def _read_body(self) -> bytes:
-        data = await self.read()
-        _, body = find_headers(data)
-
-        return body
-
     async def close(self):
-        await self._client.close()
+        if not self.stream:
+            return
+
+        await self.stream.close()
         
         self.connected = False
         self.closed = True
@@ -131,15 +138,16 @@ class WebsocketHooker(TCPHooker):
     def generate_websocket_key(self):
         return base64.b64encode(os.urandom(16))
 
-    def create_websocket(self):
-        transport = self._client._protocol.transport # type: ignore
-
-        if not transport:
+    def create_websocket(self): # type: ignore
+        if not self.stream:
             return
 
-        return Websocket(transport)
+        return Websocket(self.stream)
     
     async def handshake(self, path: str, host: str):
+        if not self.stream:
+            raise HandshakeError('Not connected', hooker=self)
+
         key = self.generate_websocket_key().decode()
         headers = {
             'Upgrade': 'websocket',
@@ -151,7 +159,7 @@ class WebsocketHooker(TCPHooker):
         request = self.build_request('GET', host, path, headers, None)
         await self.write(request)
 
-        handshake = await self._client.receive()
+        handshake = await self.stream.receive()
         response = await self.build_response(data=handshake)
 
         self.websocket = self.create_websocket()
@@ -166,9 +174,8 @@ class WebsocketHooker(TCPHooker):
             return await self._close(
                 HandshakeError(
                     message=f"Expected status code '101', but received {response.status.value!r} instead",
-                    hooker=self,
-                    client=self.session
-                    )
+                    hooker=self
+                )
             )
 
         connection = headers.get('Connection')
@@ -177,7 +184,6 @@ class WebsocketHooker(TCPHooker):
                 HandshakeError(
                     message=f"Expected 'Connection' header with value 'upgrade', but got {connection!r} instead",
                     hooker=self,
-                    client=self.session
                 )
             )
 
@@ -187,8 +193,7 @@ class WebsocketHooker(TCPHooker):
                 HandshakeError(
                     message=f"Expected 'Upgrade' header with value 'websocket', but got {upgrade!r} instead",
                     hooker=self,
-                    client=self.session
-                    )
+                )
             )
 
     async def _close(self, exc: Exception):

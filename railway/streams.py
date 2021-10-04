@@ -29,7 +29,9 @@ from . import compat, utils
 __all__ = (
     'StreamWriter',
     'StreamReader',
-    'StreamTransport'
+    'StreamTransport',
+    'StreamProtocol',
+    'open_connection',
 )
 
 class StreamWriter:
@@ -61,7 +63,19 @@ class StreamWriter:
         finally:
             self._waiter = None
 
-    def _wakeup_waiter(self):
+    def pause_writing(self):
+        """
+        Creates a future that is resolved when :meth:~`.StreamWriter.resume_writing` is called.
+        This is supposed to be called when :meth:`asyncio.Protocol.pause_writing` is called.
+        """
+        if not self._waiter:
+            self._waiter = self._loop.create_future()
+
+    def resume_writing(self):
+        """
+        Sets the future that was created by :meth:~`.StreamWriter.pause_writing` to be resolved.
+        This is supposed to be called when :meth:`asyncio.Protocol.resume_writing` is called.
+        """
         if self._waiter:
             self._waiter.set_result(None)
 
@@ -177,7 +191,7 @@ class StreamReader:
         self.buffer: bytearray = bytearray()
         self.loop: asyncio.AbstractEventLoop = loop or compat.get_running_loop()
 
-        self._waiter = None
+        self._waiter: Optional[asyncio.Future[None]] = None
 
     async def _wait_for_data(self, timeout: Optional[float]=None):
         self._waiter = self.loop.create_future()
@@ -239,18 +253,70 @@ class StreamReader:
 
         return bytes(data)
 
+    async def readline(self, *, timeout: Optional[float]=None, wait: bool=True) -> Optional[bytes]:
+        """
+        Reads a line off the stream.
+
+        Parameters
+        ----------
+        timeout: Optional[:class:`float`]
+            Timeout to wait for the read to complete.
+
+        Raises
+        ------
+        asyncio.TimeoutError: If the timeout expires.
+        """
+        if not self.buffer:
+            await self._wait_for_data(timeout=timeout)
+
+        index = self.buffer.find(b'\n')
+
+        if not wait and index == -1:
+            return None
+        
+        while index == -1:
+            await self._wait_for_data(timeout=timeout)
+            index = self.buffer.find(b'\n')
+
+        data = self.buffer[:index]
+        self.buffer = self.buffer[index + 1:]
+
+        return bytes(data)
+
+    async def readlines(self, size: int=None, *, timeout: float=None):
+        """
+        Reads a list of lines off the stream.
+
+        Parameters
+        ----------
+        size: :class:`int`
+            The maximum number of bytes to read.
+        timeout: Optional[:class:`float`]
+            Timeout to wait for the read to complete.
+
+        Raises
+        ------
+        asyncio.TimeoutError: If the timeout expires.
+        """
+        data = await self.readline(timeout=timeout, wait=False)
+
+        while data is not None:
+            yield data
+            data = await self.readline(timeout=timeout, wait=False)
+
 class StreamTransport:
     """
     A wrapper around a :class:`asyncio.Transport` that provides
     :class:`~railway.streams.StreamWriter` and :class:`~railway.streams.StreamReader` functionality
     """
-    def __init__(self, transport: asyncio.Transport) -> None:
+    def __init__(self, transport: asyncio.Transport, waiter: asyncio.Future[None]) -> None:
         self._transport = transport
+        self._waiter = waiter
         self._writer = StreamWriter(transport)
         self._reader = StreamReader()
+
+        self.loop = self._reader.loop
     
-    def _wakeup_writer(self):
-        self._writer._wakeup_waiter()
 
     @utils.copy_docstring(StreamWriter.get_extra_info)
     def get_extra_info(self, name: str, default: Any=None) -> Any:
@@ -260,11 +326,12 @@ class StreamTransport:
     def get_protocol(self) -> asyncio.BaseProtocol:
         return self._transport.get_protocol()
 
-    def close(self):
+    async def close(self):
         """
         Closes the transport.
         """
         self._writer.close()
+        await self._waiter
 
     def abort(self):
         """
@@ -302,3 +369,76 @@ class StreamTransport:
     @utils.copy_docstring(StreamWriter.writelines)
     async def writelines(self, data: List[Union[bytearray, bytes]], *, timeout: Optional[float]=None):
         await self._writer.writelines(data, timeout=timeout)
+
+    def pause_writing(self) -> None:
+        """
+        Creates a future that is resolved when :meth:~`.StreamTransport.resume_writing` is called.
+        This is supposed to be called when :meth:`asyncio.Protocol.pause_writing` is called.
+        """
+        self._writer.pause_writing()
+    
+    def resume_writing(self) -> None:
+        """
+        Sets the future that was created by :meth:~`.StreamTransport.pause_writing` to be resolved.
+        This is supposed to be called when :meth:`asyncio.Protocol.resume_writing` is called.
+        """
+        self._writer.resume_writing()
+
+class StreamProtocol(asyncio.Protocol):
+    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+        self.loop = loop
+
+        self.transport = None
+        self.waiter = None
+
+    def __call__(self, *args: Any, **kwds: Any) -> Any:
+        return self
+
+    def connection_made(self, transport: asyncio.Transport) -> None:
+        self.waiter = self.loop.create_future()
+        self.transport = StreamTransport(transport, self.waiter)
+    
+    def connection_lost(self, exc: Optional[BaseException]) -> None:
+        if self.waiter:
+            if not self.waiter.done():
+                self.waiter.set_result(None)
+    
+    def data_received(self, data: bytes) -> None:
+        if not self.transport:
+            return
+
+        self.transport.feed_data(data)
+
+    def eof_received(self) -> None:
+        if not self.transport:
+            return
+
+        self.transport.feed_eof()
+
+    def resume_writing(self) -> None:
+        if not self.transport:
+            return
+
+        self.transport.resume_writing()
+
+    def pause_writing(self) -> None:
+        if not self.transport:
+            return
+
+        self.transport.pause_writing()
+
+async def open_connection(host: str, port: int, **kwargs: Any):
+    loop = compat.get_running_loop()
+    protocol = StreamProtocol(loop)
+
+    await loop.create_connection(
+        protocol,
+        host=host,
+        port=port,
+        **kwargs
+    )
+
+    if not protocol.transport:
+        raise RuntimeError('Connection failed')
+
+    return protocol.transport

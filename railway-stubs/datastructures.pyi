@@ -1,28 +1,29 @@
-from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union, TypedDict
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypeVar, Union, TypedDict
 
-KT = TypeVar('KT')
-VT = TypeVar('VT')
+if TYPE_CHECKING:
+    KT = TypeVar('KT')
+    VT = TypeVar('VT')
 
-class URLDict(TypedDict):
-    scheme: str
-    netloc: str
-    host: str
-    port: int
-    path: str
-    params: str
-    query: ImmutableMapping[str, str]
-    fragment: str
-    username: Optional[str]
-    password: Optional[str]
+    class URLDict(TypedDict):
+        scheme: str
+        netloc: str
+        host: str
+        port: int
+        path: str
+        params: str
+        query: ImmutableMapping[str, str]
+        fragment: str
+        username: Optional[str]
+        password: Optional[str]
 
 class ImmutableMapping(Dict[KT, VT]):
-    def setdefault(self, key: Any, default: Any=...) -> Any: ...
+    def setdefault(self, key: KT, default: Any=...) -> Any: ...
     def update(self, **kwargs: VT) -> None: ...
-    def pop(self, key: Any, default: Any=...) -> Any: ...
+    def pop(self, key: KT, default: Any=...) -> Any: ...
     def popitem(self) -> Tuple[KT, VT]: ...
     def clear(self) -> None: ...
-    def __setitem__(self, key: Any, value: Any) -> None: ...
-    def __delitem__(self, key: Any) -> None: ...
+    def __setitem__(self, key: KT, value: Any) -> None: ...
+    def __delitem__(self, key: KT) -> None: ...
     def copy(self): ...
     def __copy__(self): ...
 

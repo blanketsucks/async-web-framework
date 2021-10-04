@@ -23,89 +23,33 @@ SOFTWARE.
 """
 import asyncio
 import ssl
-from typing import Any, Union, List, Optional
+from typing import Any, Union, List, Optional, cast
 import socket
 
-from railway.streams import StreamTransport
+from railway.streams import open_connection
 from railway import compat
 
 __all__ = (
-    'ClientProtocol', 
     'Client', 
     'create_connection'
 )
-
-class ClientProtocol(asyncio.Protocol):
-    """
-    A subclass of `asyncio.Protocol` that implements the client side of a connection.
-
-    Attributes:
-        loop: The event loop to use.
-        reader: The [StreamReader](./streams.md) object.
-        writer: The [StreamWriter](./streams.md) object.
-        waiter: a close waiter, in other words, an `asyncio.Future` that is set when the connection gets closed.
-    """ 
-    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
-        self.loop = loop
-
-        self.transport = None
-
-        self.waiter = None
-
-    def __call__(self):
-        return self
-
-    def connection_made(self, transport: asyncio.Transport) -> None: # type: ignore
-        self.transport = StreamTransport(transport)
-        self.waiter = self.loop.create_future()
-
-    def data_received(self, data: bytes) -> None:
-        if not self.transport:
-            return
-
-        self.transport.feed_data(data)
-
-    def pause_writing(self) -> None:
-        if not self.transport:
-            return
-
-        writer = self.transport._writer
-        if not writer._waiter:
-            writer._waiter = self.loop.create_future() # type: ignore
-    
-    def resume_writing(self) -> None:
-        if not self.transport:
-            return
-
-        self.transport._wakeup_writer()
-
-    def connection_lost(self, exc: Optional[Exception]) -> None:
-        if exc:
-            raise exc
-
-        if not self.waiter:
-            return
-
-        self.waiter.set_result(None)
-        self.waiter = None
-
-    async def wait_for_close(self):
-        """
-        Waits for the connection to close.
-        """
-        if self.waiter:
-            await self.waiter
 
 class Client:
     """
     A class representing a client.
 
-    Attributes:
-        host: The host to connect to.
-        port: The port to connect to.
-        ssl_context: The SSL context to use.
-        loop: The event loop to use.
-        sock: The `socket.socket` to use.
+    Parameters
+    ----------
+    host: :class:`str`
+        The host to connect to.
+    port: :class:`int`
+        The port to connect to.
+    ssl_context: :class:`ssl.SSLContext`
+        The SSL context to use.
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop to use.
+    sock: :class:`socket.socket`
+        The socket to use.
     """
     def __init__(self, 
                 host: Optional[str]=None, 
@@ -114,19 +58,19 @@ class Client:
                 sock: Optional[socket.socket]=None, 
                 ssl_context: Optional[Union[ssl.SSLContext, Any]]=None,
                 loop: Optional[asyncio.AbstractEventLoop]=None) -> None:
-        self.host: str = host
-        self.port: int = port
+        self.host = host or 'localhost'
+        self.port = port or 5000
 
         if sock:
             if host or port:
                 raise ValueError('Both host and port must be None if sock is specified')
 
-        self.sock: socket.socket = sock
+        self.sock = sock
 
-        self.ssl_context: ssl.SSLContext = ssl_context
-        self.loop: asyncio.AbstractEventLoop = loop or compat.get_running_loop()
+        self.ssl_context = ssl_context
+        self.loop = loop or compat.get_running_loop()
 
-        self._protocol = None
+        self._stream = None
 
         self._closed = False
         self._connected = False 
@@ -162,35 +106,32 @@ class Client:
 
     def is_connected(self) -> bool:
         """
-        Returns:
-            True if the client is connected.
+        True if the client is connected.
         """
-        return self._connected and self._protocol is not None
+        return self._connected and self._stream is not None
 
     def is_closed(self) -> bool:
         """
-        Returns:
-            True if the client is closed.
+        True if the client is closed.
         """
         return self._closed
 
     def is_ssl(self) -> bool:
         """
-        Returns:
-            True if the client is using SSL.
+        True if the client is using SSL.
         """
         return self.ssl_context is not None and isinstance(self.ssl_context, ssl.SSLContext)
 
     async def connect(self) -> 'Client':
         """
         Connects to the host and port previously set by the constructor.
-
-        Returns:
-            The client itself.
         """
-        self._protocol = protocol = ClientProtocol(self.loop)
-        await self.loop.create_connection(
-            protocol, self.host, self.port, sock=self.sock, ssl=self.ssl_context
+        self._stream = await open_connection(
+            self.host, 
+            self.port, 
+            ssl_context=self.ssl_context, 
+            loop=self.loop,
+            sock=self.sock
         )
 
         self._connected = True
@@ -200,12 +141,17 @@ class Client:
         """
         Writes data to the transport.
 
-        Parameters:
-            data: The data to write.
-            timeout: The timeout to use.
+        Parameters
+        ----------
+        data: Union[:class:`bytes`, :class:`bytearray`]
+            The data to write.
+        timeout: :class:`float`
+            The timeout to use.
 
-        Raises:
-            asyncio.TimeoutError: If the timeout is exceeded.
+        Raises
+        ------
+        asyncio.TimeoutError: 
+            If the timeout is exceeded.
         """
         self._ensure_connection()
         await self._protocol.transport.write(data, timeout=timeout) # type: ignore
@@ -214,12 +160,17 @@ class Client:
         """
         Writes a list of data to the transport.
 
-        Parameters:
-            data: The data to write.
-            timeout: The timeout to use.
+        Parameters
+        ----------
+        data: Union[:class:`bytes`, :class:`bytearray`]
+            The data to write.
+        timeout: :class:`float`
+            The timeout to use.
 
-        Raises:
-            asyncio.TimeoutError: If the timeout is exceeded.
+        Raises
+        ------
+        asyncio.TimeoutError: 
+            If the timeout is exceeded.
         """
         self._ensure_connection()
         await self._protocol.transport.writelines(data, timeout=timeout) # type: ignore
@@ -228,15 +179,17 @@ class Client:
         """
         Reads data from the transport.
 
-        Parameters:
-            nbytes: The number of bytes to read.
-            timeout: The timeout to use.
+        Parameters
+        ----------
+        nbytes: :class:`int`
+            The number of bytes to read.
+        timeout: :class:`float`
+            The timeout to use.
 
-        Returns:
-            The data read.
-
-        Raises:
-            asyncio.TimeoutError: If the timeout is exceeded.
+        Raises
+        ------
+        asyncio.TimeoutError: 
+            If the timeout is exceeded.
         """
         self._ensure_connection()
         return await self._protocol.transport.receive(nbytes, timeout=timeout) # type: ignore
@@ -262,11 +215,16 @@ def create_connection(
     """
     A helper function to create a client.
 
-    Parameters:
-        host: The host to connect to.
-        port: The port to connect to.
-        ssl_context: The SSL context to use.
-        loop: The event loop to use.
+    Parameters
+    ----------
+    host: :class:`str`
+        The host to connect to.
+    port: :class:`int`
+        The port to connect to.
+    ssl_context: :class:`ssl.SSLContext`
+        The SSL context to use.
+    loop: :class:`asyncio.AbstractEventLoop`
+        The event loop to use.
     """
     client = Client(host, port, ssl_context=ssl_context, loop=loop)
     return client

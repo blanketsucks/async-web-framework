@@ -5,7 +5,7 @@ import socket as _socket
 import ssl
 from ._types import CoroFunc, Coro
 from .file import File
-from .injectables import Injectable, InjectableMeta
+from .injectables import Injectable
 from .objects import Listener, Middleware, PartialRoute, Route, WebsocketRoute
 from .request import Request
 from .resources import Resource
@@ -19,7 +19,7 @@ from .workers import Worker
 from .locks import Semaphore
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 
-class Application(Injectable, metaclass=InjectableMeta):
+class Application:
     settings: Settings = ...
     host: str = ...
     port: int = ...
@@ -79,6 +79,8 @@ class Application(Injectable, metaclass=InjectableMeta):
     def middlewares(self) -> List[Middleware]: ...
     @property
     def listeners(self) -> List[Listener]: ...
+    @property
+    def routes(self) -> List[Route]: ...
     @property
     def resources(self) -> List[Resource]: ...
     @property

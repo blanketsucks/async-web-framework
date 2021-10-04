@@ -75,5 +75,8 @@ class Application(app.Application):
         super().start()
 
     async def close(self) -> None:
-        self.process.terminate()
+        if self.process:
+            self.process.terminate()
+            log.info('Terminated ngrok process.')
+
         return await super().close()

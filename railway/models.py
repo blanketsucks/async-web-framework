@@ -57,6 +57,7 @@ class _Default:
         return '<Default>'
 
 _default = _Default()
+_NoneType = type(None)
 
 class IncompatibleType(Exception):
     def __init__(self, field: Field, argument: Type[Any], data: Dict[str, Any]) -> None:
@@ -166,6 +167,10 @@ def _get_model_from_bases(bases: Tuple[Type]):
 def _transform(field: Field, data: Dict[str, Any]):
     value = data[field.name]
     transformed = None
+
+    if _NoneType in field.types:
+        if value is None:
+            return None
 
     for type in field.types:
         try:
@@ -365,9 +370,29 @@ class Model(metaclass=ModelMeta):
         return f'<{self.__class__.__name__} {" ".join(attrs)}>'
 
     def __iter__(self) -> Iterator[Tuple[Field, Any]]:
+        """
+        Iterates over the fields and their values.
+        """
         return self._iter()
 
     def __setattr__(self, name: str, value: Any) -> None:
+        """
+        Set a field's value.
+
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the field.
+        value: Any
+            The value to set.
+
+        Raises
+        ------
+        AttributeError
+            If the field does not exist.
+        IncompatibleType
+            If the value's type is incompatible with the field's.
+        """
         field = self.get_field(name)
         if not field:
             raise AttributeError(name)
@@ -386,6 +411,14 @@ class Model(metaclass=ModelMeta):
         return field, getattr(self, name)
 
     def __eq__(self, other: Any) -> bool:
+        """
+        Compare two models.
+
+        Parameters
+        ----------
+        other: :class:`~.Model`
+            The other model to compare.
+        """
         if not isinstance(other, Model):
             return NotImplemented
 
@@ -509,7 +542,6 @@ class Model(metaclass=ModelMeta):
 
                 data[field.name] = value.json()
                 continue
-
 
             if not _is_json_serializable(value):
                 raise ObjectNotSerializable(value)

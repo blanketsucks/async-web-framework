@@ -34,9 +34,8 @@ class InvalidHost(TypeError):
         super().__init__(message)
 
 class HookerError(Exception):
-    def __init__(self, message: Optional[str]=None, *, hooker: Hooker, client: HTTPSession) -> None:
+    def __init__(self, message: Optional[str]=None, *, hooker: Hooker) -> None:
         self.hooker = hooker
-        self.client = client
 
         super().__init__('' if message is None else message)
 

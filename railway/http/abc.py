@@ -23,18 +23,16 @@ SOFTWARE.
 """
 from __future__ import annotations
 
-import asyncio
 import ssl
-from typing import Any, Tuple, Optional, Union, Dict, TYPE_CHECKING
+from typing import Any, Optional, Dict, TYPE_CHECKING
 from urllib.parse import urlparse
 import copy
-from socket import SocketKind, AddressFamily, gethostname
 
 from .errors import HookerAlreadyConnected, HookerClosed
 from .response import HTTPResponse, HTTPStatus
 from .request import HTTPRequest
 from railway.utils import find_headers
-from railway.http.utils import AsyncIterator
+from railway.streams import StreamTransport
 
 if TYPE_CHECKING:
     from .sessions import HTTPSession
@@ -49,7 +47,7 @@ __all__ = (
 class Hooker:
     def __init__(self, session: HTTPSession) -> None:
         self.session = session
-        self._client = None
+        self.stream: Optional[StreamTransport] = None
 
         self.connected = False
         self.closed = False
@@ -64,17 +62,18 @@ class Hooker:
 
     def ensure(self):
         if self.connected:
-            raise HookerAlreadyConnected(hooker=self, client=self.session)
+            raise HookerAlreadyConnected(hooker=self)
 
         if self.closed:
-            raise HookerClosed(hooker=self, client=self.session)
+            raise HookerClosed(hooker=self)
 
     def copy(self):
         hooker = copy.copy(self)
         return hooker
 
     def create_default_ssl_context(self):
-        return ssl.create_default_context()
+        context = ssl.create_default_context()
+        return context
 
     def parse_host(self, url: str):
         parsed = urlparse(url)
@@ -128,20 +127,6 @@ class Hooker:
             headers=headers,
             body=body
         )
-
-    def getaddrinfo(self, 
-                    host: Optional[str]=None, 
-                    port: Optional[int]=None
-                    ) -> AsyncIterator[Tuple[AddressFamily, SocketKind, int, str, Union[Tuple[str, int], Tuple[str, int, int, int]]]]:
-        
-        async def actual(host: Optional[str], port: Optional[int], loop: asyncio.AbstractEventLoop):
-            if not host:
-                host = gethostname()
-
-            ret = await loop.getaddrinfo(host, port)
-            return ret
-            
-        return AsyncIterator(actual(host, port, self.loop), host)
 
     async def close(self) -> None:
         raise NotImplementedError

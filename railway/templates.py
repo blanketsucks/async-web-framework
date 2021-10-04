@@ -26,11 +26,20 @@ from typing import Any, Dict, Union, Optional
 import pathlib
 import jinja2
 
+from . import utils
 from .response import HTMLResponse
 
-__all__ = ('render',)
+__all__ = ('render', 'create_default_jinja2_env')
 
-environement = jinja2.Environment(enable_async=True)
+def create_default_jinja2_env() -> jinja2.Environment:
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader('.'),
+        enable_async=True,
+    )
+    
+    return env
+
+environment = create_default_jinja2_env()
 
 async def render(
     path: Union[str, pathlib.Path],
@@ -55,7 +64,7 @@ async def render(
     **kwargs: 
         The variables to use for the template.
     """
-    env = env or environement
+    env = env or environment
 
     if not env.is_async:
         raise TypeError('The jinja2 env passed in must have async enabled')
@@ -67,6 +76,10 @@ async def render(
         locals = {}
 
     vars = {**globals, **locals, **kwargs}
+    app = utils.get_application_instance()
+
+    if app:
+        vars['url_for'] = app.url_for
 
     template = env.get_template(str(path))
     body = await template.render_async(**vars)

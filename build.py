@@ -75,7 +75,7 @@ class Builder:
 if __name__ == '__main__':
     # build_extensions(path)
     builder = Builder()
-    builder.update_requirements('docs')
+    # builder.update_requirements('docs')
 
     builder.build_docs()
     builder.run_docs()

@@ -22,7 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 from typing import Any, Optional
-from . import http
+
+from .http import HTTPSession, AsyncContextManager, HTTPResponse
 from .app import Application
 
 __all__ = (
@@ -42,7 +43,7 @@ class TestClient:
     """
     def __init__(self, app: Application) -> None:
         self.app: Application = app
-        self.session: http.HTTPSession = http.HTTPSession()
+        self.session = HTTPSession()
 
     async def __aenter__(self):
         return self
@@ -58,7 +59,7 @@ class TestClient:
     def port(self) -> int:
         return self.app.port
 
-    def ws_connect(self, path: str) -> http.AsyncContextManager[http.Websocket]:
+    def ws_connect(self, path: str):
         """
         Performs a websocket connection.
 
@@ -98,7 +99,7 @@ class TestClient:
         url = self.app.url_for(path, is_websocket=True)
         return self.session.ws_connect(str(url))
 
-    def request(self, path: str, method: str, **kwargs: Any) -> http.AsyncContextManager[http.HTTPResponse]:
+    def request(self, path: str, method: str, **kwargs: Any) -> AsyncContextManager[HTTPResponse]:
         """
         Sends a request to the application.
 

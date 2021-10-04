@@ -21,11 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-import socket
-from typing import Generic, Any, Coroutine, TypeVar, Optional
-import asyncio
-
-from .errors import InvalidHost
+from typing import Generic, Any, Coroutine, TypeVar
 
 T = TypeVar('T')
 
@@ -52,39 +48,3 @@ class AsyncContextManager(Generic[T]):
                 await self._resp._hooker.close() # type: ignore
             
         return self
-
-class _AsyncIterator(Generic[T]):
-    def __init__(self, coroutine: Coroutine[Any, Any, Any]) -> None:
-        self.coroutine = coroutine
-        self.future = asyncio.ensure_future(self.coroutine)
-
-        self.index = 0
-
-    def __await__(self):
-        return self.future.__await__()
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self) -> T:
-        if not self.future.done():
-            self.results = list(await self.future)
-
-        try:
-            ret = self.results.pop(self.index)
-            return ret
-        except IndexError:
-            raise StopAsyncIteration
-        else:
-            self.index += 1
-
-class AsyncIterator(_AsyncIterator[T]):
-    def __init__(self, coroutine: Coroutine[Any, Any, Any], host: Optional[str]) -> None:
-        super().__init__(coroutine)
-        self.host = host
-
-    async def __anext__(self):
-        try:
-            return await super().__anext__()
-        except socket.gaierror:
-            raise InvalidHost(self.host)

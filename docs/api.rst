@@ -35,6 +35,7 @@ Application
 ~~~~~~~~~~~~~~~~~~
 
 .. autoclass:: Application
+
     :members:
     :exclude-members: event, route, resource, view, middleware, websocket, get, post, put, head, options, delete, patch, status_code_handler
 
@@ -170,6 +171,15 @@ Of course, you can dispatch your own events using :meth:`.Application.dispatch`.
     :type listener: :class:`~.Listener`
     :param error: The error that was raised.
     :type error: :exc:`Exception`
+
+Test Client
+------------
+
+TestClient
+~~~~~~~~~~~~
+
+.. autoclass:: TestClient
+    :members:
 
 Routers
 ---------------------
@@ -884,6 +894,7 @@ Model
 
 .. autoclass:: Model
     :members:
+    :special-members: __setattr__, __iter__, __eq__
 
 
 Ratelimits
@@ -968,6 +979,8 @@ Utility functions
 .. autofunction:: is_ipv4
 .. autofunction:: validate_ip
 .. autofunction:: jsonify
+.. autofunction:: get_application_instance
+.. autofunction:: create_unique_application
 
 
 Extensions 

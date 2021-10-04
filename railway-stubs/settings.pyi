@@ -1,9 +1,9 @@
 import pathlib
 import ssl
-from typing import Any, Optional, TypedDict, Union
+from typing import Any, Dict, Optional, Tuple, TypedDict, Union
 
-VALID_SETTINGS: Any
-DEFAULT_SETTINGS: Any
+VALID_SETTINGS: Tuple[str, ...] = ...
+DEFAULT_SETTINGS: Dict[str, Any] = ...
 
 class Settings(TypedDict):
     host: str

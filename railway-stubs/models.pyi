@@ -1,7 +1,8 @@
-from typing import Any, Dict, Iterable, Optional, Tuple, Type, TypeVar, Union, Iterator, List
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional, Tuple, Type, TypeVar, Union, Iterator, List
 import inspect
 
-T = TypeVar('T')
+if TYPE_CHECKING:
+    T = TypeVar('T')
 
 class IncompatibleType(Exception):
     field: Field = ...

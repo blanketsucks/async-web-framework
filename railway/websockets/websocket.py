@@ -190,7 +190,7 @@ class ServerWebsocket:
         self._closed = True
         await self.send_frame(frame)
 
-        self._transport.close()     
+        await self._transport.close()     
 
     async def receive(self) -> Data:
         """

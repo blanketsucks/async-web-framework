@@ -36,7 +36,7 @@ import asyncio
 import json
 import traceback
 
-from ._types import CoroFunc, MaybeCoroFunc, Coro
+from ._types import CoroFunc, Coro
 from .resources import Resource
 from . import compat, utils
 from .request import Request
@@ -45,7 +45,7 @@ from .errors import *
 from .router import Router
 from .settings import Settings, settings_from_file, settings_from_env, DEFAULT_SETTINGS
 from .objects import PartialRoute, Route, Listener, WebsocketRoute, Middleware
-from .injectables import Injectable, InjectableMeta
+from .injectables import Injectable
 from .views import HTTPView
 from .response import Response, JSONResponse, FileResponse, HTMLResponse
 from .file import File
@@ -62,7 +62,16 @@ __all__ = (
     'Application',
 )
 
-class Application(Injectable, metaclass=InjectableMeta):
+class _SingletonMeta(type):
+    _instance = None
+
+    def __call__(cls, *args: Any, **kwds: Any) -> Any:
+        if not cls._instance:
+            cls._instance = super().__call__(*args, **kwds)
+
+        return cls._instance
+
+class Application(metaclass=_SingletonMeta):
     """
     A class respreseting an ASGI application.
 
@@ -274,8 +283,6 @@ class Application(Injectable, metaclass=InjectableMeta):
         )
         self._workers = self._add_workers()
 
-        self.inject(self)
-
     def __repr__(self) -> str:
         values = [f'<{self.__class__.__name__}']
         attrs = (
@@ -345,6 +352,8 @@ class Application(Injectable, metaclass=InjectableMeta):
             raise ValueError(f'Path {path!r} does not exist')
 
         scheme = 'ws' if is_websocket else 'http'
+        if self.is_ssl():
+            scheme += 's'
 
         if self.is_ipv6():
             base = f'{scheme}://[{self.host}]:{self.port}'
@@ -367,12 +376,13 @@ class Application(Injectable, metaclass=InjectableMeta):
             if ws.done():
                 self._websocket_tasks.remove(ws)
 
-    def _convert(self, func: MaybeCoroFunc, args: Dict[str, Any], request: 'Request') -> Dict[str, Any]:
+    def _convert(self, route: Route, query: Dict[str, Any], request: 'Request') -> Dict[str, Any]:
         kwargs: Dict[str, Any] = {}
-        params = inspect.signature(func)
+        params = route.signature.parameters
 
-        for key, value in params.parameters.items():
-            param = args.get(key)
+        for key, value in params.items():
+            param = query.get(key)
+
             if param:
                 if value.annotation is inspect.Signature.empty:
                     kwargs[key] = param
@@ -447,7 +457,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         args, route = self._resolve(request)
         request.route = route
 
-        kwargs = self._convert(route.callback, args, request)
+        kwargs = self._convert(route, args, request)
         return kwargs, route
 
     async def _dispatch_error(self, route: Union[PartialRoute, Route], request: Request, exc: Exception):
@@ -525,7 +535,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         )
         return settings
 
-    def create_ipv6_socket(self, host: str, port: int):
+    def create_ipv6_socket(self, host: str, port: int) -> socket.socket:
         """
         Same as :meth:`create_ipv4_socket` but for IPv6, meaning it sets the socket family to ``AF_INET6``.
 
@@ -544,11 +554,16 @@ class Application(Injectable, metaclass=InjectableMeta):
         if self._reuse_port:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
+        if self.ssl_context:
+            sock = self.ssl_context.wrap_socket(sock, server_side=True)
+
         sock.bind((host, port))
         sock.listen(self._backlog)
+
         return sock
 
-    def create_ipv4_socket(self, host: str, port: int):
+
+    def create_ipv4_socket(self, host: str, port: int) -> socket.socket:
         """
         Creates a :class:`socket.socket` with the :const:`socket.AF_INET` family and the :const:`socket.SOCK_STREAM` type.
         The socket is also bound to the given host and port.
@@ -568,8 +583,12 @@ class Application(Injectable, metaclass=InjectableMeta):
         if self._reuse_port:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
+        if self.ssl_context:
+            sock = self.ssl_context.wrap_socket(sock, server_side=True)
+
         sock.bind((host, port))
         sock.listen(self._backlog)
+
         return sock
 
     def create_default_ssl_context(self) -> ssl.SSLContext:
@@ -624,7 +643,7 @@ class Application(Injectable, metaclass=InjectableMeta):
         elif isinstance(response, Response):
             if isinstance(response, FileResponse):
                 await response.read()
-                response.file.close()
+                await response.file.close()
 
             resp = response
 
@@ -722,6 +741,13 @@ class Application(Injectable, metaclass=InjectableMeta):
         A list of all views.
         """
         return list(self._views.values())
+
+    @property
+    def routes(self) -> List[Route]:
+        """
+        A list of all routes.
+        """
+        return [route for route in self.router]
 
     @property
     def socket(self) -> socket.socket:
@@ -827,6 +853,9 @@ class Application(Injectable, metaclass=InjectableMeta):
 
             if route._after_request:
                 route._after_request = functools.partial(route._after_request, obj)
+
+            for code, callback in route._status_code_handlers.items():
+                route._status_code_handlers[code] = functools.partial(callback, obj)
 
             for middleware in route.middlewares:
                 middleware.callback = functools.partial(middleware.callback, obj)
@@ -1065,6 +1094,9 @@ class Application(Injectable, metaclass=InjectableMeta):
         if not isinstance(route, (Route, WebsocketRoute)):
             fmt = 'Expected Route or WebsocketRoute but got {0!r} instead'
             raise RegistrationError(fmt.format(route.__class__.__name__))
+
+        if not inspect.iscoroutinefunction(route.callback):
+            raise RegistrationError('Route callbacks must be coroutine functions')
 
         if route in self.router:
             raise RegistrationError('{0!r} is already a route.'.format(route.path))

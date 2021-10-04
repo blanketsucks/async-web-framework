@@ -2,7 +2,6 @@ from .file import File
 from .request import Request
 from typing import Any, List, Optional, Tuple, TypeVar
 
-T = TypeVar('T')
 
 class Disposition:
     header: str = ...

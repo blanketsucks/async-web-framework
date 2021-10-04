@@ -554,7 +554,7 @@ class NetworkAuthenticationRequired(HTTPException):
     Further extensions to the request are required for the server to fulfill it.
     """
 
-def abort(_status: int, *, message: Optional[str]=None, content_type: str='text/html'):
+def abort(_status: int, *, message: Optional[str]=None, content_type: str='text/html') -> HTTPException:
     if not message:
         _status = HTTPStatus(_status) # type: ignore
         message = _status.description
