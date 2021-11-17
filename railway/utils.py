@@ -227,9 +227,9 @@ VALID_METHODS = (
     "DELETE"
 )
 
-def warn(message: str, category: Type[Warning]):
+def warn(message: str, category: Type[Warning], stacklevel: int=4):
     warnings.simplefilter('always', category)
-    warnings.warn(message, category, stacklevel=4)
+    warnings.warn(message, category, stacklevel)
 
     warnings.simplefilter('default', category)
 

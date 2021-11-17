@@ -26,8 +26,9 @@ import json
 
 from .frame import WebsocketFrame, WebsocketOpcode, Data, WebsocketCloseCode
 from .enums import WebsocketState
+from .errors import WebsocketError, WebsocketWarning
 from railway.streams import StreamTransport
-from railway.utils import clear_docstring
+from railway.utils import clear_docstring, warn
 
 __all__ = (
     'ServerWebsocket',
@@ -96,6 +97,12 @@ class ServerWebsocket:
         frame: :class:`~railway.websockets.frame.WebsocketFrame`
             The frame to send.
         """
+        if self.is_closed():
+            raise WebsocketError('websocket is closed')
+
+        if self.should_close() and frame.opcode is not WebsocketOpcode.CLOSE:
+            warn('websocket is closing, sending frame anyway.', WebsocketWarning, stacklevel=5)
+
         data = frame.encode()
         self._set_state(WebsocketState.SENDING)
 
@@ -228,16 +235,28 @@ class ServerWebsocket:
         )
         frame.close_code = code.value
 
-        await self.send_frame(frame)
-        # await self._transport.close()   
+        await self.send_frame(frame) 
+        self._transport.close()
 
         self._set_state(WebsocketState.CLOSED)
         self._closed = True  
+
+    async def wait_closed(self) -> None:
+        """
+        Waits until the websocket is fully closed.
+        """
+        await self._transport.wait_closed()
 
     async def receive(self) -> Data:
         """
         Receives data.
         """
+        if self.is_closed():
+            raise WebsocketError('websocket is closed')
+
+        if self.should_close():
+            warn('websocket is closing, receiving frame anyway.', WebsocketWarning, stacklevel=5)
+
         self._set_state(WebsocketState.RECEIVING)
         frame = await WebsocketFrame.decode(self._transport.receive)
 

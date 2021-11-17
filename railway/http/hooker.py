@@ -112,7 +112,8 @@ class TCPHooker(Hooker):
         if not self.stream:
             return
 
-        await self.stream.close()
+        self.stream.close()
+        await self.stream.wait_closed()
         
         self.connected = False
         self.closed = True
@@ -123,13 +124,13 @@ class WebsocketHooker(TCPHooker):
 
         self._task = None
 
-    async def create_connection(self, host: str, path: str): # type: ignore
+    async def create_connection(self, host: str, path: str):
         await super().create_connection(host)
         ws = await self.handshake(path, host)
         
         return ws
 
-    async def create_ssl_connection(self, host: str, path: str): # type: ignore
+    async def create_ssl_connection(self, host: str, path: str):
         await super().create_ssl_connection(host)
         ws = await self.handshake(path, host)
 
@@ -138,9 +139,9 @@ class WebsocketHooker(TCPHooker):
     def generate_websocket_key(self):
         return base64.b64encode(os.urandom(16))
 
-    def create_websocket(self): # type: ignore
+    def create_websocket(self):
         if not self.stream:
-            return
+            raise RuntimeError('Not connected')
 
         return Websocket(self.stream)
     
@@ -163,7 +164,7 @@ class WebsocketHooker(TCPHooker):
         response = await self.build_response(data=handshake)
 
         self.websocket = self.create_websocket()
-        # await self.verify_handshake(response)
+        await self.verify_handshake(response)
 
         return self.websocket
 
@@ -210,4 +211,4 @@ class WebsocketHooker(TCPHooker):
         if not data:
             data = b''
 
-        return await self.websocket.close(data, code)
+        return await self.websocket.close(data, code=code)

@@ -42,7 +42,10 @@ class AsyncContextManager(Generic[T]):
 
         if isinstance(self._resp, Websocket):
             if not self._resp.is_closed():
+                
                 await self._resp.close(b'')
+                await self._resp.wait_closed()
+
         elif isinstance(self._resp, HTTPResponse):
             if not self._resp._hooker.closed:
                 await self._resp._hooker.close()

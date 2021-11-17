@@ -1,4 +1,3 @@
-
 from railway.errors import RailwayException
 
 __all__ = (
@@ -13,6 +12,11 @@ __all__ = (
 class WebsocketError(RailwayException):
     """
     Base class for all websocket related errors.
+    """
+
+class WebsocketWarning(Warning):
+    """
+    A warning related to websocket operations.
     """
 
 class InvalidWebsocketFrame(WebsocketError):

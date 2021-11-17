@@ -1,4 +1,4 @@
-from enum import IntEnum
+from enum import Enum
 from typing import Any, Optional, Type
 
 from docutils.statemachine import StringList
@@ -86,4 +86,4 @@ class EnumDocumenter(ClassDocumenter):
 
 def setup(app: Sphinx) -> None:
     app.setup_extension('sphinx.ext.autodoc')  # Require autodoc extension
-    app.add_autodocumenter(IntEnumDocumenter)
+    app.add_autodocumenter(EnumDocumenter)

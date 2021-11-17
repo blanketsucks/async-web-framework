@@ -326,11 +326,13 @@ class StreamTransport:
     def get_protocol(self) -> asyncio.BaseProtocol:
         return self._transport.get_protocol()
 
-    async def close(self):
+    def close(self):
         """
         Closes the transport.
         """
         self._writer.close()
+
+    async def wait_closed(self) -> None:
         await self._waiter
 
     def abort(self):
