@@ -122,8 +122,8 @@ class Semaphore(LockMixin):
     async def acquire(self, *, wait: bool=True) -> bool:
         """
         Acquires the semaphore.
-        If ``wait`` is False, and the semaphore is locked, this method returns False immediately,
-        otherwise it waits until the semaphore is released and returns True.
+        If ``wait`` is False and the semaphore is locked, this method returns False immediately.
+        Otherwise it waits until the semaphore is released and returns True.
 
         Parameters
         ----------

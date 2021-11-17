@@ -21,62 +21,80 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-from typing import Any, Tuple, Dict, Coroutine, Callable, Optional
+from __future__ import annotations
+
+from typing import (
+    TYPE_CHECKING, 
+    Any, 
+    Dict, 
+    Coroutine,
+    Callable, 
+    Literal, 
+    Optional, 
+    Tuple, 
+    Type, 
+    TypeVar, 
+    overload
+)
 import struct
 import os
 import json
-import enum
 
-class WebsocketOpcode(enum.IntEnum):
-    CONTINUATION = 0x0
-    TEXT = 0x1
-    BINARY = 0x2
-    CLOSE = 0x8
-    PING = 0x9
-    PONG = 0xA
 
-class WebsocketCloseCode(enum.IntEnum):
-    NORMAL = 1000
-    GOING_AWAY = 1001
-    PROTOCOL_ERROR = 1002
-    UNSUPPORTED = 1003
-    RESERVED = 1004
-    NO_STATUS = 1005
-    ABNORMAL = 1006
-    UNSUPPORTED_PAYLOAD = 1007
-    POLICY_VIOLATION = 1008
-    TOO_LARGE = 1009
-    MANDATORY_EXTENSION = 1010
-    INTERNAL_ERROR = 1011
-    SERVICE_RESTART = 1012
-    TRY_AGAIN_LATER = 1013
-    BAD_GATEWAY = 1014
-    TLS_HANDSHAKE = 1015
+from .enums import WebsocketCloseCode, WebsocketOpcode, VALID_CLOSE_CODES, VALID_OPCODES
+from .errors import (
+    InvalidWebsocketCloseCode,
+    InvalidWebsocketControlFrame,
+    InvalidWebsocketFrame,
+    InvalidWebsocketOpcode,
+    FragmentedControlFrame
+)
+
+if TYPE_CHECKING:
+    Reader = Callable[[int], Coroutine[Any, Any, bytes]]
+    Format = Literal['short', 'longlong', 'head']
+
+    from enum import IntEnum
+    _T = TypeVar('_T', bound=IntEnum)
+
+SHORT = struct.Struct('!H')
+LONGLONG = struct.Struct('!Q')
+HEAD = struct.Struct('!BB')
+
+FORMATS = {
+    'short': SHORT,
+    'longlong': LONGLONG,
+    'head': HEAD
+}
+
+def _try_enum(enum: Type[_T], value: int) -> int:
+    try:
+        return enum(value)
+    except ValueError:
+        return value
 
 __all__ = (
     'Data',
     'WebsocketFrame',
-    'WebsocketCloseCode',
-    'WebsocketOpcode',
 )
 
 class Data:
     """
-    Returned by :meth:`~railway.websockets.websocket.receive`.
+    Returned by :meth:`~railway.websockets.ServerWebsocket.receive`.
 
     Attributes
     -----------
     frame: :class:`~railway.websockets.frame.WebsocketFrame`
         The frame received.
-    raw: :class:`bytearray`
-        The raw data received.
     """
-    def __init__(self, raw: bytearray, frame: 'WebsocketFrame') -> None:
-        self.raw = raw
+    def __init__(self, frame: WebsocketFrame) -> None:
         self.frame = frame
 
+    def __repr__(self) -> str:
+        return f'<Data frame={self.frame}>'
+
     @property
-    def opcode(self) -> WebsocketOpcode:
+    def opcode(self) -> int:
         """
         The opcode of the frame.
         """
@@ -105,120 +123,357 @@ class Data:
 class WebsocketFrame:
     """
     Represents a websocket data frame.
+
+    Parameters
+    -----------
+    data: :class:`bytes`
+        The frame's data.
+    head: :class:`int`
+        The frame's header.
     """
-    SHORT_LENGTH = struct.Struct('!H')
-    LONGLONG_LENGTH = struct.Struct('!Q')
-
-    def __init__(self, *, 
-                opcode: WebsocketOpcode, 
-                fin: bool=True,
-                rsv1: bool=False, 
-                rsv2: bool=False, 
-                rsv3: bool=False,
-                data: bytes):
-
-        self.opcode = opcode
-        self.fin = fin
-        self.rsv1 = rsv1
-        self.rsv2 = rsv2
-        self.rsv3 = rsv3
+    def __init__(self, *, data: bytes, head: int=0):
         self.data = data
 
+        self._head = head
+        self._close_code: Optional[int] = None
+        self._opcode: int = None # type: ignore
+    
     def __repr__(self) -> str:
-        attrs = ('fin', 'rsv1', 'rsv2', 'rsv3', 'opcode')
-        s = ', '.join(f'{name}={getattr(self, name)!r}' for name in attrs)
+        attrs = ('fin', 'rsv1', 'rsv2', 'rsv3')
+        s = ' '.join(f'{name}={getattr(self, name)!r}' for name in attrs)
         return f'<{self.__class__.__name__} {s}>'
+
+    def _get_close_code(self) -> int:
+        data = self.data
+
+        if len(self.data) < 2:
+            raise InvalidWebsocketFrame('Received a close frame but without a close code')
+
+        code, = SHORT.unpack(data[:2])
+        
+        if code not in VALID_CLOSE_CODES:
+            raise InvalidWebsocketCloseCode(code)
+
+        self.data = data[2:]
+        return _try_enum(WebsocketCloseCode, code)
+
+    def _modify_head(self, value: bool, bit: int):
+        if value:
+            self._head |= value << bit
+        else:
+            self._head &= ~(1 << bit)
+
+    @classmethod
+    def create(cls, data: bytes, *, opcode: WebsocketOpcode):
+        """
+        Creates a non-control frame.
+
+        Parameters
+        ----------
+        data: :class:`bytes`
+            The frame's data
+        opcode: :class:`~.WebsocketOpcode`
+            The frame's opcode
+        """
+        self = cls(data=data)
+
+        self.opcode = opcode
+        self.fin = True
+
+        return self
+
+    @classmethod
+    def create_control_frame(cls, data: bytes, *, opcode: WebsocketOpcode):
+        """
+        Creates a control frame.
+
+        Parameters
+        ----------
+        data: :class:`bytes`
+            The frame's data
+        opcode: :class:`~.WebsocketOpcode`
+            The frame's opcode
+        """
+        self = cls.create(data=data, opcode=opcode)
+        self.fin = False
+
+        return self
+
+    @classmethod
+    async def decode(cls, reader: Reader) -> WebsocketFrame:
+        """
+        Decodes a websocket frame.
+
+        Parameters
+        ----------
+        reader: Callable[[int], Coroutine[Any, Any, bytes]]
+            A coroutine function that takes in an integer and returns the data read.
+            The data read will be and must be of the length passed in.
+
+        Raises
+        -------
+        InvalidWebsocketOpcode
+            If the opcode received is not a valid one.
+        InvalidWebsocketFrame
+            If the frame received has reserved bits set to 1 or True.
+        FragmentedControlFrame
+            If the control frame received is fragmented.
+        InvalidWebsocketControlFrame
+            If the control frame received's data length is more than 125.
+        """
+        fbyte, sbyte = await cls.unpack(reader, 2, 'head')
+
+        masked = sbyte & 0x80
+        length = sbyte & 0x7F
+
+        mask = None
+
+        if length == 126:
+            length, = await cls.unpack(reader, 2, 'short')
+        elif length == 127:
+            length, = await cls.unpack(reader, 8, 'longlong')
+
+        if masked:
+            mask = await reader(4)
+
+        data = await reader(length)
+
+        if masked:
+            assert mask is not None, 'Should never happen'
+            data = cls.mask(data, mask)
+
+        opcode = fbyte & 0x0F
+        if opcode not in VALID_OPCODES:
+            raise InvalidWebsocketOpcode(opcode)
+
+        frame = cls(head=fbyte, data=data)
+        if any((frame.rsv1, frame.rsv2, frame.rsv3)):
+            raise InvalidWebsocketFrame('Received a frame with reserved bits set')
+
+        if frame.opcode is WebsocketOpcode.CLOSE:
+            frame.close_code = frame._get_close_code()
+
+        if frame.is_control():
+            if frame.fin:
+                raise FragmentedControlFrame
+
+            if len(frame.data) > 125:
+                raise InvalidWebsocketControlFrame(
+                    'Received a control frame with a payload length of more than 125 bytes'
+                )
+
+        return frame
+
+    @overload
+    @staticmethod
+    async def unpack(reader: Reader, size: int, format: Literal['short', 'longlong']) -> Tuple[int]:
+        ...
+    @overload
+    @staticmethod
+    async def unpack(reader: Reader, size: int, format: Literal['head']) -> Tuple[int, int]:
+        ...
+    @staticmethod
+    async def unpack(reader: Reader, size: int, format: Format) -> Tuple[int, ...]:
+        """
+        Reads data from the reader and unpacks the data.
+        Valid formats are: ``short``, ``longlong``, ``head``.
+
+        Parameters
+        ----------
+        reader: Callable[[int], Coroutine[Any, Any, bytes]]
+            A coroutine function that takes in an integer and returns the data read.
+            The data read will be and must be of the length passed in.
+        size: :class:`int`
+            The size of the data to be read.
+        format: :class:`str`
+            The format to unpack the data with.
+
+        Raises
+        -------
+        ValueError
+            If the format is not valid.
+        """
+        data = await reader(size)
+        struct = FORMATS.get(format)
+        if not struct:
+            raise ValueError(f'Unknown format {format}')
+
+        return struct.unpack(data)
+
+    @staticmethod
+    def pack(data: int, format: Format) -> bytes:
+        """
+        Packs the data into the format.
+        Valid formats are: ``short``, ``longlong``, ``head``.
+
+        Parameters
+        ----------
+        data: :class:`int`
+            The data to be packed.
+        format: :class:`str`
+            The format to pack the data with.
+        
+        Raises
+        -------
+        ValueError
+            If the format is not valid.
+        """
+        struct = FORMATS.get(format)
+        if not struct:
+            raise ValueError(f'Unknown format {format}')
+
+        return struct.pack(data)
 
     @staticmethod
     def mask(data: bytes, mask: bytes) -> bytes:
-        data = bytearray(data)
+        """
+        Masks the data passed in.
 
-        for i in range(len(data)):
-            data[i] ^= mask[i % 4]
+        Parameters
+        ----------
+        data: :class:`bytes`
+            The data to mask.
+        mask: :class:`bytes`
+            The mask to use.
+        """
+        return bytes([data[i] ^ mask[i % 4] for i in range(len(data))])
 
-        return bytes(data)
+    @property
+    def opcode(self) -> int:
+        """
+        The frame's opcode
+        """
+        return _try_enum(WebsocketOpcode, self._head & 0x0F)
+
+    @opcode.setter
+    def opcode(self, value: WebsocketOpcode):
+        self._head |= int(value)
+
+    @property
+    def fin(self) -> bool:
+        """
+        Whether the frame is the final frame in a fragmented message.
+        """
+        return bool(self._head & 0x80)
+
+    @fin.setter
+    def fin(self, value: bool):
+        self._modify_head(value, 7)
+
+    @property
+    def rsv1(self) -> bool:
+        return bool(self._head & 0x40)
+
+    @rsv1.setter
+    def rsv1(self, value: bool):
+        self._modify_head(value, 6)
+
+    @property
+    def rsv2(self) -> bool:
+        return bool(self._head & 0x20)
+
+    @rsv2.setter
+    def rsv2(self, value: bool):
+        self._modify_head(value, 5)
+
+    @property
+    def rsv3(self) -> bool:
+        return bool(self._head & 0x10)
+
+    @rsv3.setter
+    def rsv3(self, value: bool):
+        self._modify_head(value, 4)
+
+    @property
+    def close_code(self) -> Optional[int]:
+        return self._close_code
+
+    @close_code.setter
+    def close_code(self, value: int):
+        self._close_code = value
+
+    def is_control(self) -> bool:
+        """
+        Whether this frame is a control frame or not
+        """
+        return self.opcode > 0x7
+
+    def ensure(self) -> None:
+        """
+        Ensures all the frame's values are valid.
+
+        Raises
+        -------
+        InvalidWebsocketFrame
+            If the frame's reserve bits are set to 1 or True, or when the frame has a close code set
+            but the opcode isn't :attr:`.WebsocketOpCode.CLOSE`.
+        InvalidWebsocketControlFrame
+            If the conntrol frame's data exceeds the 125 bytes in length
+        FragmentedControlFrame
+            If the control frame is fragmented
+        """
+        if any((self.rsv1, self.rsv2, self.rsv3)):
+            raise InvalidWebsocketFrame('Frame reserve bits must be set to False or 0')
+
+        if self.close_code:
+            if self.opcode is not WebsocketOpcode.CLOSE:
+                raise InvalidWebsocketFrame(
+                    'Close code set but opcode is not WebsocketOpcode.CLOSE'
+                )
+        elif self.opcode is WebsocketOpcode.CLOSE and self.close_code is None:
+            raise InvalidWebsocketFrame(
+                'opcode set to WebsocketOpcode.CLOSE but no close code was set'
+            )
+
+        if self.is_control():
+            lenght = len(self.data)
+
+            if lenght > 125:
+                raise InvalidWebsocketControlFrame('Control frames must not exceed 125 bytes in length')
+
+            if self.fin:
+                raise FragmentedControlFrame(False)
 
     def encode(self, masked: bool = False) -> bytearray:
+        """
+        Encodes the frame into a sendable buffer.
+
+        Parameters
+        ----------
+        masked: :class:`bool`
+            Whether to mask the data or not.
+        """
+        self.ensure()
+        data = self.data
+
         buffer = bytearray(2)
-        buffer[0] = ((self.fin << 7)
-                     | (self.rsv1 << 6)
-                     | (self.rsv2 << 5)
-                     | (self.rsv3 << 4)
-                     | self.opcode)
+        length = len(data)
+
+        buffer[0] = self._head
         buffer[1] = masked << 7
 
-        length = len(self.data)
         if length < 126:
             buffer[1] |= length
-        elif length < 2 ** 16:
+        elif length < 0xFFFF:
             buffer[1] |= 126
-            buffer.extend(self.SHORT_LENGTH.pack(length))
+
+            packed = self.pack(length, 'short')
+            buffer.extend(packed)
         else:
             buffer[1] |= 127
-            buffer.extend(self.LONGLONG_LENGTH.pack(length))
+
+            packed = self.pack(length, 'longlong')
+            buffer.extend(packed)
+
+        if self.close_code is not None:
+            data = self.pack(self.close_code, 'short') + data
 
         if masked:
-            mask_bytes = os.urandom(4)
-            buffer.extend(mask_bytes)
-            data = self.mask(self.data, mask_bytes)
+            mask = os.urandom(4)
 
-        else:
-            data = self.data
+            buffer.extend(mask)
+            data = self.mask(data, mask)
 
         buffer.extend(data)
         return buffer
 
-    # from https://github.com/aaugustin/websockets/blob/main/src/websockets/legacy/framing.py#L44
-    # but with some modifications
-
-    @classmethod
-    async def decode(cls, read: Callable[[int], Coroutine[None, None, bytes]], mask: bool=True) -> Tuple[WebsocketOpcode, bytearray, 'WebsocketFrame']:
-        raw = bytearray()
-
-        data = await read(2)
-        raw += data
-
-        head1, head2 = struct.unpack("!BB", data)
-
-        fin = True if head1 & 0b10000000 else False
-        rsv1 = True if head1 & 0b01000000 else False
-
-        rsv2 = True if head1 & 0b00100000 else False
-        rsv3 = True if head1 & 0b00010000 else False
-
-        opcode = WebsocketOpcode(head1 & 0b00001111)
-        length = head2 & 0b01111111
-
-        if length == 126:
-            data = await read(2)
-            raw += data
-
-            length = struct.unpack("!H", data)[0]
-
-        elif length == 127:
-            data = await read(8)
-            raw += data
-
-            length = struct.unpack("!Q", data)[0]
-
-        if mask:
-            mask_bits = await read(4)
-
-        raw += data
-
-        data = await read(length)
-        raw += data
-
-        if mask:
-            data = cls.mask(data, mask_bits) # type: ignore
-
-        frame = cls(
-            opcode=opcode,
-            fin=fin,
-            rsv1=rsv1,
-            rsv2=rsv2,
-            rsv3=rsv3,
-            data=data
-        )
-
-        return opcode, raw, frame

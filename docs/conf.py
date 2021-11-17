@@ -40,7 +40,6 @@ extensions = [
     'sphinxcontrib_trio',
     'sphinx_autodoc_typehints',
     'sphinx_copybutton',
-    'enumbuilder',
 ]
 
 intersphinx_mapping = {

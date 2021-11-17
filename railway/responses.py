@@ -114,7 +114,7 @@ def status(code: int):
     return decorator
 
 class HTTPResponse(Response):
-    _status: Optional[int] = None
+    _status: int
 
     def __init__(self, 
                 body: Any=None, 

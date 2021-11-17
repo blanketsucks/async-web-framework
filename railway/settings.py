@@ -35,15 +35,6 @@ __all__ = (
     'DEFAULT_SETTINGS',
     'settings_from_file',
     'settings_from_env',
-    'VALID_SETTINGS',
-)
-
-VALID_SETTINGS = (
-    'host',
-    'port',
-    'use_ipv6',
-    'ssl_context',
-    'worker_count'
 )
 
 DEFAULT_SETTINGS = {

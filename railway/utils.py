@@ -21,17 +21,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
+from __future__ import annotations
+
 import json
 import warnings
 import functools
 import socket
 import asyncio
-from typing import TYPE_CHECKING, Any, Callable, Iterator, List, Optional, Type, Tuple, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Iterator, List, Optional, Type, Tuple, Union
 
 from ._types import MaybeCoroFunc
 
 if TYPE_CHECKING:
-    from .app import Application
     from .response import Response
 
 __all__ = (
@@ -45,8 +46,6 @@ __all__ = (
     'is_ipv6',
     'is_ipv4',
     'validate_ip',
-    'get_application_instance',
-    'create_unique_application',
     'jsonify',
     'SETTING_ENV_PREFIX',
     'VALID_METHODS',
@@ -58,6 +57,11 @@ LOCALHOST_V6 = '::1'
 def get_union_args(arg: Any) -> Tuple[Type]:
     """
     Gets the union types of a given argument. If the argument isn't an union, it returns a single element tuple.
+
+    Parameters
+    ----------
+    arg: Any
+        The argument to get the union types of.
     """
     origin = getattr(arg, '__origin__', None)
 
@@ -69,6 +73,28 @@ def get_union_args(arg: Any) -> Tuple[Type]:
         return (origin,)
 
     return (arg,)
+
+def get_charset(content_type: str) -> Optional[str]:
+    """
+    Gets the charset from a content type header.
+
+    Parameters
+    ----------
+    content_type: :class:`str`
+        The content type header to get the charset from.
+
+    Returns
+    -------
+    Optional[:class:`str`]
+        The charset, or ``None`` if none was found.
+    """
+    split = content_type.split('; ')
+    if len(split) > 1:
+        _, charset = split[1]
+        return charset.split('=')[1]
+
+    return None
+
 
 def copy_docstring(other: Callable[..., Any]) -> Callable[..., Callable[..., Any]]:
     """
@@ -187,67 +213,6 @@ def validate_ip(ip: str=None, *, ipv6: bool=False) -> str:
             raise ValueError(ret)
 
         return ip
-
-def get_application_instance():
-    """
-    A helper function that returns the application instance.
-    Returns ``None`` if no instance is found.
-
-    Returns
-    ---------
-    Optional[:class:`~.Application`]
-        The application instance.
-    """
-    from .app import Application
-
-    return Application._instance
-
-def create_unique_application(*args, **kwargs):
-    """
-    A helper function that creates a unique application instance.
-
-    Note
-    ----
-    You cannot get the instance created by this function by calling :func:`~.get_application_instance`.
-
-    Example
-    --------
-    .. code-block:: python3
-
-        import railway
-
-        app = railway.Application()
-        instance = railway.get_application_instance()
-
-        print(app is instance) # True
-
-        unique = railway.create_unique_application()
-        instance = railway.get_application_instance()
-
-        print(unique is instance) # False
-        print(unique is app) # False
-
-    Parameters
-    ----------
-    *args: Any
-        Positional arguments to pass to the application constructor.
-    **kwargs: Any
-        Keyword arguments to pass to the application constructor.
-
-    Returns
-    -------
-    :class:`~.Application`
-        The unique application that was created.
-    """
-    from .app import Application
-
-    instance = Application._instance
-    Application._instance = None
-
-    app = Application(*args, **kwargs)
-
-    Application._instance = instance
-    return app
 
 
 SETTING_ENV_PREFIX = 'railway_'

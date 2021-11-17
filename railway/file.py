@@ -21,7 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-from typing import Any, AsyncIterator, List, Union, Optional
+from typing import IO, Any, AsyncIterator, List, Union, Optional
 import pathlib
 import io
 
@@ -47,6 +47,8 @@ class File:
     fd: :class:`io.BufferedReader`
         The file object.
     """
+    fd: IO[bytes]
+    
     def __init__(self, fp: Union[str, pathlib.Path, io.BytesIO, bytes, bytearray, memoryview], *, filename: Optional[str]=None) -> None:
         if isinstance(fp, (bytes, bytearray, memoryview)):
             fp = io.BytesIO(fp)

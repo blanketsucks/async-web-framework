@@ -181,6 +181,7 @@ TestClient
 .. autoclass:: TestClient
     :members:
 
+
 Routers
 ---------------------
 
@@ -242,11 +243,6 @@ Settings helpers
 Responses
 -----------------------
 
-HTTPStatus
-~~~~~~~~~~~~
-
-.. autoenum:: HTTPStatus
-
 Response
 ~~~~~~~~~~~~~~~~~~
 
@@ -273,8 +269,10 @@ FileResponse
 .. autoclass:: FileResponse
     :members:
 
-The following classes and their descriptions are taken from https://developer.mozilla.org/en-US/docs/Web/HTTP/Status.
+Status Code Responses
+------------------------
 
+The following classes and their descriptions are taken from https://developer.mozilla.org/en-US/docs/Web/HTTP/Status.
 
 Continue
 ~~~~~~~~~~~~~~~~~~
@@ -426,238 +424,238 @@ PermanentRedirect
 BadRequest
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: BadRequest
+.. autoexception:: BadRequest
     :members:
 
 
 Unauthorized
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: Unauthorized
+.. autoexception:: Unauthorized
     :members:
 
 
 PaymentRequired
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: PaymentRequired
+.. autoexception:: PaymentRequired
     :members:
 
 
 Forbidden
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: Forbidden
+.. autoexception:: Forbidden
     :members:
 
 
 NotFound
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: EarlyHints
+.. autoexception:: EarlyHints
     :members:
 
 
 MethodNotAllowed
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: MethodNotAllowed
+.. autoexception:: MethodNotAllowed
     :members:
 
 
 NotAcceptable
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: NotAcceptable
+.. autoexception:: NotAcceptable
     :members:
 
 
 ProxyAuthenticationRequired
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: ProxyAuthenticationRequired
+.. autoexception:: ProxyAuthenticationRequired
     :members:
 
 
 RequestTimeout
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: RequestTimeout
+.. autoexception:: RequestTimeout
     :members:
 
 
 Conflict
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: Conflict
+.. autoexception:: Conflict
     :members:
 
 
 Gone
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: Gone
+.. autoexception:: Gone
     :members:
 
 
 LengthRequired
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: LengthRequired
+.. autoexception:: LengthRequired
     :members:
 
 
 PayloadTooLarge
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: PayloadTooLarge
+.. autoexception:: PayloadTooLarge
     :members:
 
 
 URITooLong
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: URITooLong
+.. autoexception:: URITooLong
     :members:
 
 
 UnsupportedMediaType
 ~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: UnsupportedMediaType
+.. autoexception:: UnsupportedMediaType
     :members:
 
 
 RangeNotSatisfiable
 ~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: RangeNotSatisfiable
+.. autoexception:: RangeNotSatisfiable
     :members:
 
 
 ExpectationFailed
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: ExpectationFailed
+.. autoexception:: ExpectationFailed
     :members:
 
 
 ImATeapot
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: ImATeapot
+.. autoexception:: ImATeapot
     :members:
 
 
 MisdirectedRequest
 ~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: MisdirectedRequest
+.. autoexception:: MisdirectedRequest
     :members:
 
 
 UnprocessableEntity
 ~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: UnprocessableEntity
+.. autoexception:: UnprocessableEntity
     :members:
 
 
 Locked
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: Locked
+.. autoexception:: Locked
     :members:
 
 
 FailedDependency
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: FailedDependency
+.. autoexception:: FailedDependency
     :members:
 
 
 TooEarly
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: TooEarly
+.. autoexception:: TooEarly
     :members:
 
 
 UpgradeRequired
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: UpgradeRequired
+.. autoexception:: UpgradeRequired
     :members:
 
 
 PreconditionRequired
 ~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: PreconditionRequired
+.. autoexception:: PreconditionRequired
     :members:
 
 
 TooManyRequests
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: TooManyRequests
+.. autoexception:: TooManyRequests
     :members:
 
 
 RequestHeaderFieldsTooLarge
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: RequestHeaderFieldsTooLarge
+.. autoexception:: RequestHeaderFieldsTooLarge
     :members:
 
 
 UnavailableForLegalReasons
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: UnavailableForLegalReasons
+.. autoexception:: UnavailableForLegalReasons
     :members:
 
 
 InternalServerError
 ~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: InternalServerError
+.. autoexception:: InternalServerError
     :members:
 
 
 NotImplemented
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: NotImplemented
+.. autoexception:: NotImplemented
     :members:
 
 
 BadGateway
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: BadGateway
+.. autoexception:: BadGateway
     :members:
 
 
 ServiceUnavailable
 ~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: ServiceUnavailable
+.. autoexception:: ServiceUnavailable
     :members:
 
 
 GatewayTimeout
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: GatewayTimeout
+.. autoexception:: GatewayTimeout
     :members:
 
 
 HTTPVersionNotSupported
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: HTTPVersionNotSupported
+.. autoexception:: HTTPVersionNotSupported
     :members:
 
 
@@ -665,35 +663,35 @@ HTTPVersionNotSupported
 VariantAlsoNegotiates
 ~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: VariantAlsoNegotiates
+.. autoexception:: VariantAlsoNegotiates
     :members:
 
 
 InsufficientStorage
 ~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: InsufficientStorage
+.. autoexception:: InsufficientStorage
     :members:
 
 
 LoopDetected
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: LoopDetected
+.. autoexception:: LoopDetected
     :members:
 
 
 NotExtended
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: NotExtended
+.. autoexception:: NotExtended
     :members:
 
 
 NetworkAuthenticationRequired
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: NetworkAuthenticationRequired
+.. autoexception:: NetworkAuthenticationRequired
     :members:
 
 Requests
@@ -979,8 +977,6 @@ Utility functions
 .. autofunction:: is_ipv4
 .. autofunction:: validate_ip
 .. autofunction:: jsonify
-.. autofunction:: get_application_instance
-.. autofunction:: create_unique_application
 
 
 Extensions 

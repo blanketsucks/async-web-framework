@@ -35,10 +35,10 @@ class ResourceMeta(InjectableMeta):
     """
     A meta class for resources.
     """
-    def __new__(cls, name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any], **kwargs):
-        attrs['__resource_name__'] = kwargs.get('name', name)
+    def __new__(cls, cls_name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any], **kwargs):
+        attrs['__resource_name__'] = kwargs.get('name', cls_name)
 
-        self = super().__new__(cls, name, bases, attrs)
+        self = super().__new__(cls, cls_name, bases, attrs)
         return self
 
 class Resource(Injectable, metaclass=ResourceMeta):
@@ -85,7 +85,7 @@ class Resource(Injectable, metaclass=ResourceMeta):
         """
         The list of registered routes in this resource.
         """
-        return self.__routes__
+        return list(self.__routes__.values())
 
     def middlewares(self) -> List[Middleware]:
         """

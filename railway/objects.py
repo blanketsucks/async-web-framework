@@ -34,6 +34,7 @@ from .locks import _MaybeSemaphore, Semaphore
 
 if TYPE_CHECKING:
     from .router import Router
+    from .injectables import Injectable
 
 __all__ = (
     'Object',
@@ -47,6 +48,12 @@ __all__ = (
     'listener',
     'middleware',
 )
+
+async def _call(func: CoroFunc, parent: Optional[Injectable], *args: Any, **kwargs: Any):
+    if parent:
+        return await func(parent, *args, **kwargs)
+
+    return await func(*args, **kwargs)
 
 class Object:
     """
@@ -120,12 +127,13 @@ class Route(Object):
     callback:  Callable[..., Coroutine[Any, Any, Any]]
         The coroutine function used by the route.
     """
-    def __init__(self, path: str, method: str, callback: MaybeCoroFunc, *, router: Optional['Router']) -> None:
+    def __init__(self, path: str, method: str, callback: CoroFunc, *, router: Optional['Router']) -> None:
         self._router = router
 
         self.path: str = path
         self.method: str = method
-        self.callback: MaybeCoroFunc = callback
+        self.callback = callback
+        self.parent: Optional[Injectable] = None
 
         self._error_handler = None
         self._status_code_handlers: Dict[int, Callable[[Request, HTTPException, Route], Coro]] = {}
@@ -137,16 +145,19 @@ class Route(Object):
         if isinstance(exc, HTTPException):
             callback = self._status_code_handlers.get(exc.status)
             if callback:
-                response = await callback(request, exc, self)
+                response = await _call(callback, self.parent, request, exc, self)
                 await request.send(response)
 
                 return True
 
         if self._error_handler:
-            await self._error_handler(request, exc, self)
+            await _call(self._error_handler, self.parent, request, exc, self)
             return True
 
         return False
+
+    def is_websocket(self) -> bool:
+        return isinstance(self, WebsocketRoute)
 
     @property
     def signature(self) -> inspect.Signature:
@@ -403,7 +414,7 @@ class Route(Object):
 
     async def __call__(self, *args: Any, **kwds: Any) -> Any:
         async with self._limiter:
-            return await super().__call__(*args, **kwds)
+            return await _call(self.callback, self.parent, *args, **kwds)
 
     def __repr__(self) -> str:
         return '<Route path={0.path!r} method={0.method!r}>'.format(self)
@@ -427,7 +438,7 @@ class Middleware(Object):
         The coroutine(?) function used by the middleware.
     """
     def __init__(self, callback: CoroFunc, route: Optional[Route]=None, router: Optional['Router']=None) -> None:
-        self.callback: CoroFunc = callback
+        self.callback = callback
 
         self._router = router
         self._route = route
@@ -484,7 +495,7 @@ class Middleware(Object):
         Detaches the middleware from the router.
         """
         if self._route:
-            self._route.remove_middleware(self.callback)
+            self._route.remove_middleware(self)
             self._route = None
 
             if self._router:

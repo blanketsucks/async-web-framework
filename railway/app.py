@@ -24,7 +24,7 @@ SOFTWARE.
 import functools
 import sys
 import ssl
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 import pathlib
 import re
 import inspect
@@ -62,34 +62,10 @@ __all__ = (
     'Application',
 )
 
-class _SingletonMeta(type):
-    _instance = None
 
-    def __call__(cls, *args: Any, **kwds: Any) -> Any:
-        if not cls._instance:
-            cls._instance = super().__call__(*args, **kwds)
-
-        return cls._instance
-
-class Application(metaclass=_SingletonMeta):
+class Application:
     """
     A class respreseting an ASGI application.
-
-    The application also supports usage as a context manager.
-
-    Example
-    -------
-    .. code-block:: python3
-
-        import railway
-
-        app = railway.Application()
-
-        async def main():
-            async with app:
-                # do fancy stuff
-
-        app.loop.run_until_complete(main())
 
     Parameters
     ----------
@@ -145,16 +121,16 @@ class Application(metaclass=_SingletonMeta):
 
     Raises
     ------
-    RuntimeError:
-        If ``ipv6`` was specified and the system does not support it.
-        If ``sock`` was specified and the socket does not have ``SO_REUSEADDR`` enabled.
-    TypeError:
-        If ``port`` is not a valid integer. This can from either the constructor or the settings.
-        If ``worker_count`` is not a valid integer. |br|
-        If ``sock`` was specified and it is not a valid :class:`socket.socket` instance.
-    ValueError:
-        If ``host`` is not a valid IP. This can from either the constructor or the settings.
-        If ``worker_count`` is an integer less than 0.
+    RuntimeError
+        If ``ipv6`` was specified and the system does not support it,
+        or ``sock`` was specified and the socket does not have ``SO_REUSEADDR`` enabled.
+    TypeError
+        If ``port`` is not a valid integer. This can from either the constructor or the settings,
+        if ``worker_count`` is not a valid integer, or
+        if ``sock`` was specified and it is not a valid :class:`socket.socket` instance.
+    ValueError
+        If ``host`` is not a valid IP. This can from either the constructor or the settings, or
+        if ``worker_count`` is an integer less than 0.
 
     Attributes
     -----------
@@ -175,13 +151,6 @@ class Application(metaclass=_SingletonMeta):
     cookie_session_callback: Callable[[:class:`~railway.request.Request`, :class:`~railway.response.Response`], :class:`str`]
         A callback that gets called whenever there is a need to generate a cookie header value for responses.
     """
-    WILDCARD_METHODS = [
-        'GET',
-        'POST',
-        'PUT',
-        'DELETE',
-    ]
-
     def __init__(
         self,
         host: Optional[str]=None,
@@ -258,8 +227,9 @@ class Application(metaclass=_SingletonMeta):
         self._websocket_tasks: List[asyncio.Task[Any]] = []
         self._worker_tasks: List[asyncio.Task[None]] = []
         self._status_code_handlers: Dict[int, Callable[[Request, HTTPException, Union[PartialRoute, Route]], Coro]] = {}
-        self._loop = loop or compat.get_event_loop()
+        self._loop = self._create_loop(loop)
         self._closed = False
+        self._lifespan_tasks: List[AsyncGenerator[Any, Any]] = []
         self._reuse_host = reuse_host
         self._reuse_port = reuse_port
 
@@ -310,7 +280,7 @@ class Application(metaclass=_SingletonMeta):
         return ' '.join(values) + '>'
 
     async def __aenter__(self) -> 'Application':
-        self.start()
+        await self.start()
         return self
 
     async def __aexit__(self, *args):
@@ -318,6 +288,27 @@ class Application(metaclass=_SingletonMeta):
 
     def __getitem__(self, item: str):
         return getattr(self, item)
+
+    def _create_loop(self, loop: Optional[asyncio.AbstractEventLoop]) -> asyncio.AbstractEventLoop:
+        if loop is None:
+            try:
+                return compat.get_running_loop()
+            except RuntimeError:
+                pass
+
+            loop = compat.new_event_loop()
+            compat.set_event_loop(loop)
+
+        return loop
+
+    async def _safe_anext(self, gen: AsyncGenerator[Any, Any]) -> None:
+        try:
+            await gen.__anext__()
+        except StopAsyncIteration:
+            try:
+                self._lifespan_tasks.remove(gen)
+            except ValueError:
+                pass
 
     def _verify_settings(self):
         settings = self.settings
@@ -347,9 +338,46 @@ class Application(metaclass=_SingletonMeta):
     def _log(self, message: str):
         log.info(message)
 
-    def _build_url(self, path: str, is_websocket: bool=False) -> URL:
-        if path not in self.paths:
-            raise ValueError(f'Path {path!r} does not exist')
+    def _find_url_from_views(self, path: str):
+        view = self.get_view(path)
+        if not view:
+            return None
+
+        return view.url_route
+
+    def _find_url_from_resources(self, path: str):
+        split = path.split('.', 1)
+        if not len(split) == 2:
+            return None
+
+        name, path = split
+        resource = self.get_resource(name)
+
+        if not resource:
+            raise ValueError(f'Resource {name!r} not found')
+
+        path = f'/{path}' if not path.startswith('/') else path
+        route = resource.__routes__.get(path)
+        if not route:
+            raise ValueError(f'Route {path!r} not found for {name!r} resource')
+
+        return route.path
+
+    def _find_path(self, path: str):
+        if route := self._find_url_from_views(path):
+            return route
+
+        if route := self._find_url_from_resources(path):
+            return route
+
+        return path
+        
+    def _build_url(self, path: str, is_websocket: bool=False, ignore: bool=False) -> URL:
+        real = self._find_path(path)
+
+        if real not in self.paths:
+            if not ignore:
+                raise ValueError(f'Path {path!r} does not exist')
 
         scheme = 'ws' if is_websocket else 'http'
         if self.is_ssl():
@@ -360,7 +388,7 @@ class Application(metaclass=_SingletonMeta):
         else:
             base = f'{scheme}://{self.host}:{self.port}'
 
-        return URL(base + path)
+        return URL(base + real)
 
     def _add_workers(self):
         workers: Dict[int, Worker] = {}
@@ -368,7 +396,7 @@ class Application(metaclass=_SingletonMeta):
         for i in range(self.worker_count):
             worker = Worker(self, i, self._max_pending_connections)
             workers[worker.id] = worker
-        
+
         return workers
 
     def _ensure_websockets(self):
@@ -378,33 +406,61 @@ class Application(metaclass=_SingletonMeta):
 
     def _convert(self, route: Route, query: Dict[str, Any], request: 'Request') -> Dict[str, Any]:
         kwargs: Dict[str, Any] = {}
-        params = route.signature.parameters
+        params = iter(route.signature.parameters.items())
 
-        for key, value in params.items():
+        try:
+            next(params)
+        except StopIteration:
+            if not route.parent:
+                raise RuntimeError(f"Route {route!r} missing request argument")
+
+            raise RuntimeError(f"Route {route!r} missing self argument")
+
+        if route.parent:
+            try:
+                next(params)
+            except StopIteration:
+                raise RuntimeError(f"Route {route!r} missing request argument")
+
+        if route.is_websocket():
+            try:
+                next(params)
+            except StopIteration:
+                raise RuntimeError(f"Route {route!r} missing websocket argument")
+
+        for key, value in params:
             param = query.get(key)
 
             if param:
                 if value.annotation is inspect.Signature.empty:
                     kwargs[key] = param
                 else:
-                    try:
-                        param = value.annotation(param)
-                    except ValueError:
-                        fut = 'Failed conversion to {0!r} for parameter {1!r}.'.format(value.annotation, key)
-                        raise FailedConversion(fut) from None
+                    for annotation in utils.get_union_args(value.annotation):
+                        try:
+                            param = annotation(param)
+                        except ValueError:
+                            pass
+                        else:
+                            kwargs[key] = param
+                            break
                     else:
-                        kwargs[key] = param
+                        fut = 'Failed conversion for parameter {0!r}.'.format(key)
+                        raise FailedConversion(fut) from None
 
             else:
-                if issubclass(value.annotation, Model):
-                    try:
-                        data = request.json()
-                        model = value.annotation.from_json(data)
-                    except (IncompatibleType, MissingField, json.JSONDecodeError):
-                        fut = 'Failed conversion to {0!r} for parameter {1!r}.'.format(value.annotation, key)
-                        raise FailedConversion(fut) from None
-
-                    kwargs[key] = model
+                for annotation in utils.get_union_args(value.annotation):
+                    if issubclass(value.annotation, Model):
+                        try:
+                            data = request.json()
+                            model = value.annotation.from_json(data)
+                        except (IncompatibleType, MissingField, json.JSONDecodeError):
+                            pass
+                        else:
+                            kwargs[key] = model
+                            break
+                else:
+                    fut = 'Failed conversion for parameter {0!r}.'.format(key)
+                    raise FailedConversion(fut)
 
         return kwargs
 
@@ -425,7 +481,7 @@ class Application(metaclass=_SingletonMeta):
 
     def _validate_status_code(self, code: int):
         if 300 <= code <= 399:
-            ret = 'Redirect status codes cannot be returned, use Request.redirect instead, ' \
+            ret = 'Redirect status codes cannot be returned. Use Request.redirect instead ' \
                 'or you could return an instance of URL accompanied by the redirect status code.'
             raise ValueError(ret)
 
@@ -562,7 +618,6 @@ class Application(metaclass=_SingletonMeta):
 
         return sock
 
-
     def create_ipv4_socket(self, host: str, port: int) -> socket.socket:
         """
         Creates a :class:`socket.socket` with the :const:`socket.AF_INET` family and the :const:`socket.SOCK_STREAM` type.
@@ -694,6 +749,10 @@ class Application(metaclass=_SingletonMeta):
         return response
 
     @property
+    def url(self) -> URL:
+        return self._build_url('/', ignore=True)
+
+    @property
     def reuse_host(self) -> bool:
         """
         Whether to reuse the host.
@@ -768,10 +827,7 @@ class Application(metaclass=_SingletonMeta):
         """
         A list of all listeners.
         """
-        listeners = []
-        listeners.extend(*self._listeners.values())
-
-        return listeners
+        return list(*self._listeners.values())
 
     @property
     def resources(self) -> List[Resource]:
@@ -823,10 +879,7 @@ class Application(metaclass=_SingletonMeta):
             Whether the path is a websocket path.
         **kwargs: 
             Additional arguments to build the URL.
-        """
-        if path[0] != '/':
-            path = '/' + path
-          
+        """ 
         url = self._build_url(path.format(**kwargs), is_websocket=is_websocket)
         return url
 
@@ -848,19 +901,10 @@ class Application(metaclass=_SingletonMeta):
         if not isinstance(obj, Injectable):
             raise TypeError('obj must be an Injectable')
 
-        for route in obj.__routes__:
-            route.callback = functools.partial(route.callback, obj)
-
-            if route._after_request:
-                route._after_request = functools.partial(route._after_request, obj)
-
-            for code, callback in route._status_code_handlers.items():
-                route._status_code_handlers[code] = functools.partial(callback, obj)
-
-            for middleware in route.middlewares:
-                middleware.callback = functools.partial(middleware.callback, obj)
-
+        for route in obj.__routes__.values():
             route._router = self.router
+            route.parent = obj
+
             self.add_route(route)
 
         for listener in obj.__listeners__:
@@ -868,8 +912,7 @@ class Application(metaclass=_SingletonMeta):
             self.add_event_listener(listener.callback, listener.event)
         
         for middleware in obj.__middlewares__:
-            middleware.callback = functools.partial(middleware.callback, obj)
-            self.add_middleware(middleware.callback)
+            self.add_middleware(getattr(obj, middleware.callback.__name__))
 
         return self
 
@@ -890,7 +933,7 @@ class Application(metaclass=_SingletonMeta):
         if not isinstance(obj, Injectable):
             raise TypeError('obj must be an Injectable')
 
-        for route in obj.__routes__:
+        for route in obj.__routes__.values():
             self.remove_route(route)
 
         for listener in obj.__listeners__:
@@ -959,10 +1002,22 @@ class Application(metaclass=_SingletonMeta):
         self._workers[worker.id] = worker
         return worker
 
-    def start(self):
+    async def wait_until_ready(self) -> None:
+        """
+        Waits until the application is ready.
+        """
+        await asyncio.gather(*[worker.wait_until_ready() for worker in self.workers])
+
+    async def start(self):
         """
         Starts the application.
         """
+        if self.is_serving():
+            raise RuntimeError('Application is already serving requests')
+
+        if self.is_closed():
+            raise RuntimeError('Application is closed')
+
         loop = self.loop
 
         if not self.workers:
@@ -972,6 +1027,11 @@ class Application(metaclass=_SingletonMeta):
             task = loop.create_task(worker.run(), name=f'Worker-{worker.id}')
             self._worker_tasks.append(task)
 
+        await self.wait_until_ready()
+
+        for generator in self._lifespan_tasks:
+            await self._safe_anext(generator)
+
         self.dispatch('startup')
 
     def run(self):
@@ -979,7 +1039,7 @@ class Application(metaclass=_SingletonMeta):
         Starts the application but blocks until the application is closed.
         """
         loop = self.loop
-        self.start()
+        self.loop.run_until_complete(self.start())
 
         try:
             loop.run_forever()
@@ -993,16 +1053,47 @@ class Application(metaclass=_SingletonMeta):
         """
         Closes the application.
         """
+        if not self.is_serving():
+            raise RuntimeError('Application is not running')
+        
+        if self.is_closed():
+            raise RuntimeError('Application is already closed')
+
         for task in self._worker_tasks:
             task.cancel()
 
         for worker in self.workers:
             await worker.stop()
 
+        for generator in self._lifespan_tasks:
+            await self._safe_anext(generator)
+
+        self.clear()
         self._closed = True
 
         self.dispatch('shutdown')
         log.info(f'[Application] Closed application.')
+
+    def clear(self) -> None:
+        """
+        Clears the application's internal state.
+        """
+        self._workers.clear()
+        self._worker_tasks.clear()
+        self._listeners.clear()
+        self._middlewares.clear()
+        self._lifespan_tasks.clear()
+
+        self.router.routes.clear()
+
+    def lifespan(self, callback: Callable[[], AsyncGenerator[Any, Any]]):
+        if not inspect.isasyncgenfunction(callback):
+            raise RegistrationError('Lifespan tasks must be async generators')
+
+        generator = callback()
+        self._lifespan_tasks.append(generator)
+
+        return callback
 
     def websocket(self, path: str) -> Callable[[CoroFunc], WebsocketRoute]:
         """
@@ -1055,25 +1146,12 @@ class Application(metaclass=_SingletonMeta):
             async def index(request: railway.Request):
                 return 'Hello, world!'
 
-        Note
-        -----
-        You can also pass in the ``method`` as ``*``, this will register a route to accept a list of pre-defined
-        methods which default to ``GET``, ``POST``, ``PUT`` and ``DELETE``.
-        You can edit these method by editing the ``WILDCARD_METHODS`` class variable.
-
         """
         actual = method or 'GET'
 
         def decorator(func: CoroFunc) -> Route:
-            if actual == '*':
-                for method in self.WILDCARD_METHODS:
-                    route = Route(path, method, func, router=self.router)
-                    self.add_route(route)
-
-                route = Route(path, '*', func, router=self.router)
-            else:
-                route = Route(path, actual, func, router=self.router)
-                self.add_route(route)
+            route = Route(path, actual, func, router=self.router)
+            self.add_route(route)
 
             return route
         return decorator

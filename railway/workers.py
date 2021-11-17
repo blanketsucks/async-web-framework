@@ -79,6 +79,7 @@ class Worker:
 
         self.current_task = None
         self._working = False
+        self._ready = asyncio.Event()
         self.server = None
         self.max_pending_connections = max_pending_connections
         self.connection_timeout = connection_timeout
@@ -120,6 +121,12 @@ class Worker:
         """
         return self.server is not None and self.server.is_serving()
 
+    async def wait_until_ready(self):
+        """
+        Waits until the worker is fully ready to serve requests.
+        """
+        await self._ready.wait()
+
     async def start(self):
         """
         Starts the worker.
@@ -148,6 +155,7 @@ class Worker:
             return
 
         log.info(f'[Worker-{self.id}] Started serving.')
+        self._ready.set()
 
         while True:
             connection = await self.server.accept()
@@ -167,8 +175,11 @@ class Worker:
             return
 
         self.ensure_websockets()
+        
         await self.server.close()
+        self.server = None
 
+        self._ready.clear()
         self.app.dispatch('worker_shutdown', self)
         log.info(f'[Worker-{self.id}] Stopped serving.')
 

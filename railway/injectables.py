@@ -21,9 +21,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-from typing import Tuple, Any, Dict, Type, List
+from typing import Tuple, Any, Dict, Type, List, TYPE_CHECKING
 
 from .objects import Route, Middleware, Listener
+
+if TYPE_CHECKING:
+    from .app import Application
 
 __all__ = (
     'InjectableMeta',
@@ -34,35 +37,39 @@ class InjectableMeta(type):
     """
     A meta class for injectable classes.
     """
-    __routes__: List[Route]
+    __routes__: Dict[str, Route]
     __listeners__: List[Listener]
     __middlewares__: List[Middleware]
+    __url_prefix__: str
 
     def __new__(cls, name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any], **kwargs):
-        routes = []
+        routes: Dict[str, Route] = {}
         listeners = []
         middlewares = []
 
+        url_prefix = kwargs.get('url_prefix', '')
         self = super().__new__(cls, name, bases, attrs, **kwargs)
 
         for base in reversed(self.__mro__):
             for elem, value in base.__dict__.items():
                 if isinstance(value, Route):
-                    routes.append(value)
+                    path = url_prefix + value.path
+                    routes[path] = value
 
                 elif isinstance(value, Middleware):
                     middlewares.append(value)
 
                 elif isinstance(value, Listener):
-                    listeners.append(value)           
+                    listeners.append(value)
 
+        self.__url_prefix__ = url_prefix
         self.__routes__ = routes
         self.__listeners__ = listeners
         self.__middlewares__ = middlewares
 
         return self
 
-class Injectable:
+class Injectable(metaclass=InjectableMeta):
     """
     A base class for injectable classes.
 
@@ -92,6 +99,9 @@ class Injectable:
         app.inject(MyInjectable())
         
     """
-    __routes__: List[Route]
+    __routes__: Dict[str, Route]
     __listeners__: List[Listener]
     __middlewares__: List[Middleware]
+    __url_prefix__: str
+
+

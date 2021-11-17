@@ -23,14 +23,14 @@ SOFTWARE.
 """
 from __future__ import annotations
 import json
-from typing import TYPE_CHECKING, Union, Dict, Any, Optional, Tuple, List, Type
+from typing import TYPE_CHECKING, Generic, TypeVar, Union, Dict, Any, Optional, Tuple, List, Type
 import urllib.parse
 import datetime
 
+from .datastructures import URL, Headers
 from .response import Response
 from .utils import find_headers
 from .cookies import CookieJar
-from .datastructures import URL
 from .sessions import CookieSession
 from .responses import Redirection, redirects
 from .formdata import FormData
@@ -42,11 +42,13 @@ if TYPE_CHECKING:
     from .workers import Worker
     from .app import Application
 
+AppT = TypeVar('AppT', bound='Application')
+
 __all__ = (
     'Request',
 )
 
-class Request:
+class Request(Generic[AppT]):
     """
     A request that is sent to the server.
 
@@ -79,7 +81,7 @@ class Request:
                 headers: Dict[str, str],
                 version: str,
                 body: bytes,
-                app: Application,
+                app: AppT,
                 connection: ClientConnection,
                 worker: Worker,
                 created_at: datetime.datetime):
@@ -91,12 +93,12 @@ class Request:
         self.method: str = method
         self.connection = connection
         self.worker = worker
-        self.headers: Dict[str, str] = headers
+        self.headers = headers
         self.route: Optional[Union[Route, WebsocketRoute]] = None
         self.created_at: datetime.datetime = created_at
 
     async def send(self, 
-        response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, Any], File, Response, URL, Any],
+        response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, ...], File, Response, URL, Any],
         *,
         convert: bool=True
     ) -> None:
@@ -139,14 +141,14 @@ class Request:
         return self.connection.is_closed()
 
     @property
-    def app(self) -> 'Application':
+    def app(self) -> AppT:
         """
         The application.
         """
         return self._app
 
     @property
-    def url(self) -> URL:
+    def url(self):
         """
         The URL of the request.
         """
@@ -161,7 +163,7 @@ class Request:
         self._cookies = {
             cookie.name: cookie.value for cookie in jar
         }
-
+        
         return self._cookies
 
     @property
@@ -177,27 +179,6 @@ class Request:
         The cookie session of the request.
         """
         return CookieSession.from_request(self)
-
-    @property
-    def user_agent(self) -> Optional[str]:
-        """
-        The user agent of the request.
-        """
-        return self.headers.get('User-Agent')
-
-    @property
-    def content_type(self) -> Optional[str]:
-        """
-        The content type of the request.
-        """
-        return self.headers.get('Content-Type')
-
-    @property
-    def host(self) -> Optional[str]:
-        """
-        The host of the request.
-        """
-        return self.headers.get('Host')
 
     @property
     def query(self) -> Dict[str, str]:
@@ -220,7 +201,15 @@ class Request:
         """
         return self.connection.sockname[0]
 
-    def read(self):
+    def read(self) -> bytes:
+        """
+        Reads the body of the request.
+
+        Returns
+        -------
+        :class:`bytes`
+            The body of the request as bytes.
+        """
         return self._body
 
     def text(self) -> str:
@@ -295,7 +284,7 @@ class Request:
         line, = next(hdrs)
 
         parts = line.split(' ')
-        headers: Dict[str, Any] = dict(hdrs) # type: ignore
+        headers = dict(hdrs) # type: ignore
         
         method = parts[0]
         version = parts[2]

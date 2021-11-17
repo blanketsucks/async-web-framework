@@ -316,7 +316,7 @@ class StreamTransport:
         self._reader = StreamReader()
 
         self.loop = self._reader.loop
-    
+
 
     @utils.copy_docstring(StreamWriter.get_extra_info)
     def get_extra_info(self, name: str, default: Any=None) -> Any:
@@ -388,15 +388,15 @@ class StreamProtocol(asyncio.Protocol):
     def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
         self.loop = loop
 
-        self.transport = None
-        self.waiter = None
+        self.transport: Optional[StreamTransport] = None
+        self.waiter: Optional[asyncio.Future] = None
 
     def __call__(self, *args: Any, **kwds: Any) -> Any:
         return self
 
-    def connection_made(self, transport: asyncio.Transport) -> None:
-        self.waiter = self.loop.create_future()
-        self.transport = StreamTransport(transport, self.waiter)
+    def connection_made(self, transport: Any) -> None:
+        self.waiter = waiter = self.loop.create_future()
+        self.transport = StreamTransport(transport, waiter)
     
     def connection_lost(self, exc: Optional[BaseException]) -> None:
         if self.waiter:

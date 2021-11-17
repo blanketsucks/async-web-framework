@@ -43,6 +43,7 @@ class ViewMeta(type):
     
     def __new__(cls, name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any], **kwargs: Any):
         attrs['__url_route__'] = kwargs.get('path', '')
+        attrs['__routes__'] = []
 
         self = super().__new__(cls, name, bases, attrs)
         view_routes: List[CoroFunc] = []

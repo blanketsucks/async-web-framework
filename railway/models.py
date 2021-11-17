@@ -101,12 +101,12 @@ def _make_init(fields: Tuple[Field, ...], defaults: Dict[str, Any]) -> str:
         default = defaults.get(field.name, _default)
         names.append(field.name)
 
-        actual = [type.__name__ for type in field.types]
+        types = [type.__name__ for type in field.types]
 
-        if len(actual) == 1:
-            annotation = actual[0]
+        if len(types) == 1:
+            annotation = types[0]
         else:
-            annotation = f'typing.Union[{", ".join(actual)}]'
+            annotation = f'typing.Union[{", ".join(types)}]'
 
         if isinstance(default, _Default):
             args.append(f'{field.name}: {annotation}')
@@ -123,7 +123,7 @@ def _make_init(fields: Tuple[Field, ...], defaults: Dict[str, Any]) -> str:
     
     return f'def __init__(self, *, {actual}) -> None:\n{bdy}'
 
-def _make_fields(annotations: Dict[str, Type[Any]], defaults: Dict[str, Any]) -> Tuple[Field, ...]:
+def _make_fields(annotations: Dict[str, Tuple[Type]], defaults: Dict[str, Any]) -> Tuple[Field, ...]:
     fields: List[Field] = []
 
     for name, annotation in annotations.items():
@@ -339,21 +339,39 @@ class Model(metaclass=ModelMeta):
 
     Example
     -------
-    .. code-block:: python3
+        Basic Example ::
 
-        from railway import Model
+            from railway import Model
 
-        class Person(Model):
-            name: str
-            age: int
+            class Person(Model):
+                name: str
+                age: int
 
-        jim = Person(name='Jim', age=18)
-        print(jim)
-        print(jim.json())
+            jim = Person(name='Jim', age=18)
+            print(jim)
+            print(jim.json())
 
-        alex = Person.from_json({'name': 'Alex', 'age': 20})
-        print(alex)
-        print(alex.json())
+            alex = Person.from_json({'name': 'Alex', 'age': 20})
+            print(alex)
+            print(alex.json())
+
+        It can also be used as the following ::
+
+            from railway import Model, Application, Request
+
+            app = Application()
+
+            class User(Model):
+                name: str
+
+            @app.route('/users', 'POST')
+            async def create_user(request: Request, user: User):
+                print(user)
+                print(user.name)
+
+                return user
+
+
     """
     if TYPE_CHECKING:
         __fields__: Tuple[Field]
@@ -361,6 +379,9 @@ class Model(metaclass=ModelMeta):
         __options__: ModelOptions
         __parent__: Type[Model]
         __children__: List[Type[Model]]
+
+        def __init__(self, **data: Any) -> None:
+            ...
 
     def __repr__(self) -> str:
         if not self.options.repr:

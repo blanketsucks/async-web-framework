@@ -26,7 +26,6 @@ from typing import Any, Dict, Union, Optional
 import pathlib
 import jinja2
 
-from . import utils
 from .response import HTMLResponse
 
 __all__ = ('render', 'create_default_jinja2_env')
@@ -76,10 +75,6 @@ async def render(
         locals = {}
 
     vars = {**globals, **locals, **kwargs}
-    app = utils.get_application_instance()
-
-    if app:
-        vars['url_for'] = app.url_for
 
     template = env.get_template(str(path))
     body = await template.render_async(**vars)

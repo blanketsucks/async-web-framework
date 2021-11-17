@@ -55,11 +55,11 @@ class TCPHooker(Hooker):
         self.ensure()
 
         try:
-            host, port = host.split(':')
+            host, str_port = host.split(':')
+            port = int(str_port)
         except ValueError:
             port = 80
-
-        port = int(port)
+        
         self.stream = await railway.open_connection(
             host=host,
             port=port
@@ -73,11 +73,11 @@ class TCPHooker(Hooker):
         context = self.create_default_ssl_context()
 
         try:
-            host, port = host.split(':')
+            host, str_port = host.split(':')
+            port = int(str_port)
         except ValueError:
             port = 443
 
-        port = int(port)
         self.stream = await railway.open_connection(
             host=host,
             port=port,
@@ -126,7 +126,7 @@ class WebsocketHooker(TCPHooker):
     async def create_connection(self, host: str, path: str): # type: ignore
         await super().create_connection(host)
         ws = await self.handshake(path, host)
-
+        
         return ws
 
     async def create_ssl_connection(self, host: str, path: str): # type: ignore
@@ -163,7 +163,7 @@ class WebsocketHooker(TCPHooker):
         response = await self.build_response(data=handshake)
 
         self.websocket = self.create_websocket()
-        await self.verify_handshake(response)
+        # await self.verify_handshake(response)
 
         return self.websocket
 

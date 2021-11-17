@@ -154,7 +154,7 @@ class Client:
             If the timeout is exceeded.
         """
         self._ensure_connection()
-        await self._protocol.transport.write(data, timeout=timeout) # type: ignore
+        await self._stream.write(data, timeout=timeout) # type: ignore
     
     async def writelines(self, data: List[Union[bytearray, bytes]], *, timeout: Optional[float]=None):
         """
@@ -173,7 +173,7 @@ class Client:
             If the timeout is exceeded.
         """
         self._ensure_connection()
-        await self._protocol.transport.writelines(data, timeout=timeout) # type: ignore
+        await self._stream.writelines(data, timeout=timeout) # type: ignore
 
     async def receive(self, nbytes: Optional[int]=None, *, timeout: Optional[float]=None) -> bytes:
         """
@@ -192,7 +192,7 @@ class Client:
             If the timeout is exceeded.
         """
         self._ensure_connection()
-        return await self._protocol.transport.receive(nbytes, timeout=timeout) # type: ignore
+        return await self._stream.receive(nbytes, timeout=timeout) # type: ignore
 
     async def close(self) -> None:
         """
@@ -200,7 +200,7 @@ class Client:
         """
         self._ensure_connection()
 
-        self._protocol.transport.close() # type: ignore
+        self._stream.close() # type: ignore
         await self._protocol.wait_for_close() # type: ignore
 
         self._closed = True

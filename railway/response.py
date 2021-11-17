@@ -28,7 +28,7 @@ import mimetypes
 
 from .cookies import CookieJar
 from .file import File
-from .datastructures import MultiDict
+from .datastructures import Headers
 
 __all__ = (
     'Response',
@@ -161,11 +161,11 @@ class Response:
         if not headers:
             headers = {}
 
-        self._headers: MultiDict[str, Any] = MultiDict()
+        self._headers = Headers(headers)
 
         if body is not None:
-            self._headers['Content-Type'] = content_type
-            self._headers['Content-Lenght'] = len(body)
+            self._headers['Content-Type'] = self._content_type
+            self._headers['Content-Lenght'] = str(len(body))
 
         self.cookies = CookieJar()
 
@@ -181,7 +181,7 @@ class Response:
         self._body = value
 
         self._headers['Content-Type'] = self.content_type
-        self._headers['Content-Length'] = len(value)
+        self._headers['Content-Length'] = str(len(value))
 
     @property
     def status(self) -> HTTPStatus:

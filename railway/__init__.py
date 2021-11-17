@@ -9,7 +9,6 @@ from .router import *
 from .settings import *
 from .views import *
 from .datastructures import *
-from .websockets import *
 from .datastructures import *
 from .file import *
 from .formdata import *
@@ -22,9 +21,9 @@ from .injectables import *
 from .resources import *
 from .sessions import *
 from .cookies import *
-from .websockets import *
 from .server import *
 from .client import *
 from .testclient import *
 
+from . import websockets
 from . import compat

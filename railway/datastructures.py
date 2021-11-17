@@ -21,8 +21,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union
-from urllib.parse import urlparse, parse_qsl, urlsplit
+from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar, Union, overload
+from urllib.parse import parse_qsl, urlsplit
 
 from . import utils
 
@@ -34,6 +34,7 @@ __all__ = (
 
 KT = TypeVar('KT')
 VT = TypeVar('VT')
+T = TypeVar('T')
 
 def is_immutable(self, *args):
     raise TypeError(f'{self.__class__.__name__!r} is immutable')
@@ -54,6 +55,9 @@ class MultiDict(Dict[KT, VT]):
 
         self.update(*args, **kwargs)
 
+    def __repr__(self) -> str:
+        return self._dict.__repr__()
+
     def __getitem__(self, key: KT) -> VT:
         value = self._dict[key]
         return value[0]
@@ -64,7 +68,6 @@ class MultiDict(Dict[KT, VT]):
 
     def __delitem__(self, key: KT) -> None:
         self._dict.__delitem__(key)
-        
         self._list = [(k, v) for k, v in self._list if k != key]
 
     @utils.clear_docstring
@@ -72,7 +75,13 @@ class MultiDict(Dict[KT, VT]):
         self._dict = {}
         self._list = []
 
-    def get(self, key: KT, default: Any=None) -> Optional[VT]:
+    @overload
+    def get(self, key: KT) -> VT: ...
+    @overload
+    def get(self, key: KT, default: None) -> Optional[VT]: ...
+    @overload
+    def get(self, key: KT, default: T) -> Union[VT, T]: ...
+    def get(self, key: KT, default: Any=None) -> Optional[VT]: # type: ignore
         """
         Gets the first value belonging to a key.
 
@@ -81,8 +90,7 @@ class MultiDict(Dict[KT, VT]):
         key: Any
             The key to get the first value for.
         """
-        values = self._dict.get(key, [])
-        
+        values = self.getall(key)
         if not values:
             return default
 
@@ -98,14 +106,104 @@ class MultiDict(Dict[KT, VT]):
             The key to get all values for.
         """
         return self._dict.get(key, [])
+    
+    @overload
+    def pop(self, key: KT) -> VT: ...
+    @overload
+    def pop(self, key: KT, default: None) -> Optional[VT]: ...
+    @overload
+    def pop(self, key: KT, default: T) -> Union[VT, T]: ...
+    def pop(self, key: KT, default: Any=None) -> Optional[VT]:
+        """
+        Pops the first value belonging to a key.
+
+        Parameters
+        ----------
+        key: Any
+            The key to pop the first value for.
+        default: Any
+            The value to return if the key is not found.
+
+        Returns
+        -------
+        Any
+            The value that was popped.
+        """
+        values = self.getall(key)
+        if not values:
+            return default
+
+        value = values.pop(0)
+        self._list.remove((key, value))
+
+        return value
+
+    @overload
+    def popall(self, key: KT) -> List[VT]: ...
+    @overload
+    def popall(self, key: KT, default: None) -> Optional[List[VT]]: ...
+    @overload
+    def popall(self, key: KT, default: T) -> Union[List[VT], T]: ...
+    def popall(self, key: KT, default: Any=None) -> Optional[List[VT]]: # type: ignore
+        """
+        Pops all values belonging to a key.
+
+        Parameters
+        ----------
+        key: Any
+            The key to pop all values for.
+        """
+        values = self.getall(key)
+        if not values:
+            return default
+
+        del self[key]
+        return values
 
     def items(self):
         return self._list
 
-class Headers(MultiDict[str, str]):
-    pass
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        """
+        Updates the dictionary with the given key-value pairs.
+        """
+        for key, value in dict(*args, **kwargs).items():
+            self[key] = value
 
-class URL:
+class Headers(MultiDict[str, str]):
+    
+    @property
+    def content_type(self) -> Optional[str]:
+        return self.get('Content-Type')
+
+    @property
+    def content_lenght(self) -> Optional[int]:
+        lenght = self.get('Content-Length')
+        if lenght:
+            return int(lenght)
+
+        return None
+
+    @property
+    def charset(self) -> Optional[str]:
+        content_type = self.content_type
+        if content_type:
+            return utils.get_charset(content_type)
+
+        return None
+
+    @property
+    def user_agent(self) -> Optional[str]:
+        return self.get('User-Agent')
+
+    @property
+    def host(self) -> Optional[str]:
+        return self.get('Host')
+        
+
+_T = TypeVar('_T', str, bytes)
+
+class URL(Generic[_T]):
     """
     Parameters
     ----------
@@ -117,82 +215,73 @@ class URL:
     value: :class:`str`
         The originally passed in URL.
     """
-    def __init__(self, url: Union[str, bytes]) -> None:
-        if isinstance(url, bytes):
-            url = url.decode()
-
+    def __init__(self, url: _T) -> None:
         self.value = url
-        self.components = urlsplit(url)
+        self.components = urlsplit(url) # type: ignore
 
     def __str__(self) -> str:
-        return self.value
+        return self.value.decode() if isinstance(self.value, bytes) else self.value
 
     def __repr__(self) -> str:
         return f'<URL scheme={self.scheme!r} hostname={self.hostname!r} path={self.path!r}>'
 
-    def __add__(self, other: Union[str, 'URL', Any]) -> 'URL':
-        if isinstance(other, URL):
-            return URL(self.value + other.value)
-        
-        if isinstance(other, str):
-            return URL(self.value + other)
-
-        return NotImplemented
+    def is_bytes(self) -> bool:
+        return isinstance(self.value, bytes)
 
     @property
-    def scheme(self) -> str:
+    def scheme(self) -> _T:
         """
         The scheme of the URL.
         """
         return self.components.scheme
     
     @property
-    def netloc(self) -> str:
+    def netloc(self) -> _T:
         """
         The netloc of the URL.
         """
         return self.components.netloc
 
     @property
-    def path(self) -> str:
+    def path(self) -> _T:
         """
         The path of the URL.
         """
         return self.components.path
 
     @property
-    def hostname(self) -> Optional[str]:
+    def hostname(self) -> Optional[_T]:
         """
         The hostname of the URL.
         """
         return self.components.hostname
 
     @property
-    def query(self) -> ImmutableMapping[str, str]:
+    def query(self) -> ImmutableMapping[_T, _T]:
         """
         The query parameters of the URL as an immutable dict.
         """
         ret = self.components.query
-        query = parse_qsl(ret)
+        query = parse_qsl(ret) # type: ignore
 
         return ImmutableMapping(query)
 
     @property
-    def fragment(self) -> Optional[str]:
+    def fragment(self) -> Optional[_T]:
         """
         The fragment of the URL.
         """
         return self.components.fragment
 
     @property
-    def username(self) -> Optional[str]:
+    def username(self) -> Optional[_T]:
         """
         The username of the URL.
         """
         return self.components.username
 
     @property
-    def password(self) -> Optional[str]:
+    def password(self) -> Optional[_T]:
         """
         The password of the URL.
         """
@@ -208,11 +297,11 @@ class URL:
     def replace(
         self, 
         *, 
-        scheme: str=None, 
-        netloc: str=None, 
-        path: str=None, 
-        query: str=None,
-        fragement: str=None,
+        scheme: _T=None, 
+        netloc: _T=None, 
+        path: _T=None, 
+        query: _T=None,
+        fragement: _T=None,
     ):
         kwargs = {}
         if scheme:
