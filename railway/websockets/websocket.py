@@ -297,7 +297,16 @@ class ClientWebsocket(ServerWebsocket):
 
     @clear_docstring
     async def send_frame(self, frame: WebsocketFrame):
+        if self.is_closed():
+            raise WebsocketError('websocket is closed')
+
+        if self.should_close() and frame.opcode is not WebsocketOpcode.CLOSE:
+            warn('websocket is closing, sending frame anyway.', WebsocketWarning, stacklevel=5)
+
         data = frame.encode(masked=True)
+        self._set_state(WebsocketState.SENDING)
+
         await self._transport.write(data)
+        self._set_state(WebsocketState.OPEN)
 
         return len(data)
