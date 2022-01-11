@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from .workers import Worker
     from .app import Application
 
-AppT = TypeVar('AppT', bound='Application')
+AppT = TypeVar('AppT', bound='Application', covariant=True)
 
 __all__ = (
     'Request',

@@ -73,7 +73,7 @@ class Row:
         Return a view of key/value tuples for the elements in the row.
         """
         items = self.proxy._asdict()
-        return ItemsView(items) # type: ignore
+        return ItemsView(items)
 
     def as_dict(self) -> Dict[str, Any]:
         """
