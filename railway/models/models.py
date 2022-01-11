@@ -18,7 +18,7 @@ from typing import (
 from railway.utils import evaluate_annotation
 from .utils import DEFAULT, is_json_serializable, is_optional, safe_getattr
 from .fields import Field
-from .errors import IncompatibleType, ObjectNotSerializable
+from .errors import IncompatibleType, ObjectNotSerializable, MissingField
 
 ModelT = TypeVar('ModelT', bound='Model')
 
@@ -28,7 +28,7 @@ __all__ = (
     'Model',
 )
 
-def noop(*args: Any) -> None:
+def noop(*_: Any) -> None:
     return None
 
 class ModelOptions(TypedDict):
@@ -49,8 +49,8 @@ def create_fields(
     defaults: Dict[str, Any],
     namespace: Dict[str, Any],
     options: ModelOptions
-) -> List[Field]:
-    fields: List[Field] = []
+) -> List[Field[Any]]:
+    fields: List[Field[Any]] = []
 
     for key, annotation in annotations.items():
         default = defaults[key]
@@ -72,8 +72,8 @@ def get_model_bases(bases: Tuple[Any, ...]) -> Iterator['ModelMeta']:
             yield from get_model_bases(base.__bases__)
 
 class ModelMeta(type):
-    __fields__: List[Field]
-    __field_mapping__: Dict[str, Field]
+    __fields__: List[Field[Any]]
+    __field_mapping__: Dict[str, Field[Any]]
     __options__: ModelOptions
 
     def __new__(cls, name: str, bases: Tuple[Any, ...], attrs: Dict[str, Any], **kwargs: Any):
@@ -146,6 +146,21 @@ class ModelMeta(type):
         """
         return self.__field_mapping__.get(name)
 
+    def add_field(self, field: Field) -> None:
+        """
+        Add a field to the model.
+
+        Parameters
+        ----------
+        field: :class:`Field`
+            The field to add.
+        """
+        if self.options['slotted']:
+            raise TypeError('Cannot add extra fields to slotted models')
+
+        self.__fields__.append(field)
+        self.__field_mapping__[field.name] = field
+
     @property
     def options(self) -> ModelOptions:
         return self.__options__
@@ -203,7 +218,7 @@ class Model(metaclass=ModelMeta):
         for field in self.__fields__:
             value = kwargs.get(field.name, field.default)
             if value is DEFAULT:
-                raise ValueError(f'Missing value for field {field.name!r}')
+                raise MissingField(field)
 
             setattr(self, field.name, value)
 
@@ -224,7 +239,7 @@ class Model(metaclass=ModelMeta):
         attrs = [self._get_repr(self, field.name) for field in self.__fields__]
         return f'<{self.__class__.__name__} {" ".join([attr for attr in attrs if attr is not None])}>'
 
-    def __iter__(self) -> Iterator[Tuple[Field, Any]]:
+    def __iter__(self) -> Iterator[Tuple[Field[Any], Any]]:
         """
         Iterates over the fields and their values.
         """
@@ -256,12 +271,12 @@ class Model(metaclass=ModelMeta):
 
         if not field.is_valid(value):
             if value != field.default:
-                raise IncompatibleType(field, value.__class__, value)
+                raise IncompatibleType(field, value.__class__)
 
         field.validator(self, value)
         super().__setattr__(name, value)
 
-    def __getitem__(self, name: str) -> Tuple[Field, Any]:
+    def __getitem__(self, name: str) -> Tuple[Field[Any], Any]:
         cls = type(self)
         field = cls.get_field(name)
         
@@ -285,7 +300,7 @@ class Model(metaclass=ModelMeta):
         return self.json() == other.json()
 
     @classmethod
-    def from_json(cls: Type[ModelT], data: Union[Dict[str, Any], Any]) -> ModelT:
+    def from_json(cls: Type[ModelT], data: Any) -> ModelT:
         """
         Makes the model from a JSON object.
 
@@ -301,8 +316,7 @@ class Model(metaclass=ModelMeta):
         IncompatibleType: If the type of the field is incompatible with the type of the data.
         """
         if not isinstance(data, dict):
-            ret = f"Invalid argument type for 'data'. Expected {dict!r} got {data.__class__!r} instead"
-            raise TypeError(ret)
+            raise TypeError('data must be a dict')
 
         return cls(**data)
 
@@ -370,7 +384,7 @@ class Model(metaclass=ModelMeta):
     def to_dict(self, *, include: Iterable[str] = None, exclude: Iterable[str] = None) -> Dict[str, Any]:
         """
         Serializes the model into a dictionary.
-        The value returned may not be JSON serializable.
+        The value returned may not be a valid JSON object.
 
         Parameters
         -----------
