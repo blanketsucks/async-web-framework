@@ -56,7 +56,8 @@ class TCPHooker(Hooker):
             return
 
         self.writer.close()
-        
+        await self.writer.wait_closed()
+
         self.connected = False
         self.closed = True
 
@@ -79,7 +80,7 @@ class WebSocketHooker(TCPHooker):
         if self.writer is None or self.reader is None:
             raise RuntimeError('Not connected')
 
-        return WebSocket(self.reader, self.writer) # type: ignore
+        return WebSocket(self.writer, self.reader)
     
     async def handshake(self, path: str, host: str) -> WebSocket:
         if not self.writer:
@@ -140,4 +141,5 @@ class WebSocketHooker(TCPHooker):
         if not self.websocket or self.websocket.is_closed():
             return
 
-        return await self.websocket.close(data, code=code)
+        await self.websocket.close(data, code=code)
+        await self.websocket.wait_closed()

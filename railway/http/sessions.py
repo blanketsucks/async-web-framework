@@ -54,9 +54,12 @@ class HTTPSession:
     """
     def __init__(
         self,
+        *,
+        headers: Optional[Dict[str, Any]] = None,
         loop: Optional[asyncio.AbstractEventLoop] = None
     ) -> None:
         self.loop = loop or compat.get_event_loop()
+        self.headers = headers or {}
 
         self._hookers: List[TCPHooker] = []
 
@@ -176,15 +179,6 @@ class HTTPSession:
     def head(self, url: StrURL, **kwargs: Any) :
         return self.request(url, 'HEAD', **kwargs)
 
-    async def redirect(self, hooker: TCPHooker, response: HTTPResponse, method: str) -> HTTPResponse:
-        copy = hooker.copy()
-        await hooker.close()
-
-        copy.connected = False
-        location = response.headers['Location']
-
-        return await self._request(location, method, hooker=copy)
-
     async def _request(
         self,
         url: StrURL,
@@ -223,6 +217,7 @@ class HTTPSession:
         await hooker.connect(url)
 
         assert url.hostname is not None, 'url must have a hostname'
+        headers.update(self.headers)
         request = hooker.build_request(
             method=method,
             host=url.hostname,
@@ -236,10 +231,13 @@ class HTTPSession:
 
         if not ignore_redirects:
             if 301 <= response.status <= 308:
-                return await self.redirect(
-                    hooker=hooker,
-                    response=response,
-                    method=method
+                location = response.headers['Location']
+                return await self._request(
+                    url=location,
+                    method=method,
+                    headers=headers,
+                    body=body,
+                    json=json,
                 )
 
         self._hookers.append(hooker)
@@ -255,9 +253,9 @@ class HTTPSession:
         return websocket
 
 def request(url: StrURL, method: str, **kwargs: Any):
-    client = HTTPSession(kwargs.pop('loop', None))
+    client = HTTPSession(loop=kwargs.pop('loop', None))
     return client.request(url, method, **kwargs)
 
 def ws_connect(url: str, **kwargs: Any):
-    client = HTTPSession(kwargs.pop('loop', None))
+    client = HTTPSession(loop=kwargs.pop('loop', None))
     return client.ws_connect(url, **kwargs)
