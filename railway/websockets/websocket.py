@@ -55,6 +55,9 @@ class BaseWebSocket:
 
     async def __anext__(self) -> Data:
         data = await self.receive()
+        if data.opcode is WebSocketOpcode.CLOSE:
+            raise StopAsyncIteration
+
         return data
 
     async def __aenter__(self):
