@@ -1,59 +1,69 @@
-"""
-MIT License
-
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, List, Optional, overload, Literal, Union
+import asyncio
 import json
 
-from .frame import WebsocketFrame, WebsocketOpcode, Data, WebsocketCloseCode
-from .enums import WebsocketState
-from .errors import WebsocketError, WebsocketWarning
-from railway.streams import StreamTransport
+from railway.streams import StreamProtocol, StreamReader, StreamWriter
 from railway.utils import clear_docstring, warn
+from railway.types import BytesLike
+from .frame import WebSocketFrame, WebSocketOpcode, Data, WebSocketCloseCode
+from .enums import WebSocketState
+from .errors import WebSocketError, WebSocketWarning
 
 __all__ = (
-    'ServerWebsocket',
-    'ClientWebsocket',
+    'WebSocketProtocol',
+    'ServerWebSocket',
+    'ClientWebSocket',
+    'WebSocket',
+    'create_websocket'
 )
 
-class ServerWebsocket:
+WebSocketData = Union[str, BytesLike, Dict[Any, Any], List[Any]]
+
+class WebSocketProtocol(StreamProtocol):
+    def __init__(self, reader: StreamReader, writer: StreamWriter) -> None:
+        self.reader = reader
+        self.writer = writer
+
+    async def wait_until_connected(self) -> None:
+        await asyncio.sleep(0)
+
+
+class BaseWebSocket:
     """
-    A server-side websocket.
+    A base websocket class.
+    Subclasses of this class override the :meth:`send_frame` to either mask or not mask the frame.
 
     Parameters
     -----------
-    transport: :class:`~railway.streams.StreamTransport`
-        The transport used by the websocket.
+    writer: :class:`~railway.streams.StreamWriter`
+        The writer to use.
+    reader: :class:`~railway.streams.StreamReader`
+        The reader to use.
     """
-    def __init__(self, transport: StreamTransport) -> None:
-        self._transport = transport
-
+    def __init__(self, writer: StreamWriter, reader: StreamReader) -> None:
+        self._writer = writer
+        self._reader = reader
         self._closed = False
-        self._state = WebsocketState.OPEN
+        self._received_close_frame = False
+        self._state = WebSocketState.OPEN
 
     def __repr__(self) -> str:
-        return f'<Websocket peername={self.peername}>'
+        return f'<WebSocket state={self.state}>'
 
-    def _set_state(self, state: WebsocketState):
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> Data:
+        data = await self.receive()
+        return data
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        await self.close()
+
+    def _set_state(self, state: WebSocketState):
         self._state = state
 
     @property
@@ -64,77 +74,101 @@ class ServerWebsocket:
         return self._state
 
     @property
-    def peername(self) -> Tuple[str, int]:
+    def writer(self):
         """
-        The peername of the websocket.
+        The writer to use.
         """
-        return self._transport.get_extra_info('peername')
+        return self._writer
+
+    @property
+    def reader(self):
+        """
+        The reader to use.
+        """
+        return self._reader
+
+    def create_frame(self, data: WebSocketData, opcode: WebSocketOpcode, *, control: bool = False) -> WebSocketFrame:
+        """
+        Creates a frame.
+
+        Parameters
+        -----------
+        data: Any
+            The data to send.
+        opcode: :class:`~railway.websockets.frame.WebSocketOpcode`
+            The opcode to use.
+        control: :class:`bool`
+            Whether the frame is a control frame.
+        """
+        if isinstance(data, (list, dict)):
+            data = json.dumps(data)
+        if isinstance(data, str):
+            data = data.encode()
+
+        if control:
+            return WebSocketFrame.create_control_frame(data, opcode=opcode)
+
+        return WebSocketFrame.create(data, opcode=opcode)
 
     def is_closed(self):
         """
         True if the websocket has been closed.
         """
-        return self._closed or self._state is WebsocketState.CLOSED
+        return self._closed or self._state is WebSocketState.CLOSED
 
     def should_close(self) -> bool:
         """
         True if the websocket should be closed.
         """
-        return self._state is WebsocketState.CLOSING
+        return self._state is WebSocketState.CLOSING or self._received_close_frame
 
-    def feed_data(self, data: bytes):
-        """
-        Feeds data into the websocket's internal reader.
-        """
-        return self._transport.feed_data(data)
-
-    async def send_frame(self, frame: WebsocketFrame) -> int:
+    async def send_frame(self, frame: WebSocketFrame, *, masked: bool = True) -> int:
         """
         Sends a frame.
 
         Parameters
         -----------
-        frame: :class:`~railway.websockets.frame.WebsocketFrame`
+        frame: :class:`~railway.websockets.frame.WebSocketFrame`
             The frame to send.
         """
         if self.is_closed():
-            raise WebsocketError('websocket is closed')
+            raise WebSocketError('websocket is closed')
 
-        if self.should_close() and frame.opcode is not WebsocketOpcode.CLOSE:
-            warn('websocket is closing, sending frame anyway.', WebsocketWarning, stacklevel=5)
+        if self.should_close() and frame.opcode is not WebSocketOpcode.CLOSE:
+            warn('websocket is closing, sending frame anyway.', WebSocketWarning, stacklevel=5)
 
-        data = frame.encode()
-        self._set_state(WebsocketState.SENDING)
+        data = frame.encode(masked=masked)
+        self._set_state(WebSocketState.SENDING)
 
-        await self._transport.write(data)
-        self._set_state(WebsocketState.OPEN)
+        await self.writer.write(data, drain=True)
+        self._set_state(WebSocketState.OPEN)
 
         return len(data)
 
-    async def send_bytes(self, data: bytes, *, opcode: Optional[WebsocketOpcode]=None):
+    async def send_bytes(self, data: BytesLike, *, opcode: Optional[WebSocketOpcode]=None):
         """
         Sends bytes.
 
         Parameters
         -----------
         data: :class:`bytes`
-            The data to send.
-        opcode: :class:`~railway.websockets.frame.WebsocketOpcode`
-            The opcode to use. Defaults to :attr:`~railway.websockets.frame.WebsocketOpcode.TEXT`.
+            The data to send. Can be any bytes-like object.
+        opcode: :class:`~railway.websockets.frame.WebSocketOpcode`
+            The opcode to use. Defaults to :attr:`~railway.websockets.frame.WebSocketOpcode.TEXT`.
         """
         if opcode is None:
-            opcode = WebsocketOpcode.TEXT
+            opcode = WebSocketOpcode.TEXT
 
-        frame = WebsocketFrame.create(data, opcode=opcode)
+        frame = self.create_frame(data, opcode=opcode)
         return await self.send_frame(frame)
 
-    async def send(self, data: bytes, *, opcode: Optional[WebsocketOpcode]=None):
+    async def send(self, data: BytesLike, *, opcode: Optional[WebSocketOpcode]=None):
         """
-        An alias for :meth:`~railway.websockets.websocket.ServerWebsocket.send_bytes`.
+        An alias for :meth:`~railway.websockets.websocket.ServerWebSocket.send_bytes`.
         """
         return await self.send_bytes(data, opcode=opcode)
 
-    async def send_str(self, data: str, *, opcode: Optional[WebsocketOpcode]=None):
+    async def send_str(self, data: str, *, opcode: Optional[WebSocketOpcode]=None):
         """
         Sends a string.
 
@@ -142,12 +176,12 @@ class ServerWebsocket:
         -----------
         data: :class:`str`
             The data to send.
-        opcode: :class:`~railway.websockets.frame.WebsocketOpcode`
-            The opcode to use. Defaults to :attr:`~railway.websockets.frame.WebsocketOpcode.TEXT`.
+        opcode: :class:`~railway.websockets.frame.WebSocketOpcode`
+            The opcode to use. Defaults to :attr:`~railway.websockets.frame.WebSocketOpcode.TEXT`.
         """
         return await self.send_bytes(data.encode(), opcode=opcode)
 
-    async def send_json(self, data: Dict[str, Any], *, opcode: Optional[WebsocketOpcode]=None):
+    async def send_json(self, data: Union[List[Any], Dict[str, Any]], *, opcode: Optional[WebSocketOpcode]=None):
         """
         Sends a JSON object.
 
@@ -155,116 +189,104 @@ class ServerWebsocket:
         -----------
         data: :class:`dict`
             The data to send.
-        opcode: :class:`~railway.websockets.frame.WebsocketOpcode`
-            The opcode to use. Defaults to :attr:`~railway.websockets.frame.WebsocketOpcode.TEXT`.
+        opcode: :class:`~railway.websockets.frame.WebSocketOpcode`
+            The opcode to use. Defaults to :attr:`~railway.websockets.frame.WebSocketOpcode.TEXT`.
         """
         return await self.send_str(json.dumps(data), opcode=opcode)
 
-    async def continuation(self, data: bytes):
+    async def continuation(self, data: BytesLike):
         """
-        Sends ``data`` with the :attr:`~railway.websockets.frame.WebsocketOpcode.CONTINUATION` opcode.
+        Sends ``data`` with the :attr:`~railway.websockets.frame.WebSocketOpcode.CONTINUATION` opcode.
 
         Parameters
         -----------
         data: :class:`bytes`
-            The data to send.
+            The data to send. Can be any bytes-like object.
         """
-        return await self.send_bytes(data, opcode=WebsocketOpcode.CONTINUATION)
+        return await self.send_bytes(data, opcode=WebSocketOpcode.CONTINUATION)
 
-    async def binary(self, data: bytes):
+    async def binary(self, data: BytesLike):
         """
-        Sends ``data`` with the :attr:`~railway.websockets.frame.WebsocketOpcode.BINARY` opcode.
-
-        Parameters
-        -----------
-        data: :class:`bytes`
-            The data to send.
-        """
-        return await self.send_bytes(data, opcode=WebsocketOpcode.BINARY)
-
-    async def ping(self, data: bytes):
-        """
-        Sends ``data`` with the :attr:`~railway.websockets.frame.WebsocketOpcode.PING` opcode.
+        Sends ``data`` with the :attr:`~railway.websockets.frame.WebSocketOpcode.BINARY` opcode.
 
         Parameters
         -----------
         data: :class:`bytes`
-            The data to send.
+            The data to send. Can be any bytes-like object.
         """
-        frame = WebsocketFrame.create_control_frame(
-            data=data,
-            opcode=WebsocketOpcode.PING,
-        )
+        return await self.send_bytes(data, opcode=WebSocketOpcode.BINARY)
 
+    async def ping(self, data: BytesLike):
+        """
+        Sends ``data`` with the :attr:`~railway.websockets.frame.WebSocketOpcode.PING` opcode.
+
+        Parameters
+        -----------
+        data: :class:`bytes`
+            The data to send. Can be any bytes-like object.
+        """
+        frame = self.create_frame(data, opcode=WebSocketOpcode.PING, control=True)
         return await self.send_frame(frame)
 
-    async def pong(self, data: bytes):
+    async def pong(self, data: BytesLike):
         """
-        Sends ``data`` with the :attr:`~railway.websockets.frame.WebsocketOpcode.PONG` opcode.
+        Sends ``data`` with the :attr:`~railway.websockets.frame.WebSocketOpcode.PONG` opcode.
 
         Parameters
         -----------
         data: :class:`bytes`
-            The data to send.
+            The data to send. Can be any bytes-like object.
         """
-        frame = WebsocketFrame.create_control_frame(
-            data=data,
-            opcode=WebsocketOpcode.PONG,
-        )
-
+        frame = self.create_frame(data, opcode=WebSocketOpcode.PONG, control=True)
         return await self.send_frame(frame)
 
-    async def close(self, data: bytes, *, code: Optional[WebsocketCloseCode]=None) -> None:
+    async def close(self, data: Optional[BytesLike] = None, *, code: Optional[WebSocketCloseCode]=None) -> None:
         """
         Closes the websocket.
-        Sends ``data`` with the :attr:`~railway.websockets.frame.WebsocketOpcode.Close` opcode.
+        Sends ``data`` with the :attr:`~railway.websockets.frame.WebSocketOpcode.Close` opcode.
 
         Parameters
         -----------
         data: :class:`bytes`
-            The data to send.
-        code: :class:`~railway.websockets.frame.WebsocketCloseCode`
-            The close code to send. Defaults to :attr:`~railway.websockets.frame.WebsocketCloseCode.NORMAL`.
+            The data to send. Can be any bytes-like object.
+        code: :class:`~railway.websockets.frame.WebSocketCloseCode`
+            The close code to send. Defaults to :attr:`~railway.websockets.frame.WebSocketCloseCode.NORMAL`.
         """
         if not code:
-            code = WebsocketCloseCode.NORMAL
+            code = WebSocketCloseCode.NORMAL
 
-        frame = WebsocketFrame.create_control_frame(
-            data=data,
-            opcode=WebsocketOpcode.CLOSE,
-        )
+        if not data:
+            data = b''
+
+        frame = self.create_frame(data, opcode=WebSocketOpcode.CLOSE, control=True)
         frame.close_code = code.value
 
         await self.send_frame(frame) 
-        self._transport.close()
+        self.writer.close()
 
-        self._set_state(WebsocketState.CLOSED)
+        self._set_state(WebSocketState.CLOSED)
         self._closed = True  
-
-    async def wait_closed(self) -> None:
-        """
-        Waits until the websocket is fully closed.
-        """
-        await self._transport.wait_closed()
 
     async def receive(self) -> Data:
         """
         Receives data.
         """
         if self.is_closed():
-            raise WebsocketError('websocket is closed')
+            raise WebSocketError('websocket is closed')
 
         if self.should_close():
-            warn('websocket is closing, receiving frame anyway.', WebsocketWarning, stacklevel=5)
+            msg = 'websocket is closing, receiving frame anyway. This might block the current task forever.'
+            warn(msg, WebSocketWarning, stacklevel=5)
 
-        self._set_state(WebsocketState.RECEIVING)
-        frame = await WebsocketFrame.decode(self._transport.receive)
+        self._set_state(WebSocketState.RECEIVING)
+        frame = await WebSocketFrame.decode(self.reader.read)
 
-        self._set_state(WebsocketState.OPEN)
+        self._set_state(WebSocketState.OPEN)
         data = Data(frame)
 
-        if data.opcode is WebsocketOpcode.CLOSE:
-            self._set_state(WebsocketState.CLOSING)
+        if data.opcode is WebSocketOpcode.CLOSE:
+            self._received_close_frame = True
+            self._set_state(WebSocketState.CLOSING)
 
         return data
 
@@ -289,24 +311,36 @@ class ServerWebsocket:
         data = await self.receive()
         return data.as_json()
 
-class ClientWebsocket(ServerWebsocket):
+
+class ServerWebSocket(BaseWebSocket):
+    """
+    A server-side websocket.
+    """
+    @clear_docstring
+    def send_frame(self, frame: WebSocketFrame):
+        return super().send_frame(frame, masked=False)
+
+class ClientWebSocket(BaseWebSocket):
     """
     A client-side websocket.
     The only difference from the other class is that the frame sent is masked.
     """
-
     @clear_docstring
-    async def send_frame(self, frame: WebsocketFrame):
-        if self.is_closed():
-            raise WebsocketError('websocket is closed')
+    def send_frame(self, frame: WebSocketFrame):
+        return super().send_frame(frame, masked=True)
 
-        if self.should_close() and frame.opcode is not WebsocketOpcode.CLOSE:
-            warn('websocket is closing, sending frame anyway.', WebsocketWarning, stacklevel=5)
 
-        data = frame.encode(masked=True)
-        self._set_state(WebsocketState.SENDING)
+WebSocket = ServerWebSocket
 
-        await self._transport.write(data)
-        self._set_state(WebsocketState.OPEN)
 
-        return len(data)
+@overload
+def create_websocket(writer: StreamWriter, reader: StreamReader, *, client_side: Literal[False]) -> ServerWebSocket:
+    ...
+@overload
+def create_websocket(writer: StreamWriter, reader: StreamReader, *, client_side: Literal[True]) -> ClientWebSocket:
+    ...
+def create_websocket(*args: Any, client_side: bool) -> Union[ServerWebSocket, ClientWebSocket]:
+    if client_side:
+        return ClientWebSocket(*args)
+    else:
+        return ServerWebSocket(*args)

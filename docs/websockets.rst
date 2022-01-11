@@ -1,15 +1,15 @@
 .. currentmodule:: railway.websockets
 
-Websockets API Documentation
+WebSockets API Documentation
 =============================
 
 Enums
 ------
 
-WebsocketState
+WebSocketState
 ~~~~~~~~~~~~~~~
 
-.. autoclass:: WebsocketState
+.. autoclass:: WebSocketState
 
     .. autoattribute:: CONNECTING
     .. autoattribute:: OPEN
@@ -19,10 +19,10 @@ WebsocketState
     .. autoattribute:: CLOSED
     
 
-WebsocketOpCode
+WebSocketOpCode
 ~~~~~~~~~~~~~~~~~
 
-.. autoclass:: WebsocketOpcode
+.. autoclass:: WebSocketOpcode
 
     .. autoattribute:: CONTINUATION
     .. autoattribute:: TEXT
@@ -31,10 +31,10 @@ WebsocketOpCode
     .. autoattribute:: PING
     .. autoattribute:: PONG
 
-WebsocketCloseCode
+WebSocketCloseCode
 ~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: WebsocketCloseCode
+.. autoclass:: WebSocketCloseCode
     
     .. autoattribute:: NORMAL
     .. autoattribute:: GOING_AWAY
@@ -53,19 +53,19 @@ WebsocketCloseCode
     .. autoattribute:: TLS_HANDSHAKE
 
 
-Websockets
+WebSockets
 ------------
 
-ServerWebsocket
+ServerWebSocket
 ~~~~~~~~~~~~~~~~
 
-.. autoclass:: ServerWebsocket
+.. autoclass:: ServerWebSocket
     :members:
 
-ClientWebsocket
+ClientWebSocket
 ~~~~~~~~~~~~~~~~
 
-.. autoclass:: ClientWebsocket
+.. autoclass:: ClientWebSocket
     :members:
 
 Frames
@@ -77,10 +77,10 @@ Data
 .. autoclass:: Data
     :members:
 
-WebsocketFrame
+WebSocketFrame
 ~~~~~~~~~~~~~~~
 
-.. autoclass:: WebsocketFrame
+.. autoclass:: WebSocketFrame
     :members:
 
 
@@ -88,29 +88,29 @@ WebsocketFrame
 Errors
 -------
 
-.. autoexception:: WebsocketError
+.. autoexception:: WebSocketError
     :members:
     :show-inheritance:
 
-Websocket Frame Errors
+WebSocket Frame Errors
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoexception:: InvalidWebsocketFrame
+.. autoexception:: InvalidWebSocketFrame
     :members:
     :show-inheritance:
 
-.. autoexception:: InvalidWebsocketOpcode
+.. autoexception:: InvalidWebSocketOpcode
     :members:
     :show-inheritance:
 
-.. autoexception:: InvalidWebsocketCloseCode
+.. autoexception:: InvalidWebSocketCloseCode
     :members:
     :show-inheritance:
 
-Websocket Control Frame Errors
+WebSocket Control Frame Errors
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoexception:: InvalidWebsocketControlFrame
+.. autoexception:: InvalidWebSocketControlFrame
     :members:
     :show-inheritance:
 

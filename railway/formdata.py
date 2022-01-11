@@ -1,36 +1,19 @@
-"""
-MIT License
-
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 from __future__ import annotations
-from typing import Dict, List, Optional, TYPE_CHECKING, Tuple, TypeVar
 
-from .utils import find_headers
-from .file import File
+from typing import Dict, List, NamedTuple, Optional, TYPE_CHECKING, Tuple, TypeVar
+import string
+import random
+
+from .files import File
+from .utils import clean_values, parse_http_data, CLRF
 
 if TYPE_CHECKING:
+    from .app import Application
     from .request import Request
 
 T = TypeVar('T')
+
+BOUNDARY_LIMITER = b'--'
 
 __all__ = (
     'Disposition',
@@ -43,51 +26,153 @@ def _get(iterable: List[T], index: int) -> Optional[T]:
     except IndexError:
         return None
 
+def parse_field(text: str) -> str:
+    _, _1, value = text.partition('=')
+    return value.strip('"').strip("'")
+
+class DispositionNotFound(Exception):
+    pass
+
+class InvalidDisposition(Exception):
+    pass
+
+class FormDataField(NamedTuple):
+    file: File
+    headers: Dict[str, str]
+    dispotision: Disposition
+
 class Disposition:
     """
     A Content-Disposition header.
     """
-    def __init__(self, header: str) -> None:
-        self.header = header
-        self._parts = self.header.split('; ')
+    def __init__(self, *, name: str, filename: Optional[str]=None, content_type: Optional[str]=None) -> None:
+        self.content_type = content_type or 'application/octet-stream'
+        self.name = name
+        self.filename = filename
+    
+    @classmethod
+    def from_headers(cls, headers: Dict[str, str]) -> Disposition:
+        """
+        Create a Disposition object from a Content-Disposition header.
 
-    @property
-    def content_type(self) -> str:
-        """
-        The content type.
-        """
-        return self._parts[0]
+        Parameters
+        ----------
+        headers: :class:`dict`
+            A dictionary of headers.
 
-    @property
-    def name(self) -> Optional[str]:
+        Returns
+        -------
+        :class:`~railway.formdata.Disposition`
+            A Disposition object.
         """
-        The name of the disposition.
-        """
-        return _get(self._parts, 1)
+        disposition = headers.get('Content-Disposition')
+        if not disposition:
+            raise DispositionNotFound('Content-Disposition header not found.')
 
-    @property
-    def filename(self) -> Optional[str]:
-        """
-        The filename of the disposition.
-        """
-        return _get(self._parts, 2)
+        disposition = disposition.split('; ')
+        if disposition[0] != 'form-data':
+            raise InvalidDisposition('Invalid Content-Disposition header.')
 
-class FormData:
+        name = parse_field(disposition[1])
+        filename = _get(disposition, 2)
+
+        if filename:
+            filename = parse_field(filename)
+
+        content_type = headers.get('Content-Type')
+        return cls(name=name, filename=filename, content_type=content_type)
+
+    def to_header(self) -> str:
+        """
+        Create a Content-Disposition header.
+
+        Returns
+        -------
+        :class:`str`
+            A Content-Disposition header.
+        """
+        header = f'form-data; name={self.name!r}'
+        if self.filename:
+            header += f'; filename={self.filename!r}'
+        return header
+
+class FormData(Dict[str, FormDataField]):
     """
     A form data object.
 
     Attributes
     ----------
-    files: List[Tuple[:class:`~railway.file.File`, Optional[:class:`~railway.formdata.Disposition`]]]
+    files: List[Tuple[:class:`~railway.file.File`, :class:`~railway.formdata.Disposition`]]
         A list of tuples containing a :class:`~railway.file.File and :class:`~railway.formdata.Disposition` objects.
     """
     def __init__(self) -> None:
-        self.files: List[Tuple[File, Optional[Disposition]]] = []
+        self._boundary: Optional[bytes] = None
 
-    def __iter__(self):
-        return iter(self.files)
+    @classmethod
+    async def from_request(cls, request: Request[Application]):
+        """
+        Creates a form data object from a request.
 
-    def add_file(self, file: File, disposition: Optional[Disposition]) -> None:
+        Parameters
+        ----------
+        request: :class:`~railway.request.Request`
+            a request.
+        """
+        form = cls()
+        data = await request.read()
+
+        content_type = request.headers.get('Content-Type')
+        if not content_type:
+            return form
+        
+        _, boundary = content_type.split('; ')
+        boundary = ('--' + boundary.strip('boundary=')).encode()
+
+        data = data.strip(boundary + b'--\r\n').split(boundary + b'\r\n')        
+        for value in clean_values(data):
+            try:
+                result = parse_http_data(value, strip_status_line=False)
+                disposition = Disposition.from_headers(result.headers)
+
+                file = File(result.body)
+                field = FormDataField(file=file, headers=result.headers, dispotision=disposition)
+
+                form.add_field(field)
+            except ValueError:
+                continue
+
+        form.boundary = boundary
+        return form
+
+    @property
+    def boundary(self) -> Optional[bytes]:
+        """
+        The boundary string.
+
+        Returns
+        -------
+        :class:`str`
+            The boundary string.
+        """
+        return self._boundary
+
+    @boundary.setter
+    def boundary(self, boundary: bytes) -> None:
+        self._boundary = boundary
+
+    def generate_boundary(self) -> bytes:
+        """
+        Generate a boundary string.
+
+        Returns
+        -------
+        :class:`str`
+            The boundary string.
+        """
+        length = random.randint(1, 70)
+        return ''.join([random.choice(string.ascii_letters) for _ in range(length)]).encode()
+    
+    def add_field(self, field: FormDataField) -> None:
         """
         Add a file to the form data.
 
@@ -98,49 +183,36 @@ class FormData:
         disposition: :class:`~railway.formdata.Disposition`
             A disposition object.
         """
-        self.files.append((file, disposition))
+        self[field.dispotision.name] = field
 
-    @classmethod
-    def from_request(cls, request: 'Request') -> FormData:
-        """
-        Creates a form data object from a request.
+    async def _prepare_field(self, field: FormDataField) -> bytes:
+        assert self.boundary is not None, 'Boundary not set'
+        disposition = field.dispotision
 
-        Parameters
-        ----------
-        request: :class:`~railway.request.Request`
-            a request.
-        """
-        form = cls()
-        data = request.text()
+        boundary = BOUNDARY_LIMITER + self.boundary
+        headers = [
+            f'Content-Disposition: {disposition.to_header()}'.encode(),
+            f'Content-Type: {disposition.content_type}'.encode(),
+        ]
 
-        content_type = request.headers.get('Content-Type')
-        if not content_type:
-            return form
-        
-        _, boundary = content_type.split('; ')
-        boundary = '--' + boundary.strip('boundary=')
+        body = boundary
 
-        data = data.strip(boundary + '--\r\n')
-        split = data.split(boundary + '\r\n')
-        
-        for part in split:
-            if part:
-                try:
-                    hdrs, body = find_headers(part.encode())
-                    headers: Dict[str, str] = dict(hdrs) # type: ignore
+        body += CLRF.join(headers) + (CLRF * 2)
+        body += await field.file.read() + CLRF
 
-                    content = headers.get('Content-Disposition')
-                    if content:
-                        disposition = Disposition(content)
-                        filename = disposition.filename
-                    else:
-                        disposition = None
-                        filename = None
+        return body
 
-                    file = File(body, filename=filename)
-                    form.add_file(file, disposition)
+    async def prepare(self) -> Tuple[bytearray, str]:
+        self.boundary = boundary = self.generate_boundary()
+        content_type = f'multipart/form-data; boundary={boundary}'
 
-                except ValueError:
-                    continue
+        body = bytearray()
 
-        return form
+        for field in self.values():
+            chunk = await self._prepare_field(field)
+            body.extend(chunk)
+
+
+        body.extend(BOUNDARY_LIMITER + boundary + BOUNDARY_LIMITER)
+        return body, content_type
+            

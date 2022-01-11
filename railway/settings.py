@@ -1,114 +1,184 @@
-"""
-MIT License
-
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
-from typing import Any, Dict, Union, Optional, TypedDict
+from typing import Any, Dict, Literal, Optional, TypedDict, Union, overload
 import importlib
 import os
-import pathlib
 import ssl
 import multiprocessing
+import json as _json
 
-from .utils import LOCALHOST, LOCALHOST_V6, SETTING_ENV_PREFIX, is_ipv6
+from .utils import LOCALHOST, LOCALHOST_V6, SETTING_ENV_PREFIX, validate_ip
+from .types import StrPath
 
 __all__ = (
     'Settings',
-    'DEFAULT_SETTINGS',
-    'settings_from_file',
-    'settings_from_env',
 )
 
-DEFAULT_SETTINGS = {
-    'host': LOCALHOST,
-    'port': 8080,
-    'url_prefix': '',
-    'use_ipv6': False,
-    'ssl_context': None,
-    'worker_count': (multiprocessing.cpu_count() * 2) + 1,
-    'session_cookie_name': '__railway',
-    'backlog': 200,
-    'max_concurrent_requests': None,
-    'max_pending_connections': None,
-    'connection_timeout': None    
-}
-
-class Settings(TypedDict):
-    """
-    A :class:`typing.TypedDict` representing settings used by the application.
-    """
-    host: str
+class SettingsDict(TypedDict):
+    host: Optional[str]
     port: int
-    url_prefix: str
-    use_ipv6: bool
+    path: Optional[str]
+    url_prefix: Optional[str]
     ssl_context: Optional[ssl.SSLContext]
+    use_ipv6: bool
     worker_count: int
     session_cookie_name: str
     backlog: int
-    max_concurrent_requests: Optional[int]
-    max_pending_connections: int
-    connection_timeout: Optional[int]
 
-def settings_from_file(path: Union[str, pathlib.Path]) -> Settings:
-    """
-    Loads settings from a file.
+class Settings:
+    __slots__ = (
+        'host', 'port', 'path', 'url_prefix',
+        'use_ipv6', 'ssl_context', 'worker_count',
+        'session_cookie_name', 'backlog'
+    )
 
-    Parameters
-    ----------
-    path: Union[:class:`str`, :class:`pathlib.Path`]
-        The path of the file to load settings from.
-    """
-    if isinstance(path, pathlib.Path):
-        path = str(path)
+    def __init__(
+        self,
+        *,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        path: Optional[str] = None,
+        url_prefix: Optional[str] = None,
+        use_ipv6: bool = False,
+        ssl_context: Optional[ssl.SSLContext] = None,
+        worker_count: Optional[int] = None,
+        session_cookie_name: Optional[str] = None,
+        backlog: Optional[int] = None
+    ):
+        self.host = host
+        self.path = path
+        self.url_prefix = url_prefix
+        self.use_ipv6 = use_ipv6
+        self.ssl_context = ssl_context
 
-    module = importlib.import_module(path)
+        if port is not None:
+            if not isinstance(port, int):
+                raise TypeError('port must be an integer')
 
-    kwargs: Dict[str, Any] = {}
-    
-    for key, default in DEFAULT_SETTINGS.items():
-        value = getattr(module, key.casefold(), default)
-        kwargs[key] = value
+            if port < 0 or port > 65535:
+                raise ValueError('port must be in range 0-65535')
+        else:
+            port = 8080
+        self.port = port
 
-    if kwargs['use_ipv6'] and not is_ipv6(kwargs['host']):
-        kwargs['host'] = LOCALHOST_V6
+        if worker_count is not None:
+            if not isinstance(worker_count, int) or worker_count < 0:
+                raise TypeError('worker_count must be a positive integer')
+        else:
+            worker_count = (multiprocessing.cpu_count() * 2) + 1
+        self.worker_count = worker_count
 
-    settings = Settings(**kwargs)
-    return settings
+        if session_cookie_name is not None:
+            if not isinstance(session_cookie_name, str):
+                raise TypeError('session_cookie_name must be a str')
+        else:
+            session_cookie_name = '__railway'
+        self.session_cookie_name = session_cookie_name
 
-def settings_from_env() -> Settings:
-    """
-    Loads settings from environment variables.
+        if backlog is not None:
+            if not isinstance(backlog, int) or backlog < 0:
+                raise TypeError('backlog must be a positive integer')
+        else:
+            backlog = 200
+        self.backlog = backlog
 
-    Returns:
-        A [Settings](./settings.md) object.
-    """
-    env = os.environ
-    kwargs = {}
+        self.ensure_host()
 
-    for key, default in DEFAULT_SETTINGS.items():
-        item = SETTING_ENV_PREFIX + key.casefold()
-        kwargs[key] = env.get(item, default)
+    @overload
+    def __getitem__(self, item: Literal['host', 'path']) -> Optional[str]:
+        ...
+    @overload
+    def __getitem__(self, item: Literal['port', 'worker_count', 'backlog']) -> int:
+        ...
+    @overload
+    def __getitem__(self, item: Literal['session_cookie_name']) -> str:
+        ...
+    @overload
+    def __getitem__(self, item: Literal['use_ipv6']) -> bool:
+        ...
+    @overload
+    def __getitem__(self, item: Literal['ssl_context']) -> Optional[ssl.SSLContext]:
+        ...
+    def __getitem__(self, item: str):
+        try:
+            return self.__getattribute__(item)
+        except AttributeError:
+            raise KeyError(item) from None
 
-    if kwargs['use_ipv6'] and not is_ipv6(kwargs['host']):
-        kwargs['host'] = LOCALHOST_V6
+    @overload
+    def __setitem__(self, key: Literal['host', 'path', 'session_cookie_name'], value: str):
+        ...
+    @overload
+    def __setitem__(self, key: Literal['port', 'worker_count', 'backlog'], value: int):
+        ...
+    @overload
+    def __setitem__(self, key: Literal['use_ipv6'], value: bool):
+        ...
+    @overload
+    def __setitem__(self, key: Literal['ssl_context'], value: ssl.SSLContext):
+        ...
+    def __setitem__(self, key: str, value: Any) -> None:
+        return self.__setattr__(key, value)
 
-    settings = Settings(**kwargs)
-    return settings
+    @classmethod
+    def from_env(cls):
+        kwargs = {}
+        env = os.environ
+        settings = cls.__slots__ # silly thing to do, but it works
+
+        for setting in settings:
+            name = SETTING_ENV_PREFIX + setting.casefold()
+            kwargs[setting] = env.get(name)
+
+        return cls(**kwargs)
+
+    @classmethod
+    def from_file(cls, path: StrPath):
+        module = importlib.import_module(str(path))
+
+        kwargs = {}
+        settings = cls.__slots__
+
+        for setting in settings:
+            value = getattr(module, setting.casefold(), None)
+            kwargs[setting] = value
+
+        return cls(**kwargs)
+
+    @classmethod
+    def from_json(cls, json: Union[StrPath, Dict[str, Any]]):
+        if isinstance(json, (str, os.PathLike)):
+            with open(json, 'r') as f:
+                data = _json.load(f)
+        else:
+            data = json
+
+        return cls(**data)
+        
+    def ensure_host(self) -> None:
+        if self.path is not None:
+            return None
+
+        if self.use_ipv6:
+            if not self.host:
+                self.host = LOCALHOST_V6
+            else:
+                validate_ip(self.host, ipv6=True)
+        else:
+            if not self.host:
+                self.host = LOCALHOST
+            else:
+                validate_ip(self.host)
+
+        return None
+
+    def to_dict(self) -> SettingsDict:
+        return {
+            'host': self.host,
+            'port': self.port,
+            'path': self.path,
+            'url_prefix': self.url_prefix,
+            'use_ipv6': self.use_ipv6,
+            'ssl_context': self.ssl_context,
+            'worker_count': self.worker_count,
+            'session_cookie_name': self.session_cookie_name,
+            'backlog': self.backlog
+        }

@@ -1,31 +1,6 @@
-"""
-MIT License
-
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 from __future__ import annotations
-from typing import Dict, List, Optional, TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from .request import Request
+from typing import Dict, List, Optional
 
 __all__ = (
     'Cookie',
@@ -58,12 +33,14 @@ class Cookie:
     secure: :class:`bool`
         Whether the cookie is marked as secure.
     """
-    def __init__(self, 
-                name: str, 
-                value: str, 
-                domain: Optional[str], 
-                http_only: bool,
-                secure: bool):
+    def __init__(
+        self,
+        name: str,
+        value: str,
+        domain: Optional[str],
+        http_only: bool,
+        secure: bool
+    ):
         self.name: str = name
         self.value: str = value
         self.http_only: bool = http_only
@@ -96,16 +73,16 @@ class CookieJar:
         self._cookies: Dict[str, Cookie] = {}
 
     @classmethod
-    def from_request(cls, request: Request) -> CookieJar:
+    def from_headers(cls, headers: Dict[str, str]) -> CookieJar:
         """
         Builds a cookie jar from a request.
 
         Parameters
         ----------
-        request: :class:`~railway.request.Request`
-            The request to build the cookie jar from.
+        headers: :class:`dict`
+            The headers to parse the cookie jar from.
         """
-        header = request.headers.get('Cookie')
+        header = headers.get('Cookie')
         if not header:
             return cls()
 
@@ -118,7 +95,15 @@ class CookieJar:
 
         return jar
 
-    def add_cookie(self, name: str, value: str, *, domain: Optional[str]=None, http_only: bool=False, is_secure: bool=False):
+    def add_cookie(
+        self,
+        name: str,
+        value: str,
+        *,
+        domain: Optional[str] = None,
+        http_only: bool = False,
+        is_secure: bool = False
+    ):
         """
         Adds a cookie to the jar
 
@@ -146,6 +131,9 @@ class CookieJar:
 
         return cookie
 
+    def update(self, cookies: Dict[str, Cookie]) -> None:
+        return self._cookies.update(cookies)
+
     def get_cookie(self, name: str) -> Optional[Cookie]:
         """
         Gets a cookie from the jar.
@@ -157,9 +145,20 @@ class CookieJar:
         """
         return self._cookies.get(name)
 
+    def get(self, name: str) -> Optional[Cookie]:
+        """
+        Equivalent to :meth:`~.get_cookie`
+
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the cookie to get.
+        """
+        return self._cookies.get(name)
+
     def encode(self):
         """
-        Encodes the cookie jar as a string.
+        Encodes the cookie jar as string.
         """
         encoded: List[str] = []
 
@@ -169,7 +168,7 @@ class CookieJar:
         return '; '.join(encoded)
 
     def __iter__(self):
-        return self._cookies.values().__iter__()
+        return self._cookies.items().__iter__()
 
     def __bool__(self):
         return bool(self._cookies)

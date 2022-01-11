@@ -23,6 +23,7 @@ Contents
 
 
   api
+  extensions
   http
   websockets
   server-client

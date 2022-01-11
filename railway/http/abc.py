@@ -1,38 +1,17 @@
-"""
-MIT License
-
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 from __future__ import annotations
 
-import ssl
 from typing import Any, Optional, Dict, TYPE_CHECKING
-from urllib.parse import urlparse
+from abc import ABC, abstractmethod
 import copy
+import ssl
+import asyncio
 
+from railway.utils import parse_headers
+from railway.streams import StreamReader, StreamWriter
+from railway.types import StrURL
 from .errors import HookerAlreadyConnected, HookerClosed
 from .response import HTTPResponse, HTTPStatus
 from .request import HTTPRequest
-from railway.utils import find_headers
-from railway.streams import StreamTransport
 
 if TYPE_CHECKING:
     from .sessions import HTTPSession
@@ -44,11 +23,11 @@ __all__ = (
     'Hooker'
 )
 
-class Hooker:
+class Hooker(ABC):
     def __init__(self, session: HTTPSession) -> None:
         self.session = session
-        self.stream: Optional[StreamTransport] = None
-
+        self.reader: Optional[StreamReader] = None
+        self.writer: Optional[StreamWriter] = None
         self.connected = False
         self.closed = False
 
@@ -57,10 +36,15 @@ class Hooker:
         return f'<{name} closed={self.closed} connected={self.connected}>'
 
     @property
-    def loop(self):
+    def loop(self) -> asyncio.AbstractEventLoop:
         return self.session.loop
 
-    def ensure(self):
+    @staticmethod
+    def create_default_ssl_context() -> ssl.SSLContext:
+        context = ssl.create_default_context()
+        return context
+
+    def ensure(self) -> None:
         if self.connected:
             raise HookerAlreadyConnected(hooker=self)
 
@@ -71,62 +55,44 @@ class Hooker:
         hooker = copy.copy(self)
         return hooker
 
-    def create_default_ssl_context(self):
-        context = ssl.create_default_context()
-        return context
-
-    def parse_host(self, url: str):
-        parsed = urlparse(url)
-        hostname = parsed.hostname
-
-        if not hostname:
-            hostname = ''
-
-        if parsed.port:
-            hostname = f'{parsed.hostname}:{parsed.port}'
-
-        scheme = parsed.scheme
-        is_ssl = False
-
-        if scheme in SSL_SCHEMES:
-            is_ssl = True
-
-        return is_ssl, hostname, parsed.path or '/'
-
-    async def read(self) -> bytes:
+    @abstractmethod
+    async def connect(self, url: StrURL) -> None:
         raise NotImplementedError
 
+    @abstractmethod
     async def write(self, data: Any) -> None:
         raise NotImplementedError
 
-    def build_request(self, 
-                    method: str, 
-                    host: str, 
-                    path: str, 
-                    headers: Dict[str, Any],
-                    body: Optional[str]):
+    def build_request(
+        self, 
+        method: str, 
+        host: str, 
+        path: str, 
+        headers: Dict[str, Any],
+        body: Optional[str]
+    ) -> HTTPRequest:
         headers.setdefault('Connection', 'close')
         return HTTPRequest(method, path, host, headers, body)
 
-    async def build_response(self, data: Optional[bytes]=None):
-        if not data:
-            data = await self.read()
-        
-        hdrs, body = find_headers(data)
-        header = next(hdrs)[0]
+    async def get_response(self) -> HTTPResponse:
+        if self.reader is None:
+            raise RuntimeError('Not connected')
 
-        version, status, _ = header.split(' ', 2)
+        status_line = await self.reader.readuntil(b'\r\n')
+        version, status_code, _ = status_line.decode().split(' ', 2)
 
-        status = HTTPStatus(int(status)) # type: ignore
-        headers: Dict[str, Any] = dict(hdrs) # type: ignore
+        hdrs = await self.reader.readuntil(b'\r\n\r\n')
+
+        status = HTTPStatus(int(status_code))
+        headers: Dict[str, Any] = dict(parse_headers(hdrs))
 
         return HTTPResponse(
             hooker=self,
             status=status,
             version=version,
             headers=headers,
-            body=body
         )
 
+    @abstractmethod
     async def close(self) -> None:
         raise NotImplementedError

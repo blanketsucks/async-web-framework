@@ -1,46 +1,23 @@
-"""
-MIT License
-
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 from typing import List, Tuple, Dict, Any, Type
 import functools
-import inspect
 
-from ._types import CoroFunc
+from .types import CoroFunc
 from .objects import Route
 from .router import Router
-from .utils import VALID_METHODS
+from .utils import VALID_METHODS, iscoroutinefunction
 
 __all__ = (
     'ViewMeta',
     'HTTPView',
 )
 
+
 class ViewMeta(type):
     """
     The meta class used for views.
     """
     __routes__: List[CoroFunc]
-    
+
     def __new__(cls, name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any], **kwargs: Any):
         attrs['__url_route__'] = kwargs.get('path', '')
         attrs['__routes__'] = []
@@ -50,12 +27,13 @@ class ViewMeta(type):
 
         for base in self.mro():
             for _, value in base.__dict__.items():
-                if inspect.iscoroutinefunction(value):
+                if iscoroutinefunction(value):
                     if value.__name__.upper() in VALID_METHODS:
                         view_routes.append(value)
 
         self.__routes__ = view_routes
         return self
+
 
 class HTTPView(metaclass=ViewMeta):
     """
@@ -82,42 +60,42 @@ class HTTPView(metaclass=ViewMeta):
     @property
     def url_route(self) -> str:
         """
-        Returns:
-            The url route for this view.
+        The url route for this view.
         """
         return self.__url_route__
 
     def routes(self) -> List[CoroFunc]:
         """
-        Returns:
-            The routes for this view.
+        The routes for this view.
         """
         return self.__routes__
 
-    def add_route(self, method: str, coro: CoroFunc) -> CoroFunc:
+    def add_route(self, method: str, callback: CoroFunc) -> CoroFunc:
         """
         Adds a route to this view.
 
-        Parameters:
-            method: The HTTP method to use for this route.
-            coro: The coroutine function to use for this route.
-
-        Returns:
-            The coroutine function that was added.
+        Parameters
+        ----------
+        method: :class:`str`
+            The HTTP method of the route.
+        callback: Callable[..., Any]
+            The callback to register the route with.
         """
-        setattr(self, method, coro)
-        return coro
+        setattr(self, method, callback)
+        return callback
 
-    def as_routes(self, router: Router, *, remove_routes: bool=False) -> List[Route]:
+    def as_routes(
+        self, router: Router, *, remove_routes: bool = False
+    ) -> List[Route]:
         """
         A helper method for adding routes to a router or removing them.
 
-        Parameters:
-            router: The router to add routes to.
-            remove_routes: If True, removes all routes inside this view from the router.
-
-        Returns:
-            The routes that were added/removed.
+        Parameters
+        ----------
+        router: :class:`~.Router`
+            The router to add the routes to.
+        remove_routes: :class:`bool`
+            Whether to remove the routes from the router.
         """
         routes: List[Route] = []
 
@@ -132,5 +110,5 @@ class HTTPView(metaclass=ViewMeta):
                 router.add_route(route)
 
             routes.append(route)
-            
+
         return routes

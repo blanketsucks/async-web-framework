@@ -1,7 +1,7 @@
+from typing import Any, Union, Optional
 import asyncio
-import pathlib
+import os
 import logging
-from typing import Union, Optional
 
 from railway import app
 
@@ -37,13 +37,14 @@ class Application(app.Application):
         # your HTTPS and HTTP tunnels.
  
     """
-    def __init__(self, ngrok: Union[str, pathlib.Path], *args, **kwargs):
+    def __init__(self, ngrok: Union[str, os.PathLike[str]], *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-        if not isinstance(ngrok, (str, pathlib.Path)):
-            raise TypeError('ngrok argument must be a str or pathlib.Path')
+        if not isinstance(ngrok, (str, os.PathLike)):
+            raise TypeError('ngrok argument must be a path-like object or a string.')
+
         self.ngrok = str(ngrok)
-        self._process = None
+        self._process: Optional[asyncio.subprocess.Process] = None
 
     @property
     def process(self) -> Optional[asyncio.subprocess.Process]:
@@ -52,7 +53,7 @@ class Application(app.Application):
         """
         return self._process
 
-    async def run_ngrok_executable(self):
+    async def run_ngrok_executable(self) -> None:
         """
         Runs the ngrok executable and waits.
         """
@@ -63,20 +64,20 @@ class Application(app.Application):
             stderr=asyncio.subprocess.PIPE
         )
 
-        await self._process.wait()
-
-    def start(self) -> None:
-        self.loop.create_task(
-            coro=self.run_ngrok_executable(),
-            name='ngrok'
-        )
+    async def start(self) -> None:
+        await self.run_ngrok_executable()
 
         log.info('Started ngrok. Check http://127.0.0.1:4040 for more info.')
-        super().start()
+        await super().start()
 
     async def close(self) -> None:
         if self.process:
-            self.process.terminate()
+            try:
+                self.process.terminate()
+                await self.process.wait()
+            except ProcessLookupError:
+                pass
+
             log.info('Terminated ngrok process.')
 
         return await super().close()

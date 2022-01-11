@@ -1,34 +1,18 @@
-"""
-MIT License
+from __future__ import annotations
 
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
-from typing import Any, Dict, List, Union, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, overload, AsyncIterator
 import json
 import enum
 import mimetypes
 
 from .cookies import CookieJar
-from .file import File
-from .datastructures import Headers
+from .files import File
+from .headers import Headers
+from .types import AnyBody, JSONResponseBody, ResponseBody, ResponseHeaders, ResponseStatus
+from .utils import CLRF
+
+if TYPE_CHECKING:
+    from .objects import Route
 
 __all__ = (
     'Response',
@@ -36,11 +20,12 @@ __all__ = (
     'HTMLResponse',
     'JSONResponse',
     'FileResponse',
+    'cache_control',
 )
 
 class HTTPStatus(enum.IntEnum):
     _description_: str
-    
+
     def __new__(cls, value: int, description: str):
         self = int.__new__(cls, value)
 
@@ -141,19 +126,21 @@ class Response:
 
     Attributes
     ----------
-        version: :class:`str`
-            The HTTP version of the response.
-        cookies: :class:`~railway.cookies.CookieJar`
-            A cookie jar that contains all the cookies that should be set on the response.
+    version: :class:`str`
+        The HTTP version of the response.
+    cookies: :class:`~railway.cookies.CookieJar`
+        A cookie jar that contains all the cookies that should be set on the response.
     """
-    def __init__(self, 
-                body: Optional[str]=None,
-                status: Optional[int]=None,
-                content_type: Optional[str]=None,
-                headers: Optional[Dict[str, Any]]=None,
-                version: Optional[str]=None):
+    def __init__(
+        self,
+        body: Optional[ResponseBody] = None,
+        status: Optional[ResponseStatus] = None,
+        content_type: Optional[str] = None,
+        headers: Optional[ResponseHeaders] = None,
+        version: Optional[str] = None
+    ):
         self.version: str = version or '1.1'
-        self._status = HTTPStatus(status or 200) # type: ignore
+        self._status = HTTPStatus(status or 200)  # type: ignore
         self._body = body
         self._content_type = content_type or 'text/html'
         self._encoding = "utf-8"
@@ -165,12 +152,12 @@ class Response:
 
         if body is not None:
             self._headers['Content-Type'] = self._content_type
-            self._headers['Content-Lenght'] = str(len(body))
+            self._headers['Content-Length'] = str(len(body))
 
         self.cookies = CookieJar()
 
     @property
-    def body(self) -> Any:
+    def body(self) -> Optional[AnyBody]:
         """
         The body of the response.
         """
@@ -204,20 +191,6 @@ class Response:
         """
         return self._headers
 
-    def add_body(self, data: str) -> None:
-        """
-        Appends the ``data`` to the body of the response.
-
-        Parameters
-        ----------
-        data: :class:`str`
-            The body to append.
-        """
-        if not self._body:
-            self._body = ''
-
-        self._body += data
-
     def add_header(self, *, key: str, value: str):
         """
         Adds a header to the response.
@@ -231,13 +204,15 @@ class Response:
         """
         self._headers[key] = value
 
-    def add_cookie(self, 
-                name: str, 
-                value: str, 
-                *, 
-                domain: Optional[str]=None, 
-                http_only: bool=False, 
-                is_secure: bool=False):
+    def add_cookie(
+        self,
+        name: str,
+        value: str,
+        *,
+        domain: Optional[str] = None,
+        http_only: bool = False,
+        is_secure: bool = False
+    ):
         """
         Adds a cookie to the response.
 
@@ -266,39 +241,75 @@ class Response:
         name = self.__class__.__name__
         return f'<{name} status={self.status} content_type={self.content_type!r} version={self.version!r}>'
 
-    def encode(self):
-        """
-        Encodes the response into a sendable bytes object.
-        """
+    def _prepare(self, body: Any) -> bytes:
         response = [f'HTTP/{self.version} {self.status} {self.status.description}']
 
         response.extend(f'{k}: {v}' for k, v in self._headers.items())
         if self.cookies:
             response.append(self.cookies.encode())
 
-        response.append('\r\n')
+        response = CLRF.join(part.encode() for part in response)
+        response += CLRF * 2
 
-        response = b'\r\n'.join(part.encode() for part in response)
-        if self.body:
-            response += self._body.encode() # type: ignore
+        if body is not None:
+            if not isinstance(body, (bytes, bytearray, str)):
+                raise TypeError(f'body must be bytes, bytearray or str, not {type(body)}')
+
+            if isinstance(body, str):
+                body = body.encode()
+            elif isinstance(body, bytearray):
+                body = bytes(body)
+
+            response += body
 
         return response
+
+    async def prepare(self) -> bytes:
+        """
+        Encodes the response into a sendable bytes object.
+        """
+        return self._prepare(self.body)
+
+class StreamResponse(Response):
+    def __init__(
+        self,
+        stream: AsyncIterator[ResponseBody],
+        *, 
+        body: Optional[ResponseBody] = None, 
+        status: Optional[ResponseStatus] = None, 
+        content_type: Optional[str] = None, 
+        headers: Optional[ResponseHeaders] = None, 
+        version: Optional[str] = None
+    ):
+        super().__init__(body=body, status=status, content_type=content_type, headers=headers, version=version)
+        self.stream = stream
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> bytes:
+        chunk = await self.stream.__anext__()
+        if isinstance(chunk, str):
+            chunk = chunk.encode()
+
+        return chunk
 
 class HTMLResponse(Response):
     """
     A class used to build an HTML response
     """
-    def __init__(self, 
-                body: Optional[str]=None,
-                status: Optional[int]=None,
-                headers: Optional[Dict[str, Any]]=None,
-                version: Optional[str]=None):
-
+    def __init__(
+        self,
+        body: Optional[str] = None,
+        status: Optional[ResponseStatus] = None,
+        headers: Optional[ResponseHeaders] = None,
+        version: Optional[str] = None
+    ):
         super().__init__(
-            body=body, 
-            status=status, 
-            content_type='text/html', 
-            headers=headers, 
+            body=body,
+            status=status,
+            content_type='text/html',
+            headers=headers,
             version=version
         )
 
@@ -306,18 +317,18 @@ class JSONResponse(Response):
     """
     A class used to build a JSON response
     """
-    def __init__(self, 
-                body: Optional[Union[Dict[str, Any], List[Any]]]=None, 
-                status: Optional[int]=None, 
-                headers: Optional[Dict[str, Any]]=None, 
-                version: Optional[str]=None):
-
-        body = body or {}
+    def __init__(
+        self,
+        body: Optional[JSONResponseBody] = None,
+        status: Optional[ResponseStatus] = None,
+        headers: Optional[ResponseHeaders] = None,
+        version: Optional[str] = None
+    ):
         super().__init__(
-            body=json.dumps(body, indent=4), 
-            status=status, 
-            content_type='application/json', 
-            headers=headers, 
+            body=json.dumps(body, indent=4) if body is not None else None,
+            status=status,
+            content_type='application/json',
+            headers=headers,
             version=version
         )
 
@@ -337,17 +348,19 @@ class FileResponse(Response):
     version: :class:`str`
         The HTTP version of the response.
     """
-    def __init__(self, 
-                file: File,
-                status: Optional[int]=None, 
-                headers: Optional[Dict[str, str]]=None, 
-                version: Optional[str]=None):
+    def __init__(
+        self,
+        file: File,
+        status: Optional[ResponseStatus] = None,
+        headers: Optional[ResponseHeaders] = None,
+        version: Optional[str] = None
+    ):
         self.file = file
 
         super().__init__(
-            status=status, 
-            content_type=self.get_content_type(), 
-            headers=headers, 
+            status=status,
+            content_type=self.get_content_type(),
+            headers=headers,
             version=version
         )
 
@@ -367,11 +380,58 @@ class FileResponse(Response):
 
         return content_type
 
-    async def read(self) -> bytes:
+    async def prepare(self):
         """
-        Reads the file, sets the body and returns it as bytes.
+        Encodes the response into a sendable bytes object.
         """
-        data = await self.file.read()
-        self._body = data.decode()
+        self.body = body = await self.file.read()
+        data = self._prepare(body)
 
+        await self.file.close()
         return data
+
+@overload
+def cache_control(
+    *,
+    max_age: Optional[int] = ...,
+    s_maxage: Optional[int] = ...,
+    no_cache: Optional[bool] = ...,
+    no_store: Optional[bool] = ...,
+    no_transform: Optional[bool] = ...,
+    must_revalidate: Optional[bool] = ...,
+    must_understand: Optional[bool] = ...,
+    proxy_revalidate: Optional[bool] = ...,
+    public: Optional[bool] = ...,
+    private: Optional[bool] = ...,
+    immutable: Optional[bool] = ...,
+    stale_while_revalidate: Optional[int] = ...,
+    stale_if_error: Optional[int] = ...
+) -> Callable[[Route], Route]:
+    ...
+@overload
+def cache_control(
+    *,
+    max_age: Optional[int] = ...,
+    s_maxage: Optional[int] = ...,
+    no_cache: Optional[bool] = ...,
+    no_store: Optional[bool] = ...,
+    no_transform: Optional[bool] = ...,
+    must_revalidate: Optional[bool] = ...,
+    must_understand: Optional[bool] = ...,
+    proxy_revalidate: Optional[bool] = ...,
+    public: Optional[bool] = ...,
+    private: Optional[bool] = ...,
+    immutable: Optional[bool] = ...,
+    stale_while_revalidate: Optional[int] = ...,
+    stale_if_error: Optional[int] = ...
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    ...
+def cache_control(**kwargs: Any) -> Callable[..., Any]:
+    """
+    A decorator used to add cache control headers to a route's response.
+    """
+    def decorator(obj: Any) -> Any:
+        obj.__cache_control__ = kwargs
+        return obj
+
+    return decorator

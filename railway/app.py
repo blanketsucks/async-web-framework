@@ -1,71 +1,56 @@
-"""
-MIT License
+from __future__ import annotations
 
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
-import functools
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, Type, Union, AsyncIterator
+from functools import partial
+import datetime
+import os
 import sys
 import ssl
-from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Set, Tuple, Type, Union
-import pathlib
-import re
 import inspect
 import logging
-import multiprocessing
 import socket
 import uuid
 import asyncio
-import json
 import traceback
+import jinja2
 
-from ._types import CoroFunc, Coro
+from .types import (
+    Coro,
+    CoroFunc,
+    StatusCodeCallback,
+    RouteResponse,
+    ResponseStatus,
+    ResponseMiddleware,
+    CookieSessionCallback
+)
 from .resources import Resource
 from . import compat, utils
 from .request import Request
-from .responses import NotFound, MethodNotAllowed, redirects, HTTPException
+from .responses import Found, redirects, HTTPException, InternalServerError
 from .errors import *
-from .router import Router
-from .settings import Settings, settings_from_file, settings_from_env, DEFAULT_SETTINGS
-from .objects import PartialRoute, Route, Listener, WebsocketRoute, Middleware
-from .injectables import Injectable
+from .router import Router, ResolvedRoute
+from .settings import Settings
+from .objects import PartialRoute, Route, Listener, WebSocketRoute, Middleware
 from .views import HTTPView
-from .response import Response, JSONResponse, FileResponse, HTMLResponse
-from .file import File
-from .websockets import ServerWebsocket as Websocket
+from .response import Response, JSONResponse, FileResponse, HTMLResponse, StreamResponse
+from .files import File
+from .websockets import ServerWebSocket as WebSocket, WebSocketProtocol
 from .workers import Worker
 from .models import Model, IncompatibleType, MissingField
-from .datastructures import URL
-from .locks import Semaphore, _MaybeSemaphore
+from .url import URL
+from .base import BaseApplication
+from .blueprints import Blueprint
+from .converters import AbstractConverter
 
 log = logging.getLogger(__name__)
 
 __all__ = (
-    'dualstack_ipv6',
     'Application',
 )
 
-
-class Application:
+class Application(BaseApplication):
     """
-    A class respreseting an ASGI application.
+    A class representing an application.
 
     Parameters
     ----------
@@ -73,13 +58,15 @@ class Application:
         A string representing the host to listen on.
     port: :class:`int`
         An integer representing the port to listen on.
+    path: :class:`str`
+        A string representing the path to a UNIX socket.
     url_prefix: :class:`str`
         A string representing the url prefix.
     loop: :class:`asyncio.AbstractEventLoop`
         An optional asyncio event loop.
-    settings: :class:`~railway.settings.Settings`
-        An optional :class:`~railway.settings.Settings` instance. If not specified,
-        the default settings will be used.
+    
+    settings: :class:`~.Settings`
+        An optional :class:`~.Settings` instance. If not specified, the default settings will be used.
     settings_file: Union[:class:`pathlib.Path`, :class:`str`]
         An optional path to a settings file.
     load_settings_from_env: :class:`bool`
@@ -90,7 +77,7 @@ class Application:
         An optional :class:`socket.socket` instance.
     worker_count: :class:`int`
         An optional integer representing the number of workers to spawn.
-    use_ssl: :class:`bool`
+    ssl: :class:`bool`
         An optional bool indicating whether to use SSL.
     ssl_context: :class:`ssl.SSLContext`
         An optional :class:`ssl.SSLContext` instance.
@@ -98,18 +85,6 @@ class Application:
         A callback that gets called whenever there is a need to generate a cookie header value
         for responses. This function must return a single value being a string, anything else will raise an error.
         The default for this is a lambda function that returns a :attr:`uuid.UUID.hex` value.
-    max_concurrent_requests: :class:`int`
-        An integer representing the maximum number of concurrent requests. This is used with a :class:`~railway.locks.Semaphore`. 
-        This doesn't really limit the amount of requests though, it just limits the amount of requests that can be processed at the same time, 
-        clients will still be able to send requests but they will be stalled until the semaphore is released.
-        It is also possible to have route specific semaphores, see :meth:`Route.add_semaphore`.
-    max_pending_connections: :class:`int`
-        An integer represting the maximun number of pending connections. Again, this isn't really limiting the amount of connections,
-        it just limits the amount of connections that can be queued up before getting processed by the server.
-    connection_timeout: :class:`int`
-        An integer representing the connection timeout. This defines the amount of the time that the client has to make a request
-        after the server has accepted the connection. If the client doesn't make a request within this time, the connection will be
-        closed.
     backlog: :class:`int`
         An integer representing the backlog that gets passed to the :meth:`socket.socket.listen` method.
         Defaults to 200.
@@ -127,7 +102,7 @@ class Application:
     TypeError
         If ``port`` is not a valid integer. This can from either the constructor or the settings,
         if ``worker_count`` is not a valid integer, or
-        if ``sock`` was specified and it is not a valid :class:`socket.socket` instance.
+        if ``sock`` was specified, and it is not a valid :class:`socket.socket` instance.
     ValueError
         If ``host`` is not a valid IP. This can from either the constructor or the settings, or
         if ``worker_count`` is an integer less than 0.
@@ -151,87 +126,67 @@ class Application:
     cookie_session_callback: Callable[[:class:`~railway.request.Request`, :class:`~railway.response.Response`], :class:`str`]
         A callback that gets called whenever there is a need to generate a cookie header value for responses.
     """
+
     def __init__(
         self,
-        host: Optional[str]=None,
-        port: Optional[int]=None,
-        url_prefix: Optional[str]=None, 
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        path: Optional[str] = None,
+        url_prefix: Optional[str] = None,
         *,
-        loop: Optional[asyncio.AbstractEventLoop]=None,
-        settings: Optional[Settings]=None,
-        settings_file: Optional[Union[str, pathlib.Path]]=None, 
-        load_settings_from_env: Optional[bool]=False,
-        ipv6: bool=False,
-        sock: Optional[socket.socket]=None,
-        worker_count: Optional[int]=None, 
-        use_ssl: Optional[bool]=False,
-        ssl_context: Optional[ssl.SSLContext]=None,
-        cookie_session_callback: Optional[Callable[[Request, Response], str]]=None,
-        max_pending_connections: Optional[int]=None,
-        max_concurent_requests: Optional[int]=None,
-        connection_timeout: Optional[int]=None,
-        backlog: Optional[int]=None,
-        reuse_host: bool=True,
-        reuse_port: bool=False
+        templates_dir: Optional[str] = None,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
+        settings: Optional[Settings] = None,
+        settings_file: Optional[Union[str, os.PathLike[str]]] = None,
+        load_settings_from_env: bool = False,
+        ipv6: bool = False,
+        sock: Optional[socket.socket] = None,
+        worker_count: Optional[int] = None,
+        ssl: bool = False,
+        ssl_context: Optional[ssl.SSLContext] = None,
+        cookie_session_callback: Optional[CookieSessionCallback] = None,
+        backlog: Optional[int] = None,
+        reuse_host: bool = True,
+        reuse_port: bool = False
     ):
-        if ipv6:
-            has_ipv6 = utils.has_ipv6()
-            if not has_ipv6:
-                raise RuntimeError('IPv6 is not supported on this system')
         self._ipv6 = ipv6
+        if ipv6 and host is None:
+            host = utils.LOCALHOST_V6
 
-        if reuse_port:
-            if not hasattr(socket, 'SO_REUSEPORT'):
-                raise RuntimeError('SO_REUSEPORT is not supported')
+        self.settings = self.load_settings(settings, settings_file, load_settings_from_env)
+        host = host or self.settings.host
+        port = port or self.settings.port
 
-        if settings is None:
-            if settings_file:
-                settings = settings_from_file(settings_file)
-            
-            if load_settings_from_env:
-                settings = settings_from_env()
-    
-            if not settings:
-                settings = self.create_default_settings()
-
-        self.settings: Settings = settings
-        self._verify_settings()
-
-        host = host or self.settings['host']
-        port = port or settings['port']
-
-        self.host: str = utils.validate_ip(host, ipv6=ipv6)
-        self.port: int = port
-        self.url_prefix = url_prefix or settings['url_prefix']
+        assert host is not None, 'host is required'
+        self.host = utils.validate_ip(host, ipv6=ipv6)
+        self.port = port
+        self.path = path
+        self.url_prefix = url_prefix or self.settings.url_prefix
         self.router = Router(self.url_prefix)
-        self.ssl_context = ssl_context or settings['ssl_context']
-        self.worker_count = settings['worker_count'] if worker_count is None else worker_count
+        self.ssl_context = ssl_context or self.settings.ssl_context
+        self.worker_count = self.settings.worker_count if worker_count is None else worker_count
+        self.env: Dict[str, Any] = {'app': self, 'url_for': self.url_for}
 
         if cookie_session_callback is not None:
             if not callable(cookie_session_callback):
                 raise TypeError('cookie_session_callback must be a callable')
 
         self.cookie_session_callback = cookie_session_callback or (lambda req, res: uuid.uuid4().hex)
-        self._backlog = backlog or settings['backlog']
-        self._concurrent_requests_semaphore = _MaybeSemaphore(
-            value=max_concurent_requests or settings['max_concurrent_requests']
-        )
-        self._max_pending_connections = max_pending_connections or settings['max_pending_connections']
-        self._connection_timeout = connection_timeout or settings['connection_timeout']
-        self._use_ssl = use_ssl
+        self._jinja2_env = self.create_default_jinja2_env(templates_dir)
+        self._backlog = backlog or self.settings.backlog
+        self._use_ssl = ssl
         self._listeners: Dict[str, List[Listener]] = {}
         self._resources: Dict[str, Resource] = {}
+        self._blueprints: Dict[str, Blueprint] = {}
         self._views: Dict[str, HTTPView] = {}
-        self._middlewares: List[Middleware] = []
         self._active_listeners: List[asyncio.Task[Any]] = []
-        self._websocket_tasks: List[asyncio.Task[Any]] = []
-        self._worker_tasks: List[asyncio.Task[None]] = []
-        self._status_code_handlers: Dict[int, Callable[[Request, HTTPException, Union[PartialRoute, Route]], Coro]] = {}
+        self._status_code_handlers: Dict[int, Callable[[Request[Application], HTTPException, Union[PartialRoute, Route]], Coro[Any]]] = {}
         self._loop = self._create_loop(loop)
         self._closed = False
-        self._lifespan_tasks: List[AsyncGenerator[Any, Any]] = []
+        self._lifespan_tasks: List[AsyncIterator[Any]] = []
         self._reuse_host = reuse_host
         self._reuse_port = reuse_port
+        self._response_middlewares: List[ResponseMiddleware] = []
 
         if not reuse_host:
             self.worker_count = 1
@@ -240,50 +195,18 @@ class Application:
             self.ssl_context = self.create_default_ssl_context()
 
         if sock:
-            if not isinstance(sock, socket.socket):
-                raise TypeError('sock must be a socket.socket instance')
-
             val = sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR)
             if not val:
                 raise RuntimeError('socket does not have SO_REUSEADDR enabled')
 
-        self._socket = sock or (
-            self.create_ipv6_socket(self.host, self.port) if self._ipv6 
-            else self.create_ipv4_socket(self.host, self.port)
-        )
-        self._workers = self._add_workers()
-
-    def __repr__(self) -> str:
-        values = [f'<{self.__class__.__name__}']
-        attrs = (
-            'url_prefix',
-            'host', 
-            'port',
-            'reuse_host',
-            'reuse_port',
-            'is_ssl',
-            'is_ipv6',
-            'is_closed',
-            'is_serving',
-            'worker_count', 
-            'max_pending_connections', 
-            'connection_timeout'
-        )
-
-        for attr in attrs:
-            value = getattr(self, attr)
-            if callable(value):
-                value = value()
-
-            values.append(f'{attr}={value!r}')
-
-        return ' '.join(values) + '>'
+        self._socket = sock
+        self.setup_workers()
 
     async def __aenter__(self) -> 'Application':
         await self.start()
         return self
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args: Any):
         await self.close()
 
     def __getitem__(self, item: str):
@@ -291,17 +214,20 @@ class Application:
 
     def _create_loop(self, loop: Optional[asyncio.AbstractEventLoop]) -> asyncio.AbstractEventLoop:
         if loop is None:
-            try:
-                return compat.get_running_loop()
-            except RuntimeError:
-                pass
+            if not compat.PY310:
+                loop = compat.get_event_loop()
+            else:
+                try:
+                    return compat.get_running_loop()
+                except RuntimeError:
+                    pass
 
-            loop = compat.new_event_loop()
-            compat.set_event_loop(loop)
+                policy = compat.get_event_loop_policy()
+                loop = policy.get_event_loop()
 
         return loop
 
-    async def _safe_anext(self, gen: AsyncGenerator[Any, Any]) -> None:
+    async def _safe_anext(self, gen: AsyncIterator[Any]) -> None:
         try:
             await gen.__anext__()
         except StopAsyncIteration:
@@ -309,34 +235,6 @@ class Application:
                 self._lifespan_tasks.remove(gen)
             except ValueError:
                 pass
-
-    def _verify_settings(self):
-        settings = self.settings
-
-        host = settings.get('host')
-        ipv6 = settings.get('use_ipv6')
-
-        if ipv6:
-            if not utils.is_ipv6(host):
-                raise ValueError(f'{host!r} is not a valid IPv6 address')
-
-        else:
-            if not utils.is_ipv4(host):
-                raise ValueError(f'{host!r} is not a valid IPv4 address')
-
-        port = settings.get('port')
-        if not isinstance(port, int):
-            raise TypeError(f'Invalid port: {port!r}')
-
-        worker_count = settings.get('worker_count')
-        if not isinstance(worker_count, int):
-            raise TypeError(f'Invalid worker_count: {worker_count!r}')
-
-        if worker_count < 0:
-            raise ValueError(f'Invalid worker_count: {worker_count!r}')
-
-    def _log(self, message: str):
-        log.info(message)
 
     def _find_url_from_views(self, path: str):
         view = self.get_view(path)
@@ -371,8 +269,8 @@ class Application:
             return route
 
         return path
-        
-    def _build_url(self, path: str, is_websocket: bool=False, ignore: bool=False) -> URL:
+
+    def _build_url(self, path: str, is_websocket: bool = False, ignore: bool = False) -> URL:
         real = self._find_path(path)
 
         if real not in self.paths:
@@ -390,22 +288,75 @@ class Application:
 
         return URL(base + real)
 
-    def _add_workers(self):
+    def _create_workers(self):
         workers: Dict[int, Worker] = {}
 
         for i in range(self.worker_count):
-            worker = Worker(self, i, self._max_pending_connections)
+            worker = Worker(self, i)
             workers[worker.id] = worker
 
         return workers
 
-    def _ensure_websockets(self):
-        for ws in self._websocket_tasks:
-            if ws.done():
-                self._websocket_tasks.remove(ws)
+    async def _transform_model(self, parameter: Parameter, request: Request[Application]) -> Any:
+        try:
+            data = await request.json(check_content_type=True)
+        except AssertionError:
+            if parameter.default is not parameter.empty:
+                return parameter.default
 
-    def _convert(self, route: Route, query: Dict[str, Any], request: 'Request') -> Dict[str, Any]:
+            raise
+        
+        annotations = utils.get_union_args(parameter.annotation)
+
+        for annotation in annotations:
+            if issubclass(annotation, Model):
+                try:
+                    return annotation.from_json(data)
+                except (IncompatibleType, MissingField):
+                    continue
+
+        if parameter.default is not parameter.empty:
+            return parameter.default
+
+        raise BadModelConversion(data, parameter, annotations)
+
+    async def _transform(
+        self, 
+        parameter: Parameter, 
+        argument: str, 
+        request: Request[Application]
+    ) -> Any:
+        annotation = parameter.annotation
+
+        if getattr(annotation, '__origin__', None) is Literal:
+            if argument not in annotation.__args__:
+                if parameter.default is not parameter.empty:
+                    return parameter.default
+
+                raise BadLiteralArgument(argument, parameter, annotation.__args__)
+
+            return argument
+
+        for annotation in utils.get_union_args(annotation):
+            if isinstance(annotation, AbstractConverter):
+                return await annotation.convert(request, argument)
+            elif issubclass(annotation, AbstractConverter):
+                return await annotation().convert(request, argument) # type: ignore
+
+            try:
+                return annotation(argument)
+            except ValueError:
+                continue
+        
+        if parameter.default is not parameter.empty:
+            return parameter.default
+
+        raise FailedConversion(argument, parameter)
+
+    async def _convert(self, resolved: ResolvedRoute, request: Request[Application]) -> Dict[str, Any]:
         kwargs: Dict[str, Any] = {}
+
+        route = resolved.route
         params = iter(route.signature.parameters.items())
 
         try:
@@ -428,61 +379,23 @@ class Application:
             except StopIteration:
                 raise RuntimeError(f"Route {route!r} missing websocket argument")
 
-        for key, value in params:
-            param = query.get(key)
+        for key, parameter in params:
+            value = resolved.params.get(key)
 
-            if param:
-                if value.annotation is inspect.Signature.empty:
-                    kwargs[key] = param
-                else:
-                    for annotation in utils.get_union_args(value.annotation):
-                        try:
-                            param = annotation(param)
-                        except ValueError:
-                            pass
-                        else:
-                            kwargs[key] = param
-                            break
-                    else:
-                        fut = 'Failed conversion for parameter {0!r}.'.format(key)
-                        raise FailedConversion(fut) from None
-
+            if value:
+                if parameter.annotation is not inspect.Signature.empty:
+                    value = await self._transform(parameter, value, request)
             else:
-                for annotation in utils.get_union_args(value.annotation):
-                    if issubclass(value.annotation, Model):
-                        try:
-                            data = request.json()
-                            model = value.annotation.from_json(data)
-                        except (IncompatibleType, MissingField, json.JSONDecodeError):
-                            pass
-                        else:
-                            kwargs[key] = model
-                            break
-                else:
-                    fut = 'Failed conversion for parameter {0!r}.'.format(key)
-                    raise FailedConversion(fut)
-
+                value = await self._transform_model(parameter, request)
+               
+            kwargs[key] = value
+            
         return kwargs
-
-    def _resolve(self, request: 'Request') -> Tuple[Dict[str, Any], Union[Route, WebsocketRoute]]:
-        for route in self.router:
-            match = re.fullmatch(route.path, request.url.path)
-
-            if match is None:
-                continue
-
-            if match:
-                if route.method != request.method:
-                    raise MethodNotAllowed(reason=f"{request.method!r} is not allowed for {request.url.path!r}")
-
-                return match.groupdict(), route
-
-        raise NotFound(reason=f'Could not find {request.url.path!r}')
 
     def _validate_status_code(self, code: int):
         if 300 <= code <= 399:
             ret = 'Redirect status codes cannot be returned. Use Request.redirect instead ' \
-                'or you could return an instance of URL accompanied by the redirect status code.'
+                  'or you could return an instance of URL accompanied by the redirect status code.'
             raise ValueError(ret)
 
         if not (200 <= code <= 599):
@@ -491,35 +404,55 @@ class Application:
 
         return code
 
-    async def _run_middlewares(self, request: Request, route: Route,  kwargs: Dict[str, Any]):
+    async def _run_request_middlewares(
+        self, 
+        request: Request[Application], 
+        route: Route, kwargs: Dict[str, Any]
+    ) -> Any:
         middlewares = route.middlewares.copy()
-        middlewares.extend(self._middlewares)
+        middlewares.extend(self.middlewares)
 
-        await asyncio.gather(
+        return await asyncio.gather(
             *[middleware(route, request, **kwargs) for middleware in middlewares],
         )
 
-    def _handle_websocket_connection(self, route: WebsocketRoute, request: Request, websocket: Websocket):
-        if not self.loop:
-            return
+    async def _run_response_middlewares(
+        self, 
+        request: Request[Application], 
+        response: Response,
+        route: Route
+    ) -> Any:
+        middlewares = route.response_middlewares.copy()
+        middlewares.extend(self.response_middlewares)
+
+        return await asyncio.gather(
+            *[middleware(request, response, route) for middleware in middlewares],
+        )
+
+    async def _handle_websocket_connection(
+        self, 
+        route: WebSocketRoute, 
+        request: Request[Application], 
+        websocket: WebSocket
+    ):
+        reader = request.get_reader()
+        protocol = WebSocketProtocol(reader, request.writer)
+
+        request.writer.set_protocol(protocol)
+        await protocol.wait_until_connected()
 
         coro = route(request, websocket)
-        task = self.loop.create_task(coro, name=f'Websocket-{request.url.path}')
+        self.loop.create_task(coro, name=f'WebSocket-{request.url.path}')
 
-        self._websocket_tasks.append(task)
-        self._ensure_websockets()
-
-    def _resolve_all(self, request: Request):
-        args, route = self._resolve(request)
-        request.route = route
-
-        kwargs = self._convert(route, args, request)
-        return kwargs, route
-
-    async def _dispatch_error(self, route: Union[PartialRoute, Route], request: Request, exc: Exception):
+    async def _dispatch_error(
+        self, 
+        route: Union[PartialRoute, Route], 
+        request: Request[Application], 
+        exc: Exception
+    ):
         if isinstance(route, Route):
-            dispatched = await route._dispatch_error(request, exc)
-            if dispatched:
+            ret = await route.dispatch(request, exc)
+            if ret:
                 return
 
         if isinstance(exc, HTTPException):
@@ -533,117 +466,162 @@ class Application:
         listeners = self._get_listeners('on_error')
         await asyncio.gather(*[listener(request, exc, route) for listener in listeners], return_exceptions=True)
 
-    async def _request_handler(self, request: Request, websocket: Websocket):
-        resp = None
+    async def _request_handler(self, request: Request[Application], websocket: Optional[WebSocket]):
         route = None
 
-        async with self._concurrent_requests_semaphore:
-            try:
-                kwargs, route = self._resolve_all(request)
+        try:
+            resolved = self.router.resolve(request.url.path, request.method)
+            if not resolved:
+                return
 
-                await self._run_middlewares(
-                    request=request,
-                    route=route,
-                    kwargs=kwargs,
+            kwargs = await self._convert(resolved, request)
+            ret = await self._run_request_middlewares(request=request, route=resolved.route, kwargs=kwargs)
+            if not all(ret):
+                return
+
+            if resolved.route.is_websocket() and request.is_websocket():
+                await self._handle_websocket_connection(resolved.route, request, websocket) # type: ignore
+                return
+
+            resp = resolved.route(request, **kwargs)
+            if inspect.isawaitable(resp):
+                resp = await resp
+
+        except Exception as exc:
+            if not route:
+                route = PartialRoute(
+                    path=request.url.path,
+                    method=request.method
                 )
 
-                if request.is_closed():
-                    return
+            return await self._dispatch_error(
+                route=route,
+                request=request,
+                exc=exc
+            )
 
-                if isinstance(route, WebsocketRoute):
-                    return self._handle_websocket_connection(
-                        route=route,
-                        request=request,
-                        websocket=websocket,
-                    )
+        response = await self.process_response(resp, request, resolved.route)
+        await request.send(response, convert=False)
 
-                resp = await route(request, **kwargs)
-            except Exception as exc:
-                if not route:
-                    route = PartialRoute(
-                        path=request.url.path,
-                        method=request.method
-                    )
+        after_request = resolved.route._after_request # type: ignore
+        if after_request:
+            await utils.maybe_coroutine(after_request, request, response, **kwargs)
 
-                return await self._dispatch_error(
-                    route=route,
-                    request=request,
-                    exc=exc
-                )
+    async def render(self, path: Union[str, os.PathLike[str]], *args: Any, **kwargs: Any):
+        """
+        Renders a template and returns a Response object.
+        The template folder if not specified in the constructor is relative to where the application was instantiated.
 
-            resp = await self.parse_response(resp)
-            response = self.set_default_cookie(request, resp)
+        Parameters
+        ----------
+        path: :class:`str` or :class:`os.PathLike`
+            The path to the template.
+        args: Any
+            Positional arguments to pass to the template.
+        kwargs: Any
+            Keyword arguments to pass to the template.
+        """
+        kwargs.update(self.env)
 
-            await request.send(response, convert=False)
+        template = self._jinja2_env.get_template(str(path))
+        body = await template.render_async(*args, **kwargs)
 
-            if route._after_request:
-                await utils.maybe_coroutine(route._after_request, request, response, **kwargs)
+        return HTMLResponse(body)
+
+    def setup_workers(self) -> None:
+        self._workers = self._create_workers()
+
+    def load_settings(
+            self,
+            settings: Optional[Settings],
+            path: Optional[Union[str, os.PathLike[str]]],
+            from_env: bool = False
+    ) -> Settings:
+        if settings is not None:
+            return settings
+
+        if path is not None:
+            return Settings.from_file(path)
+        elif from_env:
+            return Settings.from_env()
+
+        return self.create_default_settings()
 
     def create_default_settings(self) -> Settings:
         """
         Create a default settings object.
         """
-        defaults = DEFAULT_SETTINGS.copy()
-        defaults.setdefault('use_ipv6', self._ipv6)
+        return Settings()
 
-        settings = Settings(
-            **DEFAULT_SETTINGS,
-        )
-        return settings
-
-    def create_ipv6_socket(self, host: str, port: int) -> socket.socket:
-        """
-        Same as :meth:`create_ipv4_socket` but for IPv6, meaning it sets the socket family to ``AF_INET6``.
-
-        Parameters
-        ----------
-        host: :class:`str`
-            The host to bind the socket to.
-        port: :class:`int`
-            The port to bind the socket to.
-        """
-        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-
-        if self._reuse_host:
+    def _set_socketopt(self, sock: socket.socket):
+        if self.reuse_host:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-        if self._reuse_port:
+        if self.reuse_port:
+            if not hasattr(socket, 'SO_REUSEPORT'):
+                raise RuntimeError('SO_REUSEPORT is not supported on this platform.')
+
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
-        if self.ssl_context:
-            sock = self.ssl_context.wrap_socket(sock, server_side=True)
+    def _create_tcp_socket(self, family: socket.AddressFamily) -> socket.socket:
+        if self.path is not None:
+            raise ValueError('Path is not supported for TCP sockets')
 
-        sock.bind((host, port))
-        sock.listen(self._backlog)
+        sock = socket.socket(family, socket.SOCK_STREAM, socket.IPPROTO_TCP)
+        self._set_socketopt(sock)
+
+        # sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+        # if self.ssl_context:
+        #     sock = self.ssl_context.wrap_socket(sock, server_side=True)
+
+        sock.bind((self.host, self.port))
+        sock.listen(self.backlog)
 
         return sock
 
-    def create_ipv4_socket(self, host: str, port: int) -> socket.socket:
-        """
-        Creates a :class:`socket.socket` with the :const:`socket.AF_INET` family and the :const:`socket.SOCK_STREAM` type.
-        The socket is also bound to the given host and port.
+    def create_unix_socket(self) -> socket.socket:
+        if not hasattr(socket, 'AF_UNIX'):
+            raise RuntimeError('Unix sockets are not supported on this platform')
 
-        Parameters
-        ----------
-        host: :class:`str`
-            The host to bind the socket to.
-        port: :class:`int`
-            The port to bind the socket to.
-        """
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if self.path is None:
+            raise ValueError('Path is required for Unix sockets')
 
-        if self._reuse_host:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-        if self._reuse_port:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._set_socketopt(sock)
 
         if self.ssl_context:
             sock = self.ssl_context.wrap_socket(sock, server_side=True)
 
-        sock.bind((host, port))
-        sock.listen(self._backlog)
+        sock.bind(self.path)
+        sock.listen(self.backlog)
 
+        return sock
+
+    def create_ipv6_socket(self) -> socket.socket:
+        """
+        Same as :meth:`create_ipv4_socket` but for IPv6, meaning it sets the socket family to ``AF_INET6``.
+        """
+        if not utils.has_ipv6():
+            raise RuntimeError('IPv6 is not supported on this platform')
+
+        return self._create_tcp_socket(socket.AF_INET6)
+
+    def create_ipv4_socket(self) -> socket.socket:
+        """
+        Creates a :class:`socket.socket` with the :const:`socket.AF_INET` family and the :const:`socket.SOCK_STREAM` type.
+        """
+        return self._create_tcp_socket(socket.AF_INET)
+
+    def create_socket(self) -> socket.socket:
+        if self.path is not None:
+            sock = self.create_unix_socket()
+        elif self._ipv6:
+            sock = self.create_ipv6_socket()
+        else:
+            sock = self.create_ipv4_socket()
+
+        sock.setblocking(False)
         return sock
 
     def create_default_ssl_context(self) -> ssl.SSLContext:
@@ -653,15 +631,25 @@ class Application:
         context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
         return context
 
-    async def parse_response(self, 
-        response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, Any], File, Response, URL, Any]
-    ) -> Response:
+    def create_default_jinja2_env(self, templates: Optional[str]) -> jinja2.Environment:
         """
-        Parses a response to a usable `Response` instance.
+        Creates a default jinja2 environment.
+        """
+        if not templates:
+            templates = '/templates'
+
+        loader = jinja2.FileSystemLoader(templates)
+        env = jinja2.Environment(loader=loader, enable_async=True)
+
+        return env
+
+    async def parse_response(self, response: RouteResponse) -> Response:
+        """
+        Parses a response to a usable ``Response`` instance.
 
         Parameters
         ----------
-        response: 
+        response: Any
             A response to be parsed.
 
         Raises
@@ -672,7 +660,7 @@ class Application:
         resp = None
 
         if isinstance(response, File):
-            response = FileResponse(response, status=status)  
+            response = FileResponse(response, status=status)
 
         if isinstance(response, tuple):
             response, status = response
@@ -692,34 +680,26 @@ class Application:
                 status = self._validate_status_code(status)
 
         elif isinstance(response, URL):
-            cls = redirects[302]
-            return cls(location=str(response))
-            
+            return Found(location=str(response))
         elif isinstance(response, Response):
-            if isinstance(response, FileResponse):
-                await response.read()
-                await response.file.close()
-
             resp = response
-
         elif isinstance(response, Model):
             resp = JSONResponse(response.json(), status=status)
-
         elif isinstance(response, str):
             resp = HTMLResponse(response, status=status)
-
+        elif isinstance(response, bytes):
+            resp = Response(response, status=status)
         elif isinstance(response, (dict, list)):
             resp = JSONResponse(response, status=status)
-
-        else:
-            raise ValueError(f'Could not parse {response!r} into a response')
+        elif isinstance(response, AsyncIterator):
+            resp = StreamResponse(response, status=status)
 
         if resp is None:
             raise ValueError(f'Could not parse {response!r} into a response')
 
         return resp
 
-    def set_default_cookie(self, request: Request, response: Response) -> Response:
+    def set_default_cookie(self, request: Request[Application], response: Response) -> Response:
         """
         Sets a cookie with the ``session_cookie_name`` of :class:`~railway.settings.Settings`.
         If the cookie already exists, do nothing.
@@ -736,20 +716,99 @@ class Application:
 
         if not cookie:
             value = self.cookie_session_callback(request, response)
-            if not isinstance(value, str):
-                raise TypeError('Cookie value returned by the cookie_session_callback must be a string.')
+            response.add_cookie(name=name, value=value,)
 
-            response.add_cookie(
-                name=name,
-                value=value,
-            )
+        return response
 
-            return response
+    def add_cache_control_header(
+        self, 
+        response: Response, 
+        request: Request[Application], 
+        route: Route
+    ) -> Response:
+        """
+        Adds a ``Cache-Control`` header to the response.
+
+        Parameters
+        ----------
+        response: :class:`~railway.Response`
+            The response to add the header to.
+        route: :class:`~railway.Route`
+            The route that was used to generate the response.
+        """
+        if hasattr(route, '__cache_control__') and not request.headers.get('Cache-Control'):
+            control = route.__cache_control__
+            parts: List[str] = []
+
+            for key, value in control.items():
+                key = key.replace('_', '-')
+
+                if isinstance(value, bool):
+                    parts.append(key)
+                else:
+                    parts.append(f'{key}={value}')
+
+            header = ', '.join(parts)
+            response.headers['Cache-Control'] = header
+
+        return response
+
+    async def process_response(
+        self, 
+        resp: RouteResponse, 
+        request: Request[Application], 
+        route: Route
+    ) -> Response:
+        """
+        Processes a response before it is sent to the client.
+
+        Parameters
+        ----------
+        response: Any
+            The response to process.
+        request: :class:`~.Request`
+            The request that was sent to the server.
+        route: :class:`~.Route`
+            The route that was used to generate the response.
+        """
+        response = await self.parse_response(resp)
+        await self._run_response_middlewares(request, response, route)
+
+        self.set_default_cookie(request, response)
+        self.add_cache_control_header(response, request, route)
+
+        if not response.headers.get('Date'):
+            now = datetime.datetime.utcnow()
+            response.headers['Date'] = now.strftime('%a, %d %b %Y %H:%M:%S GMT')
+
+        if not response.headers.get('Server'):
+            response.headers['Server'] = 'Railway'
 
         return response
 
     @property
+    def backlog(self) -> int:
+        """
+        The backlog of the server.
+        """
+        return self._backlog
+
+    @property
+    def schemes(self) -> List[str]:
+        """
+        Returns a list of supported schemes.
+        """
+        schemes = ['http']
+        if self.is_ssl():
+            schemes.append('https')
+
+        return schemes
+
+    @property
     def url(self) -> URL:
+        """
+        Base URL of the server.
+        """
         return self._build_url('/', ignore=True)
 
     @property
@@ -765,27 +824,6 @@ class Application:
         Whether to reuse the port.
         """
         return self._reuse_port
-
-    @property
-    def max_pending_connections(self) -> int:
-        """
-        The maximum number of pending connections.
-        """
-        return self._max_pending_connections
-
-    @property
-    def requests_semaphore(self) -> Optional[Semaphore]:
-        """
-        An optional semaphore that limits the number of concurrent requests.
-        """
-        return self._concurrent_requests_semaphore.semaphore
-
-    @property
-    def connection_timeout(self) -> float:
-        """
-        The timeout for a connection.
-        """
-        return self._connection_timeout or float('inf')
 
     @property
     def workers(self) -> List[Worker]:
@@ -809,7 +847,14 @@ class Application:
         return [route for route in self.router]
 
     @property
-    def socket(self) -> socket.socket:
+    def blueprints(self) -> List[Blueprint]:
+        """
+        A list of all blueprints.
+        """
+        return list(self._blueprints.values())
+
+    @property
+    def socket(self) -> Optional[socket.socket]:
         """
         The socket used to listen for connections.
         """
@@ -820,7 +865,14 @@ class Application:
         """
         A list of all middlewares.
         """
-        return self._middlewares
+        return self.router.middlewares
+
+    @property
+    def response_middlewares(self) -> List[Callable[[Request[Application], Response, Route], Coro[Any]]]:
+        """
+        A list of all response middlewares.
+        """
+        return self._response_middlewares
 
     @property
     def listeners(self) -> List[Listener]:
@@ -844,7 +896,7 @@ class Application:
         return self._loop
 
     @loop.setter
-    def loop(self, value):
+    def loop(self, value: Any):
         if not isinstance(value, asyncio.AbstractEventLoop):
             raise TypeError('loop must be an instance of asyncio.AbstractEventLoop')
 
@@ -856,7 +908,7 @@ class Application:
         A set of all URLs.
         """
         return {
-            self._build_url(route.path, is_websocket=isinstance(route, WebsocketRoute)) 
+            self._build_url(route.path, is_websocket=isinstance(route, WebSocketRoute))
             for route in self.router
         }
 
@@ -867,7 +919,7 @@ class Application:
         """
         return {route.path for route in self.router}
 
-    def url_for(self, path: str, *, is_websocket: bool=False, **kwargs) -> URL:
+    def url_for(self, path: str, *, is_websocket: bool = False, **kwargs: Any) -> URL:
         """
         Builds a URL for a given path and returns it.
 
@@ -879,71 +931,10 @@ class Application:
             Whether the path is a websocket path.
         **kwargs: 
             Additional arguments to build the URL.
-        """ 
+        """
         url = self._build_url(path.format(**kwargs), is_websocket=is_websocket)
         return url
 
-    def inject(self, obj: Injectable):
-        """
-        Applies the given object's routes, listeners and middlewares to the application.
-
-        Parameters
-        ----------
-        obj: :class:`~railway.injectables.Injectable` 
-            The object to inject.
-
-        Raises
-        ------
-        TypeError:
-            If the object is not an instance of :class:`~railway.injectables.Injectable`.   
-        """
-
-        if not isinstance(obj, Injectable):
-            raise TypeError('obj must be an Injectable')
-
-        for route in obj.__routes__.values():
-            route._router = self.router
-            route.parent = obj
-
-            self.add_route(route)
-
-        for listener in obj.__listeners__:
-            listener.callback = functools.partial(listener.callback, obj)
-            self.add_event_listener(listener.callback, listener.event)
-        
-        for middleware in obj.__middlewares__:
-            self.add_middleware(getattr(obj, middleware.callback.__name__))
-
-        return self
-
-    def eject(self, obj: Injectable):
-        """
-        Removes the given object's routes, listeners and middlewares from the application.
-
-        Parameters
-        ----------
-        obj: :class:`~railway.injectables.Injectable` 
-            The object to eject.
-
-        Raises
-        ------
-        TypeError: 
-            If the object is not an instance of :class:`~railway.injectables.Injectable`.   
-        """
-        if not isinstance(obj, Injectable):
-            raise TypeError('obj must be an Injectable')
-
-        for route in obj.__routes__.values():
-            self.remove_route(route)
-
-        for listener in obj.__listeners__:
-            self.remove_event_listener(listener)
-
-        for middleware in obj.__middlewares__:
-            self.remove_middleware(middleware)
-
-        return self
-    
     def is_closed(self) -> bool:
         """
         Returns whether or not the application has been closed.
@@ -968,30 +959,21 @@ class Application:
         """
         return self._use_ssl is True and isinstance(self.ssl_context, ssl.SSLContext)
 
-    def get_worker(self, id: int) -> Optional[Worker]:
-        """
-        Returns the worker with the given ID.
-
-        Parameters
-        ----------
-        id: :class:`int`
-            The ID of the worker to return.
-        """
-        return self._workers.get(id)
-
     def add_worker(self, worker: Union[Worker, Any]) -> Worker:
         """
         Adds a worker to the application.
 
         Parameters
         ----------
-        worker: :class:`~railway.workers.Worker`
+        worker: :class:`~.Worker`
             The worker to add.
 
         Raises
         ------
-        TypeError: If the worker is not an instance of `Worker`.
-        ValueError: If the worker already exists.
+        TypeError: 
+            If the worker is not an instance of :class:`~.Worker:.
+        ValueError:
+            If the worker already exists.
         """
         if not isinstance(worker, Worker):
             raise TypeError('worker must be an instance of Worker')
@@ -1002,39 +984,59 @@ class Application:
         self._workers[worker.id] = worker
         return worker
 
+    def _cancel_all_tasks(self) -> None:
+        to_cancel = asyncio.all_tasks(self.loop)
+        if not to_cancel:
+            return
+
+        for task in to_cancel:
+            task.cancel()
+
+        self.loop.run_until_complete(
+            future=asyncio.gather(*to_cancel, loop=self.loop, return_exceptions=True)
+        )
+
+        for task in to_cancel:
+            if task.cancelled():
+                continue
+            if task.exception() is not None:
+                self.loop.call_exception_handler({
+                    'message': 'unhandled exception during Application shutdown',
+                    'exception': task.exception(),
+                    'task': task,
+                })
+
     async def wait_until_ready(self) -> None:
         """
         Waits until the application is ready.
         """
         await asyncio.gather(*[worker.wait_until_ready() for worker in self.workers])
 
-    async def start(self):
+    async def start(self) -> None:
         """
         Starts the application.
         """
+        if not self.socket or utils.socket_is_closed(self.socket):
+            self._socket = self.create_socket()
+
         if self.is_serving():
             raise RuntimeError('Application is already serving requests')
 
         if self.is_closed():
             raise RuntimeError('Application is closed')
 
-        loop = self.loop
-
         if not self.workers:
             raise ValueError('No workers have been added to the application')
 
         for worker in self.workers:
-            task = loop.create_task(worker.run(), name=f'Worker-{worker.id}')
-            self._worker_tasks.append(task)
-
-        await self.wait_until_ready()
+            await worker.serve()
 
         for generator in self._lifespan_tasks:
             await self._safe_anext(generator)
 
         self.dispatch('startup')
 
-    def run(self):
+    def run(self) -> None:
         """
         Starts the application but blocks until the application is closed.
         """
@@ -1043,35 +1045,48 @@ class Application:
 
         try:
             loop.run_forever()
-        except KeyboardInterrupt:
-            loop.run_until_complete(self.close())
-            loop.stop()
+        except (KeyboardInterrupt, OSError):
+            if not self.is_closed():
+                loop.run_until_complete(self.close())
 
-        return self
+        try:
+            self._cancel_all_tasks()
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.run_until_complete(loop.shutdown_default_executor())
+        finally:
+            pass
 
-    async def close(self):
+    async def shutdown(self) -> None:
+        """
+        Closes the application with no further cleanup.
+        """
+        for worker in self.workers:
+            await worker.close()
+
+        for generator in self._lifespan_tasks:
+            await self._safe_anext(generator)
+
+        if self.socket and not utils.socket_is_closed(self.socket):
+            self.socket.shutdown(socket.SHUT_RDWR)
+            self.socket.close()
+
+        self.dispatch('shutdown')
+
+    async def close(self) -> None:
         """
         Closes the application.
         """
         if not self.is_serving():
             raise RuntimeError('Application is not running')
-        
+
         if self.is_closed():
             raise RuntimeError('Application is already closed')
 
-        for task in self._worker_tasks:
-            task.cancel()
-
-        for worker in self.workers:
-            await worker.stop()
-
-        for generator in self._lifespan_tasks:
-            await self._safe_anext(generator)
+        await self.shutdown()
 
         self.clear()
         self._closed = True
 
-        self.dispatch('shutdown')
         log.info(f'[Application] Closed application.')
 
     def clear(self) -> None:
@@ -1079,15 +1094,22 @@ class Application:
         Clears the application's internal state.
         """
         self._workers.clear()
-        self._worker_tasks.clear()
         self._listeners.clear()
-        self._middlewares.clear()
         self._lifespan_tasks.clear()
 
         self.router.routes.clear()
+        self.router.middlewares.clear()
 
-    def lifespan(self, callback: Callable[[], AsyncGenerator[Any, Any]]):
-        if not inspect.isasyncgenfunction(callback):
+    def lifespan(self, callback: Callable[[], AsyncIterator[Any]]) -> Callable[[], AsyncIterator[Any]]:
+        """
+        Adds a lifespan callback to the application.
+
+        Parameters
+        ----------
+        callback: Callable
+            The callback to add.
+        """
+        if not isinstance(callback, AsyncIterator):
             raise RegistrationError('Lifespan tasks must be async generators')
 
         generator = callback()
@@ -1095,93 +1117,7 @@ class Application:
 
         return callback
 
-    def websocket(self, path: str) -> Callable[[CoroFunc], WebsocketRoute]:
-        """
-        Registers a websocket route.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to register the route for.
-
-        Examples
-        -------
-
-        .. code-block :: python3
-
-            @app.websocket('/ws')
-            async def websocket_handler(request: railway.Request, ws: railway.Websocket):
-                await ws.send(b'Hello, World')
-
-                data = await ws.receive()
-                print(data.data)
-
-                await ws.close()
-            
-        """
-        def decorator(coro: CoroFunc) -> WebsocketRoute:
-            route = WebsocketRoute(path, 'GET', coro, router=self.router)
-            self.add_route(route)
-
-            return route
-        return decorator
-
-    def route(self, path: str, method: Optional[str]=None) -> Callable[[CoroFunc], Route]:
-        """
-        Registers a route.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path of the route
-        method: Optional[:class:`str`]
-            The HTTP method of the route. Defaults to ``GET``.
-
-        Examples
-        -------
-
-        .. code-block :: python3
-
-            @app.route('/', 'GET')
-            async def index(request: railway.Request):
-                return 'Hello, world!'
-
-        """
-        actual = method or 'GET'
-
-        def decorator(func: CoroFunc) -> Route:
-            route = Route(path, actual, func, router=self.router)
-            self.add_route(route)
-
-            return route
-        return decorator
-
-    def add_route(self, route: Union[Route, WebsocketRoute, Any]) -> Union[Route, WebsocketRoute]:
-        """
-        Adds a route to the application.
-
-        Parameters
-        ----------
-        route: :class:`~railway.objects.Route`
-            The route to add.
-
-        Raises
-        ----------
-        RegistrationError: If the route already exists or the argument passed in was not an instance of either `Route` or `WebsocketRoute`.
-        """
-        if not isinstance(route, (Route, WebsocketRoute)):
-            fmt = 'Expected Route or WebsocketRoute but got {0!r} instead'
-            raise RegistrationError(fmt.format(route.__class__.__name__))
-
-        if not inspect.iscoroutinefunction(route.callback):
-            raise RegistrationError('Route callbacks must be coroutine functions')
-
-        if route in self.router:
-            raise RegistrationError('{0!r} is already a route.'.format(route.path))
-
-        return self.router.add_route(route)
-
-    def add_router(self, router: Union[Router, Any]) -> Router:
+    def add_router(self, router: Router) -> Router:
         """
         Applies a router's routes and middlewares to the application.
 
@@ -1216,131 +1152,18 @@ class Application:
             fmt = 'Expected Router but got {0!r} instead'
             raise TypeError(fmt.format(router.__class__.__name__))
 
-        for route in router:
-            self.add_route(route)
+        self.router.routes.update(router.routes)
+        self.router.middlewares.extend(router.middlewares)
 
-        for middleware in router.middlewares:
-            self.add_middleware(middleware)
-        
         return router
 
-    def get(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``GET`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc) -> Route:
-            route = Route(path, 'GET', func, router=self.router)
-            return self.add_route(route)
-        return decorator
-
-    def put(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``PUT`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc):
-            route = Route(path, 'PUT', func, router=self.router)
-            return self.add_route(route)
-        return decorator
-
-    def post(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``POST`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc):
-            route = Route(path, 'POST', func, router=self.router)
-            return self.add_route(route)
-        return decorator
-
-    def delete(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``DELETE`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc):
-            route = Route(path, 'DELETE', func, router=self.router)
-            return self.add_route(route)
-        return decorator
-
-    def head(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``HEAD`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc):
-            route = Route(path, 'HEAD', func, router=self.router)
-            return self.add_route(route)
-        return decorator
-
-    def options(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``OPTIONS`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc):
-            route = Route(path, 'OPTIONS', func, router=self.router)
-            return self.add_route(route)
-        return decorator
-
-    def patch(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``PATCH`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc):
-            route = Route(path, 'PATCH', func, router=self.router)
-            return self.add_route(route)
-        return decorator
-
-    def remove_route(self, route: Union[Route, WebsocketRoute]) -> Union[Route, WebsocketRoute]:
-        """
-        Removes a route from the application.
-        
-        Parameters
-        ----------
-            route: :class:`~railway.objects.Route`
-            The route to remove.
-        """
-        self.router.routes.pop((route.path, route.method))
-        return route
-
-    def add_event_listener(self, coro: CoroFunc, name: Optional[str]=None) -> Listener: 
+    def add_event_listener(self, callback: CoroFunc[Any], name: str) -> Listener:
         """
         Adds an event listener to the application.
 
         Parameters
         ----------
-        coro: Callable[..., Coroutine[Any, Any, Any]]
+        callback: Callable[..., Coroutine[Any, Any, Any]]
             The coroutine function to add as an event listener.
         name: :class:`str`
             The name of the event to listen for. 
@@ -1350,13 +1173,12 @@ class Application:
         ----------
         RegistrationError: If the ``coro`` argument that was passed in is not a proper coroutine function.
         """
-        if not inspect.iscoroutinefunction(coro):
+        if not utils.iscoroutinefunction(callback):
             raise RegistrationError('Listeners must be coroutines')
 
-        actual = name if name else coro.__name__
-        listener = Listener(coro, actual)
+        listener = Listener(callback, name)
 
-        listeners = self._listeners.setdefault(actual, [])
+        listeners = self._listeners.setdefault(name, [])
         listeners.append(listener)
 
         return listener
@@ -1373,32 +1195,10 @@ class Application:
         self._listeners[listener.event].remove(listener)
         return listener
 
-    def event(self, name: Optional[str]=None) -> Callable[[CoroFunc], Listener]:
-        """
-        A decorator that adds an event listener to the application.
-
-        Parameters
-        ----------
-        name: :class:`str`
-            The name of the event to listen for, if nothing was passed in the name of the function is used.
-
-        Example
-        ----------
-        .. code-block :: python3
-
-            @app.event('on_startup')
-            async def startup():
-                print('Application started serving')
-            
-        """
-        def decorator(func: CoroFunc):
-            return self.add_event_listener(func, name)
-        return decorator
-
     def add_status_code_handler(
-        self, 
-        status: int, 
-        callback: Callable[[Request, HTTPException, Union[PartialRoute, Route]], Coro]
+        self,
+        status: ResponseStatus,
+        callback: StatusCodeCallback
     ):
         """
         Adds a specific status code handler to the application.
@@ -1411,13 +1211,13 @@ class Application:
         callback: Callable[[:class:`~railway.objects.Request`, :class:`~railway.exceptions.HTTPException`, :class:`~railway.objects.Route`], Coro]
             The callback to handle the status code.
         """
-        if not inspect.iscoroutinefunction(callback):
+        if not utils.iscoroutinefunction(callback):
             raise RegistrationError('Status code handlers must be coroutine functions')
 
-        self._status_code_handlers[status] = callback
+        self._status_code_handlers[int(status)] = callback
         return callback
 
-    def remove_status_code_handler(self, status: int):
+    def remove_status_code_handler(self, status: ResponseStatus):
         """
         Removes a status code handler from the application.
 
@@ -1426,14 +1226,13 @@ class Application:
         status: :class:`int`
             The status code to remove.
         """
-        callback = self._status_code_handlers.pop(status, None)
+        callback = self._status_code_handlers.pop(int(status), None)
         return callback
 
     def status_code_handler(
-        self, 
-        status: int
-    ) -> Callable[[Callable[[Request, HTTPException, Union[PartialRoute, Route]], Coro]], 
-            Callable[[Response, HTTPException, Union[PartialRoute, Route]], Coro]]:
+        self,
+        status: ResponseStatus
+    ) -> Callable[[StatusCodeCallback], StatusCodeCallback]:
         """
         A decorator that adds a status code handler to the application.
 
@@ -1463,18 +1262,87 @@ class Application:
 
             app.run()
         
+        Returns
+        ----------
+        Any
         """
-        def decorator(func: Callable[[Request, HTTPException, Union[PartialRoute, Route]], Coro]):
+        def decorator(func: StatusCodeCallback):
             return self.add_status_code_handler(status, func)
-        return decorator # type: ignore
 
-    async def _run_listener(self, listener: Listener, *args, **kwargs):
+        return decorator
+
+    def add_response_middleware(
+        self,
+        callback: ResponseMiddleware
+    ) -> ResponseMiddleware:
+        """
+        Adds a response middleware to the application.
+
+        Parameters
+        ----------
+        callback: Callable[[:class:`~railway.objects.Request`, :class:`~railway.objects.Response`, :class:`~railway.objects.Route`], Coro]
+            The callback to handle the response.
+        """
+        if not utils.iscoroutinefunction(callback):
+            raise RegistrationError('Response middlewares must be coroutine functions')
+
+        self._response_middlewares.append(callback)
+        return callback
+
+    def remove_response_middleware(self, callback: ResponseMiddleware):
+        """
+        Removes a response middleware from the application.
+
+        Parameters
+        ----------
+        callback: Callable[[:class:`~railway.objects.Request`, :class:`~railway.objects.Response`, :class:`~railway.objects.Route`], Coro]
+            The callback to handle the response.
+        """
+        self._response_middlewares.remove(callback)
+        return callback
+
+    def response_middleware(
+        self, callback: ResponseMiddleware
+    ) -> ResponseMiddleware:
+        """
+        A decorator that adds a response middleware to the application.
+
+        Parameters
+        ----------
+        callback: Callable[[:class:`~railway.objects.Request`, :class:`~railway.objects.Response`, :class:`~railway.objects.Route`], Coro]
+            The callback to handle the response.
+
+        Example
+        ---------
+        .. code-block :: python3
+
+            import railway
+
+            app = railway.Application()
+
+            @app.response_middleware
+            async def handle_response(
+                request: railway.Request, 
+                response: railway.Response, 
+                route: railway.Route
+            ):
+                response.headers['X-Powered-By'] = 'Railway'
+
+            app.run()
+        
+        Returns
+        ----------
+        Any
+        """
+        return self.add_response_middleware(callback)
+
+    async def _run_listener(self, listener: Listener, *args: Any, **kwargs: Any):
         try:
             await listener(*args, **kwargs)
         except Exception as e:
             try:
                 listeners = self._get_listeners('on_event_error')
-                await asyncio.gather(*[callback(listener, e) for callback in listeners], return_exceptions=True)
+                await asyncio.gather(*[callback(listener, e) for callback in listeners])
             except:
                 pass
 
@@ -1486,13 +1354,29 @@ class Application:
             if not coro:
                 return []
 
-            listeners = [coro]
+            listener = Listener(callback=coro, name=name)
+            listeners = [listener]
 
         return listeners
 
-    def dispatch(self, name: str, *args: Any, **kwargs: Any) -> List['asyncio.Task[None]']:
+    def dispatch(self, name: str, *args: Any, **kwargs: Any) -> 'asyncio.Future[Any]':
         """
         Dispatches an event.
+
+        Example
+        ---------
+
+        .. code-block :: python3
+
+            app = Application()
+
+            @app.event('my_event')
+            async def my_event(*args, **kwargs):
+                print('Event fired')
+
+            app.dispatch('my_event')
+            app.run()
+            
 
         Parameters
         -----------
@@ -1505,19 +1389,19 @@ class Application:
         """
         loop = self.loop
         if not loop:
-            return []
+            raise RuntimeError('No loop bound to the application')
 
         log.debug(f'[Application] Dispatching event: {name!r}.')
         name = 'on_' + name
 
         listeners = self._get_listeners(name)
         if not listeners:
-            return []
+            future = self.loop.create_future()
+            future.set_result([])
 
-        return [
-            loop.create_task(self._run_listener(listener, *args, **kwargs), name=f'Event-{name}') 
-            for listener in listeners
-        ]
+            return future
+
+        return asyncio.gather(*[self._run_listener(listener, *args, **kwargs) for listener in listeners])
 
     def add_view(self, view: Union[HTTPView, Any]) -> HTTPView:
         """
@@ -1559,17 +1443,6 @@ class Application:
         view.as_routes(router=self.router, remove_routes=True)
         return view
 
-    def get_view(self, path: str) -> Optional[HTTPView]:
-        """
-        Gets a view from the application.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path of the view to get.
-        """
-        return self._views.get(path)
-
     def view(self, path: str):
         """
         A decorator that adds a view to the application.
@@ -1590,15 +1463,17 @@ class Application:
                     return 'Hello, world!'
             
         """
+
         def decorator(cls: Type[HTTPView]):
             if not cls.__url_route__:
                 cls.__url_route__ = path
 
             view = cls()
             return self.add_view(view)
+
         return decorator
 
-    def add_resource(self, resource: Union[Resource, Any]) -> Resource:
+    def add_resource(self, resource: Resource) -> Resource:
         """
         Adds a resource to the application.
 
@@ -1614,9 +1489,22 @@ class Application:
         if not isinstance(resource, Resource):
             raise RegistrationError('Expected Resource but got {0!r} instead.'.format(resource.__class__.__name__))
 
-        self.inject(resource)
-        self._resources[resource.name] = resource
+        for middleware in resource.middlewares:
+            self.middleware(partial(middleware, resource))
 
+        for route in resource.routes:
+            route.callback = partial(route.callback, resource)
+            route.parent = resource
+
+            self.router.add_route(route)
+
+        for listener in resource.listeners:
+            self.add_event_listener(partial(listener.callback, resource), listener.event)
+
+        if resource.name in self._resources:
+            raise RegistrationError('Resource already registered')
+
+        self._resources[resource.name] = resource
         return resource
 
     def remove_resource(self, name: str) -> Optional[Resource]:
@@ -1628,27 +1516,12 @@ class Application:
         name: :class:`str`
             The name of the resource to remove.
         """
-        resource = self._resources.pop(name, None)
-        if not resource:
-            return None
+        return self._resources.pop(name, None)
 
-        self.eject(resource)
-        return resource
-
-    def get_resource(self, name: str) -> Optional[Resource]:
-        """
-        Gets a resource from the application.
-
-        Parameters
-        ----------
-        name: :class:`str`
-            The name of the resource to get.
-        """
-        return self._resources.get(name)
-
-    def resource(self, name: str=None) -> Callable[[Type[Resource]], Resource]:
+    def resource(self, name: Optional[str] = None) -> Callable[[Type[Resource]], Resource]:
         """
         A decorator that adds a resource to the application.
+        You should use :method:`~railway.Application.add_resource` instead of this decorator because 
 
         Parameters
         ----------
@@ -1669,78 +1542,138 @@ class Application:
                     return self.users
             
         """
+
         def decorator(cls: Type[Resource]):
             resource = cls()
             if name:
                 resource.name = name
 
             return self.add_resource(resource)
+
         return decorator
 
-    def add_middleware(self, callback: CoroFunc) -> Middleware:
+    def include(self, blueprint: Blueprint) -> None:
         """
-        Adds a middleware to the global application scope.
+        Includes a blueprint into the application.
 
         Parameters
         ----------
-        callback: Callable[..., Coroutine[Any, Any, Any]]
-            The middleware callback.
+        blueprint: :class:`~railway.blueprints.Blueprint`
+            The blueprint to include.
         """
-        middleware = Middleware(callback, router=self.router)
-        middleware._is_global = True
+        if blueprint.name in self._blueprints:
+            raise RegistrationError('Blueprint already registered')
 
-        self._middlewares.append(middleware)
-        return middleware
-    
-    def middleware(self, callback: CoroFunc) -> Middleware:
+        self.add_router(blueprint.router)
+        blueprint.listeners.attach(self)
+
+        self._blueprints[blueprint.name] = blueprint
+
+    # getters
+
+    def get_worker(self, id: int) -> Optional[Worker]:
         """
-        A decorator that adds a middleware to the global application scope.
+        Returns the worker with the given ID.
 
         Parameters
         ----------
-        callback: Callable[..., Coroutine[Any, Any, Any]]
-            The middleware callback.
-
-        Raises
-        ----------
-            RegistrationError: If the ``callback`` argument that was passed in is not a proper coroutine function.
-
-        Example
-        ----------
-        .. code-block :: python3
-
-            @app.middleware
-            async def middleware(request: railway.Request, route: railway.Route, **kwargs):
-                # do stuff
+        id: :class:`int`
+            The ID of the worker to return.
         """
-        if not inspect.iscoroutinefunction(callback):
-            raise RegistrationError('Middlewares must be coroutines')
+        return self._workers.get(id)
 
-        return self.add_middleware(callback)
-
-    def remove_middleware(self, middleware: Middleware) -> Middleware:
+    def get_route(self, path: str, method: str) -> Optional[Route]:
         """
-        Removes a middleware from the global application scope.
+        Gets a route from the application.
 
         Parameters
         ----------
-        middleware: :class:`~railway.objects.Middleware`
-            The middleware to remove.
+        path: :class:`str`
+            The path of the route.
+        method: :class:`str`
+            The method of the route
         """
-        self._middlewares.remove(middleware)
-        return middleware
+        resolved = self.router.resolve_from_path(path, method)
+        if resolved:
+            return resolved.route
+
+        return None
+
+    def get_listeners(self, name: str) -> List[Listener]:
+        """
+        Gets all listeners of a certain event.
+
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the event.
+        """
+        return self._get_listeners(name)
+
+    def get_view(self, path: str) -> Optional[HTTPView]:
+        """
+        Gets a view from the application.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path of the view to get.
+        """
+        return self._views.get(path)
+
+    def get_resource(self, name: str) -> Optional[Resource]:
+        """
+        Gets a resource from the application.
+
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the resource to get.
+        """
+        return self._resources.get(name)
+
+    def get_blueprint(self, name: str) -> Optional[Blueprint]:
+        """
+        Gets a blueprint from the application.
+
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the blueprint to get.
+        """
+        return self._blueprints.get(name)
+
+    def get_status_code_handler(
+        self, code: int
+    ) -> Optional[StatusCodeCallback]:
+        """
+        Gets a status code handler from the application.
+
+        Parameters
+        ----------
+        code: :class:`int`
+            The status code of the handler to get.
+        """
+        return self._status_code_handlers.get(code)
+
+    # event handlers
 
     async def on_error(
-        self, 
-        request: Request,
+        self,
+        request: Request[Application],
         exc: Exception,
         route: Union[PartialRoute, Route]
     ):
         if self._listeners.get('on_error', []):
             return
 
-        print(f'Ignoring exception in route {route.path!r}:', file=sys.stderr)
-        traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
+        if isinstance(exc, HTTPException):
+            await request.send(exc)
+        else:
+            print(f'Ignoring exception in route {route.path!r}:', file=sys.stderr)
+            traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
+
+            await request.send(InternalServerError('An internal server error occurred.'))
 
     async def on_event_error(self, listener: Listener, exc: Exception):
         if self._listeners.get('on_event_error', []):
@@ -1748,94 +1681,3 @@ class Application:
 
         print(f'Ignoring exception in {listener.event!r}:', file=sys.stderr)
         traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
-    
-def dualstack_ipv6(ipv4: str=None, ipv6: str=None, *, port: int=None, **kwargs) -> Application:
-    """
-    Makes an application that accepts both IPv4 and IPv6 requests.
-
-    Parameters
-    ----------
-    ipv4: :class:`str`
-        The IPv4 host to use. Defaults to ``127.0.0.1``
-    ipv6: :class:`str`
-        The IPv6 host to use. Defaults to ``::1``
-    port: :class:`int`
-        The port to listen on. Defaults to ``8080``
-    **kwargs: Any
-        Additional arguments to pass to the Application constructor.
-
-    Raises
-    ----------
-        RuntimeError: If dualstack support is not available
-
-    Example
-    ----------
-        .. code-block :: python3
-
-            import railway
-
-            app = railway.dualstack_ipv6()
-
-            @app.route('/')
-            async def index(request: railway.Request):
-                if railway.is_ipv6(request.client_ip):
-                    return 'Hello, IPv6 world!'
-
-                return 'Hello, IPv4 world!'
-
-            app.run()
-    
-    Note
-    ----------
-    If ``reuse_host`` is set to ``True``, it will create a two workers, one for IPv4 and one for IPv6.
-    """
-    if not utils.has_dualstack_ipv6():
-        raise RuntimeError('Dualstack support is not available on this system')
-    
-    worker_count = kwargs.pop('worker_count', multiprocessing.cpu_count() + 1)
-    reuse_host = kwargs.pop('reuse_host', True)
-
-    if not reuse_host:
-        worker_count = 1
-    
-    app = Application(worker_count=0, port=port, **kwargs)
-
-    ipv4 = utils.validate_ip(ipv4)
-    ipv6 = utils.validate_ip(ipv6, ipv6=True)
-
-    ipv4_socket = app.create_ipv4_socket(ipv4, app.port)
-    ipv6_socket = app.create_ipv6_socket(ipv6, app.port)
-
-    workers = []
-    id: int = 0
-
-    kwargs = {
-        'app': app,
-        'max_pending_connections': app.max_pending_connections,
-        'connection_timeout': app.connection_timeout,
-    }
-
-    for i in range(worker_count):
-        kwargs['id'] = id
-
-        worker = Worker(**kwargs)
-        worker.socket = ipv4_socket
-
-        workers.append(worker)
-        id += 1
-
-    for i in range(worker_count):
-        id += 1
-        kwargs['id'] = id
-
-        worker = Worker(**kwargs)
-        worker.socket = ipv6_socket
-
-        workers.append(worker)
-
-    for worker in workers:
-        app.add_worker(worker)
-
-    app.worker_count = len(workers)
-    return app
-

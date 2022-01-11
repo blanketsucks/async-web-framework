@@ -6,12 +6,6 @@ Server/Client API Documentation
 Servers
 --------
 
-ServerProtocol
-~~~~~~~~~~~~~~~~
-
-.. autoclass:: ServerProtocol
-    :members:
-
 ClientConnection
 ~~~~~~~~~~~~~~~~~
 

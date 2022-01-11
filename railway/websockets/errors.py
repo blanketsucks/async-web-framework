@@ -1,30 +1,34 @@
 from railway.errors import RailwayException
 
 __all__ = (
-    'WebsocketError',
-    'InvalidWebsocketFrame',
-    'InvalidWebsocketCloseCode',
-    'InvalidWebsocketOpcode',
-    'InvalidWebsocketControlFrame',
+    'WebSocketError',
+    'InvalidWebSocketFrame',
+    'InvalidWebSocketCloseCode',
+    'InvalidWebSocketOpcode',
+    'InvalidWebSocketControlFrame',
     'FragmentedControlFrame'
 )
 
-class WebsocketError(RailwayException):
+
+class WebSocketError(RailwayException):
     """
     Base class for all websocket related errors.
     """
 
-class WebsocketWarning(Warning):
+
+class WebSocketWarning(Warning):
     """
     A warning related to websocket operations.
     """
 
-class InvalidWebsocketFrame(WebsocketError):
+
+class InvalidWebSocketFrame(WebSocketError):
     """
     Base class for all invalid non-control frames errors.
     """
 
-class InvalidWebsocketCloseCode(InvalidWebsocketFrame):
+
+class InvalidWebSocketCloseCode(InvalidWebSocketFrame):
     """
     Raised when a close frame is received with an invalid code.
     """
@@ -32,7 +36,8 @@ class InvalidWebsocketCloseCode(InvalidWebsocketFrame):
         self.code = code
         super().__init__(f'Received an invalid close code: {code}')
 
-class InvalidWebsocketOpcode(InvalidWebsocketFrame):
+
+class InvalidWebSocketOpcode(InvalidWebSocketFrame):
     """
     Raised when an invalid opcode is received.
     """
@@ -40,12 +45,14 @@ class InvalidWebsocketOpcode(InvalidWebsocketFrame):
         self.opcode = opcode
         super().__init__(f'Received an invalid opcode: {opcode}')
 
-class InvalidWebsocketControlFrame(WebsocketError):
+
+class InvalidWebSocketControlFrame(WebSocketError):
     """
     Base class for all invalid control frames errors.
     """
 
-class FragmentedControlFrame(InvalidWebsocketControlFrame):
+
+class FragmentedControlFrame(InvalidWebSocketControlFrame):
     """
     Raised whenever a control frame is fragmented.
     """

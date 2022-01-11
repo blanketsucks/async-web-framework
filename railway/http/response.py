@@ -1,37 +1,17 @@
-"""
-MIT License
-
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 from __future__ import annotations
-from typing import Any, Dict, Union, TYPE_CHECKING
-import json
 
-from railway.response import HTTPStatus
+from typing import Dict, Optional, TYPE_CHECKING
+
+from railway import HTTPStatus
+from railway.headers import Headers
+from railway.streams import StreamReader
+from railway.request import HTTPConnection
 
 if TYPE_CHECKING:
     from .abc import Hooker
-    from .hooker import TCPHooker
 
-class HTTPResponse:
+
+class HTTPResponse(HTTPConnection):
     """
     An HTTP Response.
 
@@ -44,37 +24,55 @@ class HTTPResponse:
     headers: :class:`dict`
         The headers of the response.
     """
-    def __init__(self,
-                *,
-                hooker: Union[TCPHooker, Hooker], 
-                status: HTTPStatus,
-                version: str, 
-                headers: Dict[str, Any], 
-                body: bytes) -> None:
+    def __init__(
+        self,
+        *,
+        hooker: Hooker,
+        status: HTTPStatus,
+        version: str,
+        headers: Dict[str, str],
+    ) -> None:
         self._hooker = hooker
 
         self.status = status
         self.version = version
-        self.headers = headers
+        self.headers = Headers(headers)
 
-        self._body: bytes = body
+        self._body: bytes = b''
 
-    def read(self) -> bytes:
+    @property
+    def hooker(self) -> Hooker:
         """
-        The raw body of the response.
+        The hooker that created this response.
         """
-        return self._body
+        return self._hooker
 
-    def text(self) -> str:
+    @property
+    def charset(self) -> Optional[str]:
         """
-        The body of the response as a string.
+        The charset of the response.
         """
-        body = self.read()
-        return body.decode()
+        return self.headers.charset
 
-    def json(self) -> Dict[str, Any]:
+    @property
+    def content_type(self) -> Optional[str]:
         """
-        The body of the response as a JSON object.
+        The content type of the response.
         """
-        text = self.text()
-        return json.loads(text)
+        return self.headers.content_type
+
+    def get_reader(self) -> StreamReader:
+        assert self.hooker.reader is not None
+        return self.hooker.reader
+
+    def is_closed(self) -> bool:
+        """
+        Whether the response is closed.
+        """
+        return self.hooker.closed
+
+    async def close(self) -> None:
+        """
+        Close the response.
+        """
+        await self.hooker.close()

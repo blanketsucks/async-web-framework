@@ -1,39 +1,40 @@
-"""
-MIT License
+from __future__ import annotations
 
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
-import inspect
-from typing import Callable, List, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Callable, List, Dict, NamedTuple, Optional, Tuple, Union, TypeVar, Any, NoReturn
+from functools import lru_cache
 import re
+import copy
 
-from ._types import CoroFunc
-
+from .types import CoroFunc
+from .utils import iscoroutinefunction, isasyncgenfunction
 from .errors import RegistrationError
-from .objects import Middleware, Route, WebsocketRoute
+from .responses import NotFound, MethodNotAllowed
+from .objects import Middleware, Route, WebSocketRoute
 
+if TYPE_CHECKING:
+    from typing_extensions import ParamSpec
+
+    RouteT = TypeVar('RouteT', bound=Route)
+
+    T = TypeVar('T')
+    P = ParamSpec('P')
+    
+    def lru_cache(maxsize: Optional[int] = 128) -> Callable[[Callable[P, T]], Callable[P, T]]:
+        ...
 
 __all__ = (
     'Router',
 )
+
+ROUTE_CACHE_MAXSIZE = 2048 * 1024
+
+class ResolvedRoute(NamedTuple):
+    route: Route
+    params: Dict[str, str]
+
+    @classmethod
+    def from_route(cls, route: Route):
+        return cls(route=route, params={})
 
 class Router:
     """
@@ -53,34 +54,127 @@ class Router:
     middlewares: 
         A list of middleware callbacks.
     """
-    _param_regex = r"{(?P<param>\w+)}"
-    def __init__(self, url_prefix: str) -> None:
+    PARAM_REGEX = re.compile(r"{(?P<param>\w+)}")
+
+    def __init__(self, url_prefix: Optional[str] = None) -> None:
         """
         Router constructor.
 
         Parameters:
             url_prefix: The prefix used for route urls.
         """
-        self.url_prefix = url_prefix
-        self.routes: Dict[Tuple[str, str], Union[Route, WebsocketRoute]] = {}
+        self.url_prefix = url_prefix or ''
+        self.routes: Dict[Tuple[str, str], Union[Route, WebSocketRoute]] = {}
         self.middlewares: List[Middleware] = []
 
-    def _format_pattern(self, path: str):
-        if not re.search(self._param_regex, path):
+    @lru_cache(maxsize=ROUTE_CACHE_MAXSIZE)
+    def match(self, path: str) -> Optional[ResolvedRoute]:
+        """
+        Matches a path to a route. Can be slow.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to match.
+
+        Returns
+        -------
+        :class:`~.ResolvedRoute`
+            The resolved route.
+        """
+        for route in self:
+            params = route.match(path)
+            if params is not None:
+                return ResolvedRoute(route, params)
+
+    @lru_cache(maxsize=ROUTE_CACHE_MAXSIZE)
+    def resolve(self, path: str, method: str) -> Optional[ResolvedRoute]:
+        """
+        Resolves a route.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to resolve the route from.
+        method: :class:`str`
+            The method to resolve the route from.
+
+        Returns
+        -------
+        :class:`~.ResolvedRoute`
+            The resolved route.
+        """
+        if path.endswith('/') and not path == '/':
+            return self.resolve(path[:-1], method)
+
+        resolved = self.resolve_from_path(path, method)
+        if resolved is not None:
+            return resolved
+
+        resolved = self.match(path)
+        if not resolved:
+            raise NotFound(f'Route {path!r} was not found.')
+
+        exists = self.resolve_from_path(resolved.route, method)
+        if not exists:
+            raise MethodNotAllowed(f'Method {method!r} is not allowed for route {path!r}.')
+
+        return resolved
+
+    def resolve_from_path(self, path: Union[Route, str], method: str) -> Optional[ResolvedRoute]:
+        """
+        Resolves a route from a path.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to resolve the route from.
+        method: :class:`str`
+            The method to resolve the route from.
+        """
+        if isinstance(path, Route):
+            path = path.raw_path
+
+        route = self.routes.get((path, method))
+        if route:
+            return ResolvedRoute.from_route(route)
+
+    def format_path_pattern(self, path: str):
+        """
+        Formats a path pattern.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path pattern to format.
+        """
+        if not self.PARAM_REGEX.search(path):
             return path
 
         regex = r""
         last_pos = 0
 
-        for match in re.finditer(self._param_regex, path):
-            regex += path[last_pos: match.start()]
-            param = match.group("param")
-            regex += r"(?P<%s>\w+)" % param
+        for match in self.PARAM_REGEX.finditer(path):
+            regex += path[last_pos:match.start()]
+            regex += r"(?P<%s>.+)" % match.group("param")
+
             last_pos = match.end()
 
         return regex
 
-    def add_route(self, route: Union[Route, WebsocketRoute]) -> Union[Route, WebsocketRoute]:
+    def store_route(self, route: RouteT) -> RouteT:
+        """
+        Stores a route in the router.
+
+        Parameters
+        ----------
+        route: :class:`~railway.objects.Route`
+            The route to store.
+        """
+        self.routes[(route.raw_path, route.method)] = route
+        return route
+
+    def add_route(self, route: RouteT) -> RouteT:
         """
         Adds a route to the router.
 
@@ -89,19 +183,25 @@ class Router:
         route: :class:`~railway.objects.Route` 
             The route to add.
         """
-        path = self.url_prefix + route.path
+        assert route.raw_path is not None
 
-        if isinstance(route, WebsocketRoute):
-            self.routes[(path, route.method)] = route
-            return route
+        if not isinstance(route, (Route, WebSocketRoute)):
+            fmt = 'Expected Route or WebSocketRoute but got {0!r} instead'
+            raise RegistrationError(fmt.format(route.__class__.__name__))
+        
+        if not iscoroutinefunction(route.callback) and not isasyncgenfunction(route.callback):
+            raise RegistrationError('Route callbacks must be coroutine functions or async generators')
 
-        pattern = self._format_pattern(path)
-        route.path = pattern
+        if route in self:
+            raise RegistrationError('{0!r} is already a route.'.format(route.path))
 
-        self.routes[(route.path, route.method)] = route
-        return route
+        if isinstance(route, WebSocketRoute):
+            return self.store_route(route)
 
-    def remove_route(self, route: Union[Route, WebsocketRoute]) -> Optional[Union[Route, WebsocketRoute]]:
+        route.path = self.format_path_pattern(route.path)
+        return self.store_route(route)
+
+    def remove_route(self, route: RouteT) -> Optional[RouteT]:
         """
         Removes a route from the router.
 
@@ -110,9 +210,14 @@ class Router:
         route: :class:`~railway.objects.Route`
             The route to remove.
         """
-        return self.routes.pop((route.path, route.method), None)
+        return self.routes.pop((route.raw_path, route.method), None)  # type: ignore
 
-    def websocket(self, path: str) -> Callable[[CoroFunc], Route]:
+    def websocket(
+        self, 
+        path: str, 
+        *, 
+        name: Optional[str] = None
+    ) -> Callable[[Union[CoroFunc, WebSocketRoute]], WebSocketRoute]:
         """
         A decorator for registering a websocket route.
 
@@ -120,15 +225,21 @@ class Router:
         ----------
         path: :class:`str`
             The path to register the route to.
+        name: Optional[:class:`str`]
+            The name of the route.
         """
-        def wrapper(func: CoroFunc):
-            route = WebsocketRoute(path, 'GET', func, router=self)
-            self.add_route(route)
+        def decorator(func: Union[CoroFunc, WebSocketRoute]) -> WebSocketRoute:
+            route = self.create_websocket_route(func, path, name=name)
+            return self.add_route(route) 
+        return decorator
 
-            return route
-        return wrapper
-
-    def route(self, path: str, method: str) -> Callable[[CoroFunc], Route]:
+    def route(
+        self, 
+        path: str, 
+        method: str, 
+        *, 
+        name: Optional[str] = None
+    ) -> Callable[[Union[CoroFunc, Route]], Route]:
         """
         A decorator for registering a route.
 
@@ -138,113 +249,15 @@ class Router:
             The path to register the route to.
         method: :class:`str`
             The HTTP method to use for the route.
+        name: Optional[:class:`str`]
+            The name of the route.
         """
-        def wrapper(func: CoroFunc):
-            route = Route(path, method, func, router=self)
-            self.add_route(route)
-
-            return route
-        return wrapper
-
-    def get(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``GET`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc) -> Route:
-            route = Route(path, 'GET', func, router=self)
+        def decorator(func: Union[CoroFunc, Route]):
+            route = self.create_route(func, path, method, name=name)
             return self.add_route(route)
         return decorator
 
-    def put(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``PUT`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc):
-            route = Route(path, 'PUT', func, router=self)
-            return self.add_route(route)
-        return decorator
-
-    def post(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``POST`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc):
-            route = Route(path, 'POST', func, router=self)
-            return self.add_route(route)
-        return decorator
-
-    def delete(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``DELETE`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc):
-            route = Route(path, 'DELETE', func, router=self)
-            return self.add_route(route)
-        return decorator
-
-    def head(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``HEAD`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc):
-            route = Route(path, 'HEAD', func, router=self)
-            return self.add_route(route)
-        return decorator
-
-    def options(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``OPTIONS`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc):
-            route = Route(path, 'OPTIONS', func, router=self)
-            return self.add_route(route)
-        return decorator
-
-    def patch(self, path: str) -> Callable[[CoroFunc], Route]:
-        """
-        Adds a :class:`~railway.objects.Route` with the ``PATCH`` HTTP method.
-
-        Parameters
-        ----------
-        path: :class:`str`
-            The path to the route.
-        """
-        def decorator(func: CoroFunc):
-            route = Route(path, 'PATCH', func, router=self)
-            return self.add_route(route)
-        return decorator
-
-    def middleware(self, func: CoroFunc) -> Middleware:
+    def middleware(self, func: CoroFunc[Union[bool, NoReturn]]) -> Middleware:
         """
         A decorator for registering a middleware callback.
 
@@ -254,7 +267,7 @@ class Router:
             The middleware callback.
 
         """
-        if not inspect.iscoroutinefunction(func):
+        if not iscoroutinefunction(func):
             raise RegistrationError('Middleware callbacks must be coroutine functions')
 
         middleware = Middleware(func)
@@ -262,6 +275,86 @@ class Router:
 
         self.middlewares.append(middleware)
         return middleware
+
+    def remove_middleware(self, middleware: Middleware) -> None:
+        """
+        Removes a middleware from the router.
+
+        Parameters
+        ----------
+        middleware: :class:`~railway.objects.Middleware`
+            The middleware to remove.
+        """
+        return self.middlewares.remove(middleware)
+
+    def create_route(
+        self, 
+        callback: Union[Callable[..., Any], Route], 
+        path: str, 
+        method: str,
+        *,
+        name: Optional[str]
+    ) -> Route:
+        """
+        Creates a route based off a callback or another route.
+
+        Parameters
+        ----------
+        callback: Union[Callable, :class:`~railway.objects.Route`]
+            The callback or route to create the route from.
+        path: :class:`str`
+            The path of the route.
+        method: :class:`str`
+            The method of the route.
+        name: Optional[:class:`str`]
+        """
+        if isinstance(callback, Route):
+            route = copy.copy(callback)
+
+            route.path = path
+            route.method = method
+
+            if name is not None:
+                route.name = name
+        else:
+            route = Route(path, method, callback, router=self, name=name)
+
+        route.raw_path = self.url_prefix + route.path
+        route.path = route.raw_path
+
+        return route
+
+    def create_websocket_route(
+        self, 
+        callback: Union[Callable[..., Any], WebSocketRoute], 
+        path: str,
+        *,
+        name: Optional[str]
+    ) -> WebSocketRoute:
+        """
+        Creates a websocket route.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path of the route.
+        callback: Union[Callable, :class:`~railway.objects.WebSocketRoute`]
+            The callback of the route.
+        name: Optional[:class:`str`]
+        """
+        if isinstance(callback, WebSocketRoute):
+            route = copy.copy(callback)
+            route.path = path
+
+            if name is not None:
+                route.name = name
+        else:
+            route = WebSocketRoute(path, 'GET', callback, router=self, name=name)
+
+        route.raw_path = self.url_prefix + route.path
+        route.path = route.raw_path
+
+        return route
 
     def __iter__(self):
         return self.routes.values().__iter__()

@@ -1,34 +1,12 @@
-"""
-MIT License
-
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 from typing import Any
 
-from .http import HTTPSession, AsyncContextManager, HTTPResponse
+from .http import HTTPSession
 from .app import Application
 
 __all__ = (
     'TestClient',
 )
+
 
 class TestClient:
     """
@@ -36,19 +14,26 @@ class TestClient:
 
     Attributes
     ----------
-    app: 
+    app: :class:`~.Application`
         The application to test.
-    session: 
+    session: :class:`~.http.HTTPSession`
         The HTTP session used.
     """
+
     def __init__(self, app: Application) -> None:
         self.app: Application = app
         self.session = HTTPSession()
 
     async def __aenter__(self):
+        if not self.app.is_serving():
+            await self.app.start()
+
         return self
 
     async def __aexit__(self, *args):
+        if self.app.is_serving():
+            await self.app.close()
+
         await self.session.close()
 
     @property
@@ -63,32 +48,34 @@ class TestClient:
         """
         Performs a websocket connection.
 
-        Parameters:
-            path: The path to the websocket.
+        Parameters
+        -------------
+        path: :class:`str`
+            The path to the websocket resource.
 
-        Returns:
-            A context manager for the websocket.
+        Example
+        ---------
+        .. code-block:: python3
 
-        Example:
-            ```py
             import railway
+            from railway import websockets
 
             app = railway.Application()
             client = railway.TestClient(app)
 
             @app.websocket('/ws')
-            async def handler(request: railway.Request, ws: railway.Websocket):
+            async def handler(request: railway.Request, ws: websockets.ServerWebSocket):
                 await ws.send(b'Hello!')
 
-                data = await ws.recieve()
+                data = await ws.receive()
                 print(data.data)
 
                 await ws.close()
 
             async def main():
-                async with app:
+                async with client:
                     async with client.ws_connect('/ws') as ws:
-                        message = await ws.recieve_str()
+                        message = await ws.receive_str()
                         print(message)
 
                         await ws.send(b'Hi!')
@@ -99,32 +86,34 @@ class TestClient:
         url = self.app.url_for(path, is_websocket=True)
         return self.session.ws_connect(str(url))
 
-    def request(self, path: str, method: str, **kwargs: Any) -> AsyncContextManager[HTTPResponse]:
+    def request(self, path: str, method: str, **kwargs: Any):
         """
         Sends a request to the application.
 
         Parameters
-        
-            path: The path to the resource.
-            method: The HTTP method.
-            **kwargs: Additional arguments to pass to the request.
+        ----------
+        path: :class:`str`
+            The path to the resource.
+        method: :class:`str`
+            The HTTP method to use.
+        **kwargs: Any
+            The keyword arguments to pass to the request.
 
-        Returns:
-            A context manager for the request.
+        Example
+        ---------
 
-        Example:
-            ```py
+        .. code-block:: python3
+
             import railway
 
             app = railway.Application()
-            client = railway.TestClient(app)
 
             @app.route('/')
             async def index(request: railway.Request):
                 return 'another creative response'
 
             async def main():
-                async with app:
+                async with railway.TestClient(app) as client:
                     async with client.get('/') as response:
                         print(response.status)
                         text = await response.text()
@@ -132,7 +121,7 @@ class TestClient:
                         print(text)
 
             app.loop.run_until_complete(main())
-            ```
+            
         """
         url = self.app.url_for(path)
         return self.session.request(url=str(url), method=method, **kwargs)
@@ -148,6 +137,3 @@ class TestClient:
 
     def delete(self, path: str, **kwargs: Any):
         return self.request(path, 'DELETE', **kwargs)
-
-
-    

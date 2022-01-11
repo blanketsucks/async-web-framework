@@ -1,27 +1,6 @@
-"""
-MIT License
+from typing import Any, Dict, NoReturn, Type, Optional, TypeVar
 
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
-from typing import Any, Dict, Type, Optional, TypeVar
+from .types import ResponseBody, ResponseHeaders, StrURL
 from .response import Response, HTTPStatus
 
 __all__ = (
@@ -97,9 +76,6 @@ __all__ = (
 T = TypeVar('T')
 responses: Dict[int, Type[Any]] = {}
 
-def get(status: int):
-    return responses.get(status)
-
 def status(code: int):
     def decorator(cls: Type[T]) -> Type[T]:
         status = getattr(cls, '_status', None)
@@ -116,22 +92,25 @@ def status(code: int):
 class HTTPResponse(Response):
     _status: int
 
-    def __init__(self, 
-                body: Any=None, 
-                content_type: Optional[str]=None, 
-                headers: Optional[Dict[str, Any]]=None):
+    def __init__(
+        self, 
+        body: Optional[ResponseBody] = None, 
+        content_type: Optional[str] = None, 
+        headers: Optional[ResponseHeaders] = None
+    ):
         Response.__init__(self, body, self._status, content_type, headers)
 
 class HTTPException(HTTPResponse, Exception):
-    def __init__(self, 
-                reason: Optional[str]=None, 
-                content_type: Optional[str]=None,
-                headers: Optional[Dict[str, Any]]=None):
-        self._reason = reason
-        self._content_type = content_type
+    def __init__(
+        self, 
+        reason: Optional[ResponseBody] = None, 
+        content_type: Optional[str] = None,
+        headers: Optional[ResponseHeaders] = None
+    ):
+        self.reason = reason
 
-        HTTPResponse.__init__(self, body=self._reason, content_type=self._content_type, headers=headers)
-        Exception.__init__(self, self._reason)
+        HTTPResponse.__init__(self, body=reason, content_type=content_type, headers=headers)
+        Exception.__init__(self, reason)
 
     def __repr__(self) -> str:
         return HTTPResponse.__repr__(self)
@@ -234,10 +213,19 @@ class IMUsed(HTTPResponse):
     and the response is a representation of the result of one or more instance-manipulations applied to the current instance.
     """
 
-class Redirection(HTTPResponse):
-    def __init__(self, location: str, body: Any=None, content_type: Optional[str]=None, headers: Optional[Dict[str, Any]]=None):
+class Redirection(HTTPResponse, Exception):
+    def __init__(
+        self, 
+        location: StrURL, 
+        body: Any = None, 
+        content_type: Optional[str] = None, 
+        headers: Optional[ResponseHeaders] = None
+    ):
         super().__init__(body=body, content_type=content_type, headers=headers)
-        self.add_header(key="Location", value=location)
+        Exception.__init__(self, location)
+
+        self.add_header(key="Location", value=str(location))
+
 
 @status(300)
 class MultipleChoice(Redirection):
@@ -554,19 +542,19 @@ class NetworkAuthenticationRequired(HTTPException):
     Further extensions to the request are required for the server to fulfill it.
     """
 
-def abort(_status: int, *, message: Optional[str]=None, content_type: str='text/html') -> HTTPException:
+async def abort(code: int, *, message: Optional[str]=None, content_type: str='text/html') -> NoReturn:
     if not message:
-        _status = HTTPStatus(_status) # type: ignore
-        message = _status.description
+        status = HTTPStatus(code) # type: ignore
+        message = status.description
 
-        _status = _status.value
+        code = status.value
 
-    if _status not in client_errors or _status not in server_errors:
-        ret = f'{_status} is not a valid status code for both client errors and server errors'
+    if code < 400:
+        ret = f'{code} is not a valid status code for both client errors and server errors'
         raise ValueError(ret)
 
-    error = responses.get(_status, HTTPException)
-    return error(reason=message, content_type=content_type)
+    error = responses.get(code, HTTPException)
+    raise error(reason=message, content_type=content_type)
 
 informational_responses = {
     code: cls

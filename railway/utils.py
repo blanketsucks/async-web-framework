@@ -1,60 +1,152 @@
-"""
-MIT License
-
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 from __future__ import annotations
 
-import json
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Type, Tuple, Union, TypeVar, List, Iterator, overload, Literal
+from pathlib import Path
 import warnings
 import functools
+import json
+import sys
 import socket
+import os
 import asyncio
-from typing import TYPE_CHECKING, Any, Callable, Iterator, List, Optional, Type, Tuple, Union
+import inspect
 
-from ._types import MaybeCoroFunc
+from .types import (
+    MaybeCoroFunc, 
+    StrPath, 
+    StrURL, 
+    JSONResponseBody, 
+    Header, 
+    ParsedResult, 
+    StripedResult, 
+    NonStripedResult
+)
+from .url import URL
 
 if TYPE_CHECKING:
-    from .response import Response
+    from typing_extensions import ParamSpec
+
+    T = TypeVar('T')
+    _T = TypeVar('_T', str, bytes)
+
+    P = ParamSpec('P')
 
 __all__ = (
+    'LOCALHOST',
+    'LOCALHOST_V6',
+    'GUID',
+    'CLRF',
+    'SETTING_ENV_PREFIX',
+    'VALID_METHODS',
+    'to_url',
+    'socket_is_closed',
+    'listdir',
+    'clean_values',
+    'unwrap_function',
+    'iscoroutinefunction',
     'copy_docstring',
     'clear_docstring',
     'maybe_coroutine',
-    'LOCALHOST',
-    'LOCALHOST_V6',
     'has_ipv6',
     'has_dualstack_ipv6',
     'is_ipv6',
     'is_ipv4',
     'validate_ip',
     'jsonify',
-    'SETTING_ENV_PREFIX',
-    'VALID_METHODS',
+    'get_charset',
+    'parse_headers',
+    'parse_http_data',
+    'deprecated',
 )
 
 LOCALHOST = '127.0.0.1'
 LOCALHOST_V6 = '::1'
+GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+CLRF = b'\r\n'
+SETTING_ENV_PREFIX = 'railway_'
+VALID_METHODS = (
+    "GET",
+    "POST",
+    "PUT",
+    "HEAD",
+    "OPTIONS",
+    "PATCH",
+    "DELETE"
+)
 
-def get_union_args(arg: Any) -> Tuple[Type]:
+
+def to_url(url: StrURL) -> URL:
+    """
+    Converts a string to a :class:`~.URL` object.
+
+    Parameters
+    ----------
+    url: :class:`str`
+        The URL to convert.
+
+    Returns
+    -------
+    :class:`URL`
+        The converted URL.
+    """
+    return URL(url) if isinstance(url, str) else url
+
+def socket_is_closed(sock: socket.socket) -> bool:
+    """
+    Checks if a socket is closed.
+
+    Parameters
+    ----------
+    sock: :class:`socket.socket`
+        The socket to check.
+    """
+    return sock.fileno() == -1
+
+def listdir(path: Union[StrPath, Path], recursive: bool = False) -> Iterator[Path]:
+    if isinstance(path, (str, os.PathLike)):
+        path = Path(path)
+
+    for entry in path.iterdir():
+        if entry.is_dir() and recursive:
+            yield from listdir(entry, recursive)
+        else:
+            yield entry
+
+def clean_values(values: List[_T]) -> List[_T]:
+    return [value.strip() for value in values if value.strip()]
+
+def unwrap_function(func: Callable[..., Any]) -> Callable[..., Any]:
+    """
+    Unwraps a function.
+
+    Parameters
+    ----------
+    func: Callable[..., Any]
+        The function to unwrap.
+    """
+    while True:
+        if hasattr(func, '__wrapped__'):
+            func = func.__wrapped__
+        elif isinstance(func, functools.partial):
+            func = func.func
+        else:
+            return func
+
+def iscoroutinefunction(obj: Any) -> bool:
+    """
+    Checks if a given object is a coroutine function.
+    """
+    obj = unwrap_function(obj)
+    return asyncio.iscoroutinefunction(obj)
+
+def isasyncgenfunction(obj: Any) -> bool:
+    """
+    Checks if a given object is an async generator function.
+    """
+    obj = unwrap_function(obj)
+    return inspect.isasyncgenfunction(obj)
+
+def get_union_args(arg: Any) -> Tuple[Any, ...]:
     """
     Gets the union types of a given argument. If the argument isn't an union, it returns a single element tuple.
 
@@ -67,12 +159,39 @@ def get_union_args(arg: Any) -> Tuple[Type]:
 
     if origin is Union:
         args = getattr(arg, '__args__')
-        return args
+        unions = []
+
+        for arg in args:
+            unions.extend(get_union_args(arg))
+
+        return tuple(unions)
 
     elif origin is not None:
         return (origin,)
 
     return (arg,)
+
+def evaluate_annotation(
+    annotation: Any,
+    globals: Optional[Dict[str, Any]] = None,
+    locals: Optional[Dict[str, Any]] = None,
+    stacklevel: int = -1
+) -> Any:
+
+    if not globals:
+        globals = {}
+
+    if not locals:
+        locals = {}
+
+    if stacklevel != -1:
+        frame = sys._getframe(stacklevel)
+
+        globals.update(frame.f_globals)
+        locals.update(frame.f_locals)
+
+    return eval(annotation, globals, locals)
+
 
 def get_charset(content_type: str) -> Optional[str]:
     """
@@ -90,13 +209,12 @@ def get_charset(content_type: str) -> Optional[str]:
     """
     split = content_type.split('; ')
     if len(split) > 1:
-        _, charset = split[1]
+        _, charset = split
         return charset.split('=')[1]
 
     return None
 
-
-def copy_docstring(other: Callable[..., Any]) -> Callable[..., Callable[..., Any]]:
+def copy_docstring(other: Callable[..., Any]) -> Callable[[Callable[P, T]], Callable[P, T]]:
     """
     A decorator that copies the docstring of another function.
 
@@ -105,12 +223,14 @@ def copy_docstring(other: Callable[..., Any]) -> Callable[..., Callable[..., Any
     other: Callable[..., Any]
         The function to copy the docstring from.
     """
+
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         func.__doc__ = other.__doc__
         return func
+
     return decorator
 
-def clear_docstring(func: Callable[..., Any]) -> Callable[..., Any]:
+def clear_docstring(func: Callable[P, T]) -> Callable[P, T]:
     """
     A decorator that clears the docstring of the decorated function.
 
@@ -122,7 +242,7 @@ def clear_docstring(func: Callable[..., Any]) -> Callable[..., Any]:
     func.__doc__ = ''
     return func
 
-async def maybe_coroutine(func: MaybeCoroFunc[Any], *args: Any, **kwargs: Any) -> Any:
+async def maybe_coroutine(func: MaybeCoroFunc[T], *args: Any, **kwargs: Any) -> T:
     """
     Runs a function or coroutine, and returns its result,
 
@@ -135,10 +255,10 @@ async def maybe_coroutine(func: MaybeCoroFunc[Any], *args: Any, **kwargs: Any) -
     **kwargs: Any
         Keyword arguments to pass to the function or coroutine.
     """
-    if asyncio.iscoroutinefunction(func):
-        return await func(*args, **kwargs)
+    if iscoroutinefunction(func):
+        return await func(*args, **kwargs) # type: ignore
 
-    return func(*args, **kwargs)
+    return func(*args, **kwargs) # type: ignore
 
 def has_ipv6() -> bool:
     """
@@ -182,7 +302,7 @@ def is_ipv4(ip: str) -> bool:
     except socket.error:
         return False
 
-def validate_ip(ip: str=None, *, ipv6: bool=False) -> str:
+def validate_ip(ip: str = None, *, ipv6: bool = False) -> str:
     """
     A helper function that validates an IP address.
     If an IP address is not given it will return the localhost address.
@@ -214,26 +334,85 @@ def validate_ip(ip: str=None, *, ipv6: bool=False) -> str:
 
         return ip
 
+@overload
+def jsonify(response: JSONResponseBody, **kwargs: Any) -> str:
+    ...
+@overload
+def jsonify(**kwargs: Any) -> str:
+    ...
+def jsonify(*args: Any, **kwargs: Any) -> str:
+    """
+    A helper function that returns a JSON string from given arguments.
 
-SETTING_ENV_PREFIX = 'railway_'
+    Parameters
+    ----------
+    response: Optional[Union[:class:`dict`, :class:`list`]]
+        The response to convert to JSON.
+    **kwargs: Any
+        Keyword arguments to pass to the JSON encoder.
 
-VALID_METHODS = (
-    "GET",
-    "POST",
-    "PUT",
-    "HEAD",
-    "OPTIONS",
-    "PATCH",
-    "DELETE"
-)
+    Returns
+    -------
+    :class:`str`
+        The JSON string.
+    """
+    if args:
+        response = args[0]
 
-def warn(message: str, category: Type[Warning], stacklevel: int=4):
+        if isinstance(response, list):
+            if kwargs:
+                ret = 'Missmatch between response and kwargs. Got list as response while kwargs is a dict'
+                raise ValueError(ret)
+
+            return json.dumps(response)
+
+        kwargs.update(response)
+
+    return json.dumps(kwargs)
+
+def parse_headers(raw_headers: bytes) -> Iterator[Header]:
+    for line in raw_headers.split(b'\r\n'):
+        if not line:
+            break
+        name, _, value = line.partition(b':')
+
+        if not value:
+            continue
+
+        yield Header(name.decode().strip(), value.decode().strip())
+
+@overload
+def parse_http_data(data: bytes) -> StripedResult:
+    ...
+@overload
+def parse_http_data(data: bytes, *, strip_status_line: Literal[False]) -> NonStripedResult:
+    ...
+@overload
+def parse_http_data(data: bytes, *, strip_status_line: Literal[True]) -> StripedResult:
+    ...
+def parse_http_data(data: bytes, *, strip_status_line: bool = True) -> Any:
+    end = data.find(b'\r\n\r\n') + 4
+    headers, body = data[:end], data[end:]
+
+    status_line, raw_headers = None, headers
+    if strip_status_line:
+        status_line, raw_headers = headers.split(b'\r\n', 1)
+        status_line = status_line.decode()
+
+    return ParsedResult(
+        status_line=status_line,
+        body=body,
+        headers=dict(parse_headers(raw_headers))
+    )
+
+
+def warn(message: str, category: Type[Warning], stacklevel: int = 4):
     warnings.simplefilter('always', category)
     warnings.warn(message, category, stacklevel)
 
     warnings.simplefilter('default', category)
 
-def deprecated(other: Optional[str]=None):
+def deprecated(other: Optional[str] = None):
     def decorator(func: Callable[..., Any]):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -244,48 +423,7 @@ def deprecated(other: Optional[str]=None):
 
             warn(warning, DeprecationWarning)
             return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
-
-def jsonify(**kwargs: Any) -> 'Response':
-    """
-    Kinda like :func:`flask.jsonify`.
-
-    Parameters
-    ----------
-    **kwargs: 
-        Keyword arguments to pass to :func:`json.dumps`.
-
-    Returns
-    -------
-    :class:`~.Response`
-        A response object with the JSON data.
-    """
-    from .response import Response
-    data = json.dumps(kwargs, indent=4)
-
-    resp = Response(data, content_type='application/json')
-    return resp
-
-def iter_headers(headers: bytes) -> Iterator[List[Any]]:
-    offset = 0
-
-    while True:
-        index = headers.index(b'\r\n', offset) + 2
-        data = headers[offset:index]
-        offset = index
-
-        if data == b'\r\n':
-            break
-
-        yield [item.strip().decode() for item in data.split(b':', 1)]
-
-def find_headers(data: bytes) -> Tuple[Iterator[List[Any]], bytes]:
-    while True:
-        end = data.find(b'\r\n\r\n') + 4
-
-        if end != -1:
-            headers = data[:end]
-            body = data[end:]
-
-            return iter_headers(headers), body

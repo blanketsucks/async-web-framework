@@ -1,46 +1,25 @@
-"""
-MIT License
-
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, List, Any, Optional, Dict
-import inspect
-import asyncio
 
-from ._types import CoroFunc, MaybeCoroFunc, Coro
+from typing import TYPE_CHECKING, Callable, List, Any, Optional, Dict, Union, NoReturn
+import inspect
+import re
+
+from .types import CoroFunc, Coro
 from .responses import HTTPException
+from .response import Response
 from .request import Request
 from .errors import RegistrationError
-from .locks import _MaybeSemaphore, Semaphore
+from . import utils
 
 if TYPE_CHECKING:
     from .router import Router
-    from .injectables import Injectable
+    from .resources import Resource
 
 __all__ = (
     'Object',
     'Route',
     'PartialRoute',
-    'WebsocketRoute',
+    'WebSocketRoute',
     'Middleware',
     'Listener',
     'route',
@@ -48,12 +27,6 @@ __all__ = (
     'listener',
     'middleware',
 )
-
-async def _call(func: CoroFunc, parent: Optional[Injectable], *args: Any, **kwargs: Any):
-    if parent:
-        return await func(parent, *args, **kwargs)
-
-    return await func(*args, **kwargs)
 
 class Object:
     """
@@ -69,7 +42,7 @@ class Object:
     callback: Callable[..., Coroutine[Any, Any, Any]]]
         The coroutine function used by the object.
     """
-    callback: CoroFunc
+    callback: CoroFunc[Any]
 
     def __init__(self, callback: CoroFunc) -> None:
         self.callback = callback
@@ -127,37 +100,63 @@ class Route(Object):
     callback:  Callable[..., Coroutine[Any, Any, Any]]
         The coroutine function used by the route.
     """
-    def __init__(self, path: str, method: str, callback: CoroFunc, *, router: Optional['Router']) -> None:
+    __cache_control__: Dict[str, Any]
+
+    def __init__(
+        self, 
+        path: str, 
+        method: str, 
+        callback: CoroFunc,
+        *, 
+        name: Optional[str] = None,
+        router: Optional['Router']
+    ) -> None:
+        if hasattr(callback, '__cache_control__'):
+            self.__cache_control__ = callback.__cache_control__
+
         self._router = router
 
         self.path: str = path
         self.method: str = method
         self.callback = callback
-        self.parent: Optional[Injectable] = None
+        self.name = name or callback.__name__.replace('_', ' ').title()
+        self.raw_path: str = None # type: ignore
+        self.parent: Optional[Resource] = None
 
         self._error_handler = None
-        self._status_code_handlers: Dict[int, Callable[[Request, HTTPException, Route], Coro]] = {}
+        self._status_code_handlers: Dict[int, Callable[..., Coro[Any]]] = {}
         self._middlewares: List[Middleware] = []
+        self._response_middlewares: List[Callable[[Request, Response, Route], Coro[Any]]] = []
         self._after_request = None
-        self._limiter = _MaybeSemaphore(None)
 
-    async def _dispatch_error(self, request: Request, exc: Exception):
+        self.__doc__ = inspect.getdoc(callback)
+
+    async def dispatch(
+        self, 
+        request: Request, 
+        exc: Exception
+    ) -> bool:
         if isinstance(exc, HTTPException):
             callback = self._status_code_handlers.get(exc.status)
             if callback:
-                response = await _call(callback, self.parent, request, exc, self)
-                await request.send(response)
+                if self.parent:
+                    response = await callback(self.parent, request, exc, self)
+                else:
+                    response = await callback(request, exc, self)
 
+                await request.send(response)
                 return True
 
         if self._error_handler:
-            await _call(self._error_handler, self.parent, request, exc, self)
+            if self.parent:
+                response = await self._error_handler(self.parent, request, exc, self)
+            else:
+                response = await self._error_handler(request, exc, self)
+
+            await request.send(response)
             return True
 
         return False
-
-    def is_websocket(self) -> bool:
-        return isinstance(self, WebsocketRoute)
 
     @property
     def signature(self) -> inspect.Signature:
@@ -174,11 +173,44 @@ class Route(Object):
         return self._middlewares
 
     @property
+    def response_middlewares(self) -> List[Callable[[Request, Response, Route], Coro[Any]]]:
+        """
+        A list of response middlewares registered with the route.
+        """
+        return self._response_middlewares
+
+    @property
     def router(self) -> Optional['Router']:
         """
         The router used to register the route with.
         """
         return self._router
+
+    def is_websocket(self) -> bool:
+        """
+        Checks if the route is a websocket route.
+        """
+        return isinstance(self, WebSocketRoute)
+
+    def match(self, path: str) -> Optional[Dict[str, str]]:
+        """
+        Matches the path with the route.
+
+        Parameters
+        ----------
+        path: :class:`str`
+            The path to match.
+        
+        Returns
+        -------
+        :class:`dict`
+            A dictionary of the matched parameters.
+        """
+        match = re.fullmatch(self.path, path)
+        if match:
+            return match.groupdict()
+
+        return None
 
     def cleanup_middlewares(self):
         """
@@ -189,7 +221,7 @@ class Route(Object):
     def add_status_code_handler(
         self, 
         status: int, 
-        callback: Callable[[Request, HTTPException, Route], Coro]
+        callback: Callable[..., Coro[Any]]
     ):
         """
         Adds a specific status code handler to the route.
@@ -202,7 +234,7 @@ class Route(Object):
         callback: Callable[[:class:`~railway.objects.Request`, :class:`~railway.exceptions.HTTPException`, :class:`~railway.objects.Route`], Coro]
             The callback to handle the status code.
         """
-        if not inspect.iscoroutinefunction(callback):
+        if not utils.iscoroutinefunction(callback):
             raise RegistrationError('Status code handlers must be coroutine functions')
 
         self._status_code_handlers[status] = callback
@@ -223,6 +255,7 @@ class Route(Object):
     def status_code_handler(self, status: int):
         """
         A decorator that adds a status code handler to the route.
+        The handler function MUST return something.
 
         Parameters
         ----------
@@ -260,26 +293,27 @@ class Route(Object):
             app.run()
         
         """
-        def decorator(func: Callable[[Request, HTTPException, Route], Coro]):
+        def decorator(func: Callable[..., Coro[Any]]):
             return self.add_status_code_handler(status, func)
         return decorator
 
-    def on_error(self, callback: Callable[[Request, Exception, Route], Coro]):
+    def on_error(self, callback: Callable[..., Coro[Any]]):
         """
         Registers an error handler for the route.
+        The handler function MUST return something.
 
         Parameters
         ----------
         callback: Callable[[:class:`~.Request`, :class:`~.HTTPException`, :class:`~.Route`], Coro]
             The callback to handle errors.
         """
-        if not inspect.iscoroutinefunction(callback):
+        if not utils.iscoroutinefunction(callback):
             raise RegistrationError('Error handlers must be coroutine functions')
 
         self._error_handler = callback
         return callback
 
-    def add_middleware(self, callback: CoroFunc) -> Middleware:
+    def add_middleware(self, callback: CoroFunc[Union[bool, NoReturn]]) -> Middleware:
         """
         Registers a middleware with the route.
 
@@ -288,7 +322,7 @@ class Route(Object):
         callback: Callable[..., Coroutine[Any, Any, Any]]
             The coroutine function used by the middleware.
         """
-        if not inspect.iscoroutinefunction(callback):
+        if not utils.iscoroutinefunction(callback):
             raise RegistrationError('All middlewares must be coroutine functions')
 
         middleware = Middleware(callback, route=self)
@@ -308,14 +342,14 @@ class Route(Object):
         self._middlewares.remove(middleware)
         return middleware
 
-    def middleware(self, callback: CoroFunc) -> Middleware:
+    def middleware(self, callback: CoroFunc[Union[bool, NoReturn]]) -> Middleware:
         """
         A decorator that registers a middleware with the route.
 
         Parameters
         ----------
-            callback: Callable[..., Coroutine[Any, Any, Any]]
-                The coroutine function used by the middleware.
+        callback: Callable
+            The coroutine function used by the middleware.
 
         Example
         --------
@@ -330,13 +364,76 @@ class Route(Object):
                 return 'Hello, world!'
 
             @index.middleware
-            async def middleware(request: railway.Request, route: railway.Route, **kwargs):
+            async def middleware(route: railway.Route, request: railway, **kwargs):
                 print('Middleware called')
 
             app.run()
 
         """
         return self.add_middleware(callback)
+
+    def add_response_middleware(
+        self, callback: Callable[[Request, Response, Route], Coro[Any]]
+    ) -> Callable[[Request, Response, Route], Coro[Any]]:
+        """
+        Registers a response middleware with the route.
+
+        Parameters
+        ----------
+        callback: Callable[..., Any]
+            The coroutine function used by the middleware.
+        """
+        if not utils.iscoroutinefunction(callback):
+            raise RegistrationError('Response middlewares must be coroutine functions')
+
+        self._response_middlewares.append(callback)
+        return callback
+
+    def remove_response_middleware(
+        self, callback: Callable[[Request, Response, Route], Coro[Any]]
+    ) -> Callable[[Request, Response, Route], Coro[Any]]:
+        """
+        Removes a response middleware from the route.
+
+        Parameters
+        ----------
+        callback: Callable[..., Any]
+            The coroutine function used by the middleware.
+        """
+        self._response_middlewares.remove(callback)
+        return callback
+
+    def response_middleware(
+        self, callback: Callable[[Request, Response, Route], Coro[Any]]
+    ) -> Callable[[Request, Response, Route], Coro[Any]]:
+        """
+        A decorator that registers a response middleware with the route.
+
+        Parameters
+        ----------
+        callback: Callable[..., Any]
+            The coroutine function used by the middleware.
+
+        Example
+        --------
+        .. code-block:: python3
+
+            import railway
+
+            app = railway.Application()
+
+            @app.route('/')
+            async def index(request: railway.Request):
+                return 'Hello, world!'
+
+            @index.response_middleware
+            async def middleware(request: railway.Request, response: railway.Response, route: railway.Route):
+                print('Middleware called')
+
+            app.run()
+
+        """
+        return self.add_response_middleware(callback)
 
     def after_request(self, callback: CoroFunc) -> CoroFunc:
         """
@@ -347,7 +444,7 @@ class Route(Object):
             callback: Callable[..., Coroutine[Any, Any, Any]]]
                 The coroutine function or a function to be called.
         """
-        if not inspect.iscoroutinefunction(callback):
+        if not utils.iscoroutinefunction(callback):
             raise RegistrationError('After request callbacks must be coroutine functions')
 
         self._after_request = callback
@@ -374,47 +471,8 @@ class Route(Object):
         self._middlewares.clear()
         self._status_code_handlers.clear()
 
-    def add_semaphore(self, semaphore: Semaphore):
-        """
-        Adds a semaphore to the route that can be used to limit the number of concurrent requests.
-
-        Parameters
-        ----------
-        semaphore: Union[:class:`asyncio.Semaphore`, :class:`~railway.locks.Semaphore`]
-            A semaphore. This can be either from the :mod:`asyncio` module or the :mod:`railway.locks` module.
-
-        Example
-        --------
-        .. code-block:: python3 
-
-            import railway
-
-            app = railway.Application()
-            sem = railway.Semaphore(50)
-
-            @app.route('/')
-            async def index(request: railway.Request):
-                return 'pog'
-
-            index.add_semaphore(sem)
-
-            app.run()
-
-        """
-        if not isinstance(semaphore, (Semaphore, asyncio.Semaphore)):
-            raise TypeError('semaphore must be an instance of asyncio.Semaphore or railway.Semaphore')
-
-        self._limiter.semaphore = semaphore
-
-    def remove_semaphore(self):
-        """
-        Removes the semaphore from the route.
-        """
-        self._limiter.semaphore = None
-
-    async def __call__(self, *args: Any, **kwds: Any) -> Any:
-        async with self._limiter:
-            return await _call(self.callback, self.parent, *args, **kwds)
+    def __call__(self, *args, **kwargs) -> Any:
+        return self.callback(*args, **kwargs)
 
     def __repr__(self) -> str:
         return '<Route path={0.path!r} method={0.method!r}>'.format(self)
@@ -437,7 +495,7 @@ class Middleware(Object):
     callback: Callable[..., Coroutine[Any, Any, Any]]]
         The coroutine(?) function used by the middleware.
     """
-    def __init__(self, callback: CoroFunc, route: Optional[Route]=None, router: Optional['Router']=None) -> None:
+    def __init__(self, callback: CoroFunc[Union[bool, NoReturn]], route: Optional[Route]=None, router: Optional['Router']=None) -> None:
         self.callback = callback
 
         self._router = router
@@ -520,10 +578,13 @@ class Middleware(Object):
         if self._router:
             self._router.middleware(self.callback)
 
+    async def __call__(self, route: Route, request: Request, **kwargs: Any) -> Any:
+        return await super().__call__(route, request, **kwargs)
+
     def __repr__(self) -> str:
         return f'<Middleware is_global={self.is_global()!r}>'
 
-class WebsocketRoute(Route):
+class WebSocketRoute(Route):
     """
     A subclass of :class:`~railway.objects.Route` representing a websocket route
     """
@@ -547,14 +608,14 @@ class Listener(Object):
     event: :class:`str`
         The event the listener is registered to.
     """
-    def __init__(self, callback: CoroFunc, name: str) -> None:
+    def __init__(self, callback: CoroFunc[Any], name: str) -> None:
         self.event: str = name
         self.callback = callback
 
     def __repr__(self) -> str:
         return '<Listener event={0.event!r}>'.format(self)
 
-def route(path: str, method: str) -> Callable[[CoroFunc], Route]:
+def route(path: str, method: str, *, name: Optional[str]=None) -> Callable[[CoroFunc], Route]:
     """
     A decorator that returns a :class:`~railway.objects.Route` object.
 
@@ -566,23 +627,26 @@ def route(path: str, method: str) -> Callable[[CoroFunc], Route]:
         The HTTP method to register the route with.
     """
     def decorator(func: CoroFunc) -> Route:
-        return Route(path, method, func, router=None)
+        route = Route(path, method, func, name=name, router=None)
+        route.raw_path = path
+
+        return route
     return decorator
 
-def websocket_route(path: str) -> Callable[[CoroFunc], WebsocketRoute]:
+def websocket_route(path: str, *, name: Optional[str] = None) -> Callable[[CoroFunc], WebSocketRoute]:
     """
-    A decorator that returns a :class:`~railway.objects.WebsocketRoute` object.
+    A decorator that returns a :class:`~railway.objects.WebSocketRoute` object.
 
     Parameters
     ----------
     path: :class:`str`
         The path to register the route with.
     """
-    def decorator(func: CoroFunc) -> WebsocketRoute:
-        return WebsocketRoute(path, 'GET', func, router=None)
+    def decorator(func: CoroFunc) -> WebSocketRoute:
+        return WebSocketRoute(path, 'GET', func, name=name, router=None)
     return decorator
 
-def listener(event: str=None) -> Callable[[CoroFunc], Listener]:
+def listener(event: str = None) -> Callable[[CoroFunc], Listener]:
     """
     A decorator that returns a :class:`~railway.objects.Listener` object.
 
@@ -595,7 +659,7 @@ def listener(event: str=None) -> Callable[[CoroFunc], Listener]:
         return Listener(func, event or func.__name__)
     return decorator
 
-def middleware(callback: CoroFunc) -> Middleware:
+def middleware(callback: CoroFunc[Union[bool, NoReturn]]) -> Middleware:
     """
     A decorator that returns a global :class:`~railway.objects.Middleware` object.
 

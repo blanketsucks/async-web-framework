@@ -1,6 +1,5 @@
-from setuptools import setup
+from setuptools import find_packages, setup
 import sys
-from Cython.Build import cythonize
 
 with open('requirements.txt', 'r') as file:
     requirements = file.readlines()
@@ -8,17 +7,19 @@ with open('requirements.txt', 'r') as file:
 if sys.platform != 'win32':
     requirements.append('uvloop')
 
+extra_require = {
+    'sqlalchemy': [
+        'sqlalchemy',
+        'sqlalchemy[asyncio]'
+    ]
+}
+
+packages = find_packages()
+
 setup(
     name='railway',
-    packages=[
-        'railway',
-        'railway.client',
-        'railway.http',
-        'railway.server',
-        'railway.rfc6555',
-        'railway.websockets',
-        'railway-stubs'
-    ],
+    packages=packages,
     python_requires='>=3.8.0',
     install_requires=requirements,
+    extras_require=extra_require,
 )

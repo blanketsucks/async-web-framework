@@ -9,4 +9,4 @@ docs/_build
 *.c
 *.so
 *.pyd
-test.py
+test.*

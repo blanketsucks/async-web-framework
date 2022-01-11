@@ -1,29 +1,5 @@
-"""
-MIT License
-
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 from typing import List, Tuple, Dict, Any, Type
 
-from .injectables import Injectable, InjectableMeta
 from .objects import Route, Middleware, Listener
 
 __all__ = (
@@ -31,17 +7,45 @@ __all__ = (
     "Resource",
 )
 
-class ResourceMeta(InjectableMeta):
+class ResourceMeta(type):
     """
-    A meta class for resources.
+    A metaclass for resources.
     """
+    __routes__: Dict[str, Route]
+    __listeners__: List[Listener]
+    __middlewares__: List[Middleware]
+    __url_prefix__: str
+
     def __new__(cls, cls_name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any], **kwargs):
         attrs['__resource_name__'] = kwargs.get('name', cls_name)
 
-        self = super().__new__(cls, cls_name, bases, attrs)
+        routes: Dict[str, Route] = {}
+        listeners = []
+        middlewares = []
+
+        url_prefix = kwargs.get('url_prefix', '')
+        self = super().__new__(cls, cls_name, bases, attrs, **kwargs)
+
+        for base in reversed(self.__mro__):
+            for elem, value in base.__dict__.items():
+                if isinstance(value, Route):
+                    path = url_prefix + value.path
+                    routes[path] = value
+
+                elif isinstance(value, Middleware):
+                    middlewares.append(value)
+
+                elif isinstance(value, Listener):
+                    listeners.append(value)
+
+        self.__url_prefix__ = url_prefix
+        self.__routes__ = routes
+        self.__listeners__ = listeners
+        self.__middlewares__ = middlewares
+
         return self
 
-class Resource(Injectable, metaclass=ResourceMeta):
+class Resource(metaclass=ResourceMeta):
     """
     A resource to be subclassed and used.
 
@@ -62,6 +66,10 @@ class Resource(Injectable, metaclass=ResourceMeta):
         app.add_resource(MyResource())
         
     """
+    __routes__: Dict[str, Route]
+    __listeners__: List[Listener]
+    __middlewares__: List[Middleware]
+    __url_prefix__: str
     __resource_name__: str
     
     def __repr__(self) -> str:
@@ -81,20 +89,23 @@ class Resource(Injectable, metaclass=ResourceMeta):
         
         self.__resource_name__ = value
 
+    @property
     def routes(self) -> List[Route]:
         """
-        The list of registered routes in this resource.
+        The routes of the resource.
         """
         return list(self.__routes__.values())
 
-    def middlewares(self) -> List[Middleware]:
-        """
-        The list of registered middlewares in this resource.
-        """
-        return self.__middlewares__
-
+    @property
     def listeners(self) -> List[Listener]:
         """
-        The list of registered listeners in this resource.
+        The listeners of the resource.
         """
         return self.__listeners__
+
+    @property
+    def middlewares(self) -> List[Middleware]:
+        """
+        The middlewares of the resource.
+        """
+        return self.__middlewares__

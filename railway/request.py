@@ -1,44 +1,29 @@
-"""
-MIT License
-
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 from __future__ import annotations
-import json
-from typing import TYPE_CHECKING, Generic, TypeVar, Union, Dict, Any, Optional, Tuple, List, Type
-import urllib.parse
-import datetime
 
-from .datastructures import URL, Headers
+from typing import TYPE_CHECKING, Generic, Iterable, NoReturn, TypeVar, Union, Any, Optional, Type
+from abc import ABC, abstractmethod
+from functools import cached_property
+import json
+import datetime
+import base64
+import hashlib
+import asyncio
+
+from .errors import PartialRead
+from .url import URL
+from .headers import Headers
 from .response import Response
-from .utils import find_headers
 from .cookies import CookieJar
 from .sessions import CookieSession
-from .responses import Redirection, redirects
+from .responses import HTTPException, Redirection, SwitchingProtocols, redirects, responses
+from .response import StreamResponse
 from .formdata import FormData
-from .server import ClientConnection
-from .file import File
+from .streams import StreamReader, StreamWriter
+from .types import ResponseBody, ResponseStatus, RouteResponse, StrURL, Address
+from .utils import to_url, GUID, CLRF, parse_headers
 
 if TYPE_CHECKING:
-    from .objects import Route, WebsocketRoute
+    from .objects import Route, WebSocketRoute
     from .workers import Worker
     from .app import Application
 
@@ -46,9 +31,89 @@ AppT = TypeVar('AppT', bound='Application')
 
 __all__ = (
     'Request',
+    'HTTPConnection'
 )
 
-class Request(Generic[AppT]):
+class HTTPConnection(ABC):
+    _body: bytes
+    headers: Headers
+
+    async def read(self, *, timeout: Optional[float] = None) -> bytes:
+        """
+        Reads the body of the request.
+
+        Parameters
+        ----------
+        timeout: Optional[:class:`float`]
+            The timeout to use.
+
+        Returns
+        -------
+        :class:`bytes`
+            The body of the request as bytes.
+        """
+        if not self.headers.content_length:
+            return b''
+
+        reader = self.get_reader()
+        while not reader.at_eof():
+            try:
+                chunk = await reader.read(65536, timeout=timeout)
+            except asyncio.TimeoutError:
+                continue
+            except PartialRead as e:
+                chunk = e.partial
+            
+            self._body += chunk
+            
+        return self._body
+
+    async def text(self, *, encoding: Optional[str] = None) -> str:
+        """
+        The text of the request.
+
+        Parameters
+        ----------
+        encoding: Optional[:class:`str`]
+            The encoding to use.
+        """
+        if encoding is None:
+            encoding = self.headers.charset if self.headers.charset else 'utf-8'
+
+        body = await self.read()
+        return body.decode(encoding=encoding)
+
+    async def json(self, *, check_content_type: bool = False, encoding: Optional[str] = None) -> Any:
+        """
+        The JSON body of the request.
+
+        Parameters
+        ----------
+        check_content_type: :class:`bool`
+            Whether to check if the content type is application/json or not.
+        encoding: Optional[:class:`str`]
+            The encoding to use.
+        """
+        if check_content_type:
+            ret = f'Content-Type must be application/json, got {self.headers.content_type!r}'
+            assert self.headers.content_type == 'application/json', ret
+
+        text = await self.text(encoding=encoding)
+        return json.loads(text)
+
+    @abstractmethod
+    def get_reader(self) -> StreamReader:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def close(self) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def is_closed(self) -> bool:
+        raise NotImplementedError
+
+class Request(Generic[AppT], HTTPConnection):
     """
     A request that is sent to the server.
 
@@ -66,41 +131,40 @@ class Request(Generic[AppT]):
         The route that the request was sent to.
     worker: 
         The worker that the request was sent to.
-    connection: 
-        The connection that the request was sent to.
     """
-    __slots__ = (
-        '_encoding', 'version', 'method', 'worker', 'connection',
-        '_url', 'headers', '_body', 'protocol', 'connection_info',
-        '_cookies', 'route', '_app', 'peername', 'created_at'
-    )
-
-    def __init__(self,
-                method: str,
-                url: str,
-                headers: Dict[str, str],
-                version: str,
-                body: bytes,
-                app: AppT,
-                connection: ClientConnection,
-                worker: Worker,
-                created_at: datetime.datetime):
+    def __init__(
+        self,
+        method: str,
+        url: str,
+        headers: Headers,
+        version: str,
+        app: AppT,
+        reader: StreamReader,
+        writer: StreamWriter,
+        worker: Worker,
+        created_at: datetime.datetime
+    ):
         self._encoding = "utf-8"
         self._app = app
+        self._reader = reader
+        self._writer = writer
         self._url = url
-        self._body = body
-        self.version: str = version
-        self.method: str = method
-        self.connection = connection
+        self._body = b''
+        self.version = version
+        self.method = method
         self.worker = worker
         self.headers = headers
-        self.route: Optional[Union[Route, WebsocketRoute]] = None
+        self.route: Optional[Union[Route, WebSocketRoute]] = None
         self.created_at: datetime.datetime = created_at
 
-    async def send(self, 
-        response: Union[str, bytes, Dict[str, Any], List[Any], Tuple[Any, ...], File, Response, URL, Any],
+        self._closed = False
+
+    async def send(
+        self,
+        response: RouteResponse,
         *,
-        convert: bool=True
+        convert: bool = True,
+        close: bool = True,
     ) -> None:
         """
         Sends a response to the client.
@@ -120,25 +184,122 @@ class Request(Generic[AppT]):
             if not isinstance(response, Response):
                 raise ValueError('When convert is passed in as False, response must be a Response object')
 
-        await self.worker.write(
-            data=response,
-            connection=self.connection
-        )
+        data = await response.prepare()
+        await self.writer.write(data, drain=True)
 
-        await self.close()
+        if isinstance(response, StreamResponse):
+            async for chunk in response:
+                await self.writer.write(chunk, drain=True)
+
+        if close:
+            await self.close()
 
     async def close(self):
         """
         Closes the connection.
         """
-        if not self.connection.is_closed():
-            await self.connection.close()
+        if not self.is_closed():
+            self.writer.close()
+
+    async def handshake(
+        self, 
+        *, 
+        extensions: Optional[Iterable[str]] = None, 
+        subprotocols: Optional[Iterable[str]] = None
+    ) -> None:
+        """
+        Performs a websocket handshake.
+
+        Parameters
+        ----------
+        extensions: Optional[Iterable[str]]
+            The extensions to use.
+        subprotocols: Optional[Iterable[str]]
+            The subprotocols to use.
+        """
+        key = self.parse_websocket_key()
+        response = SwitchingProtocols()
+
+        response.add_header(key='Upgrade', value='websocket')
+        response.add_header(key='Connection', value='Upgrade')
+        response.add_header(key='Sec-WebSocket-Accept', value=key)
+
+        if extensions is not None:
+            response.add_header(key='Sec-WebSocket-Extensions', value=', '.join(extensions))
+        
+        if subprotocols is not None:
+            response.add_header(key='Sec-WebSocket-Protocol', value=', '.join(subprotocols))
+
+        await self.send(response, close=False)
 
     def is_closed(self) -> bool:
         """
         True if the connection is closed.
         """
-        return self.connection.is_closed()
+        return self._closed
+
+    def is_websocket(self) -> bool:
+        """
+        True if the request is a websocket request.
+        """
+        if self.method != 'GET':
+            return False
+
+        if self.version != 'HTTP/1.1':
+            return False
+
+        required = (
+            'Host',
+            'Upgrade',
+            'Connection',
+            'Sec-WebSocket-Version',
+            'Sec-WebSocket-Key',
+        )
+
+        if not all([header in self.headers for header in required]):
+            return False
+
+        for header in required:
+            value = self.headers[header]
+
+            if header == 'Upgrade':
+                if value.lower() != 'websocket':
+                    return False
+            elif header == 'Sec-WebSocket-Version':
+                if value != '13':
+                    return False
+            elif header == 'Sec-WebSocket-Key':
+                key = base64.b64decode(value)
+
+                if not len(key) == 16:
+                    return False
+
+        return True
+
+    def get_reader(self) -> StreamReader:
+        return self._reader
+
+    @property
+    def encoding(self) -> str:
+        """
+        The encoding of the request.
+        """
+        charset = self.headers.charset
+        if charset:
+            return charset
+
+        return self._encoding
+
+    @encoding.setter
+    def encoding(self, value: str):
+        self._encoding = value
+
+    @property
+    def writer(self) -> StreamWriter:
+        """
+        The writer for the request.
+        """
+        return self._writer
 
     @property
     def app(self) -> AppT:
@@ -155,155 +316,166 @@ class Request(Generic[AppT]):
         return URL(self._url)
 
     @property
-    def cookies(self) -> Dict[str, str]:
-        """
-        The cookies of the request.
-        """
-        jar = self.cookie_jar
-        self._cookies = {
-            cookie.name: cookie.value for cookie in jar
-        }
-        
-        return self._cookies
-
-    @property
-    def cookie_jar(self) -> CookieJar:
-        """
-        The cookie jar of the request.
-        """
-        return CookieJar.from_request(self)
-
-    @property
-    def session(self) -> CookieSession:
-        """
-        The cookie session of the request.
-        """
-        return CookieSession.from_request(self)
-
-    @property
-    def query(self) -> Dict[str, str]:
+    def query(self):
         """
         The query dict of the request.
         """
         return self.url.query
 
     @property
-    def client_ip(self) -> str:
+    def cookies(self) -> CookieJar:
         """
-        The IP address of the client.
+        The cookies of the request.
         """
-        return self.headers.get('X-Forwarded-For') or self.connection.peername[0]
+        return self.headers.cookies
 
-    @property
-    def server_ip(self) -> str:
+    @cached_property
+    def session(self) -> CookieSession:
         """
-        The IP address of the server.
+        The cookie session of the request.
         """
-        return self.connection.sockname[0]
+        return CookieSession.from_request(self)
 
-    def read(self) -> bytes:
+    @cached_property
+    def client(self) -> Address:
         """
-        Reads the body of the request.
+        The address of the client.
 
         Returns
         -------
-        :class:`bytes`
-            The body of the request as bytes.
+        :class:`collections.namedtuple`
+            A named tuple with the host and port of the client.
         """
-        return self._body
+        host, port = self.writer.get_extra_info('peername')
 
-    def text(self) -> str:
-        """
-        The text of the request.
-        """
-        return self._body.decode() if isinstance(self._body, (bytes, bytearray)) else self._body
+        if 'X-Forwarded-For' in self.headers:
+            host = self.headers['X-Forwarded-For']
 
-    def json(self) -> Dict[str, Any]:
-        """
-        The JSON body of the request.
-        """
-        return json.loads(self.text())
+        return Address(host, port)
 
-    def form(self) -> FormData:
+    @cached_property
+    def server(self) -> Address:
+        """
+        The address of the server.
+
+        Returns
+        -------
+        :class:`collections.namedtuple`
+            A named tuple with the host and port of the client.
+        """
+        host, port = self.writer.get_extra_info('sockname')
+        return Address(host, port)
+
+    def parse_websocket_key(self) -> str:
+        """
+        Parses the websocket key from the request.
+        """
+        if not self.is_websocket():
+            raise RuntimeError('Not a websocket request')
+
+        key: str = self.headers['Sec-WebSocket-Key']
+
+        sha1 = hashlib.sha1((key + GUID).encode()).digest()
+        return base64.b64encode(sha1).decode()
+
+    async def form(self) -> FormData:
         """
         The form data of the request.
         """
-        return FormData.from_request(self)
+        return await FormData.from_request(self)
 
-    def redirect(self, 
-                to: Union[str, URL],
-                *, 
-                body: Any=None, 
-                headers: Optional[Dict[str, Any]]=None, 
-                status: Optional[int]=None, 
-                content_type: Optional[str]=None) -> Response:
+    async def redirect(
+        self,
+        to: StrURL,
+        *,
+        status: Optional[ResponseStatus] = None,
+        body: Optional[ResponseBody] = None,
+        **kwargs: Any
+    ) -> NoReturn:
         """
         Redirects a request to another URL.
 
         Parameters
         ----------
-        to: Union[str, :class:`~railway.datastructers.URL`]
+        to: Union[str, :class:`~railway.datastructures.URL`]
             The URL to redirect to.
         body: Any
             The body of the response.
-        headers: :class:`dict`
-            The headers of the response.
-        status: :class:`int`
-            The status code of the response.
-        content_type: :class:`str`
-            The content type of the response.
+        **kwargs: Any
+            The keyword arguments to pass to the response.
         
         Raises
         ------
         ValueError: If ``status`` is not valid redirection status code.
         """
-        headers = headers or {}
         status = status or 302
-        content_type = content_type or 'text/plain'
 
-        url = urllib.parse.quote_plus(str(to), ":/%#?&=@[]!$&'()*+,;")
-        cls: Optional[Type[Redirection]] = redirects.get(status) # type: ignore
+        url = to_url(to)
+        cls: Optional[Type[Redirection]] = redirects.get(int(status)) # type: ignore
 
         if not cls:
             ret = f'{status} is not a valid redirect status code'
             raise ValueError(ret)
 
-        response = cls(location=url, body=body, headers=headers, content_type=content_type)
-        return response
+        response = cls(location=url, body=body, **kwargs)
+        raise response
+
+    async def abort(
+        self,
+        status: ResponseStatus,
+        *,
+        message: Optional[ResponseBody] = None,
+        **kwargs: Any,
+    ) -> NoReturn:
+        """
+        Aborts a request with a response.
+
+        Parameters
+        ----------
+        status: Union[:class:`int`, :class:`~.HTTPStatus`]
+            The status code of the response.
+        message: Any
+            The body of the response.
+        **kwargs: Any
+            The keyword arguments to pass to the response.
+
+        Raises
+        ------
+        ValueError: If ``status`` is not valid response status code.
+        """
+        if status < 400:
+            raise ValueError('status must be >= 400')
+
+        cls: Type[HTTPException] = responses.get(int(status)) # type: ignore
+        
+        response = cls(reason=message, **kwargs)
+        raise response
 
     @classmethod
-    def parse(cls, 
-            data: bytes, 
-            app: Application, 
-            connection: ClientConnection, 
-            worker: Worker, 
-            created_at: datetime.datetime) -> Request:
-        line: str
+    async def parse(
+        cls, 
+        status_line: bytes, 
+        reader: StreamReader,
+        writer: StreamWriter,
+        worker: Worker, 
+        created_at: datetime.datetime
+    ) -> Request[Application]:
+        method, path, version = status_line.decode().split(' ')
 
-        hdrs, body = find_headers(data)
-        line, = next(hdrs)
+        hdrs = await reader.readuntil(CLRF * 2)
+        headers = Headers(parse_headers(hdrs))
 
-        parts = line.split(' ')
-        headers = dict(hdrs) # type: ignore
-        
-        method = parts[0]
-        version = parts[2]
-        path = parts[1]
-
-        self = cls(
+        return cls(
             method=method,
             url=path,
             version=version,
             headers=headers,
-            body=body,
-            app=app,
-            connection=connection,
+            app=worker.app,
+            reader=reader,
+            writer=writer,
             worker=worker,
             created_at=created_at
         )
-        
-        return self
 
     def __repr__(self) -> str:
-        return '<Request url={0.url.path!r} method={0.method!r} version={0.version!r} ' \
-               'headers={0.headers!r}>'.format(self)
+        return '<Request url={0.url.path!r} method={0.method!r} version={0.version!r}>'.format(self)

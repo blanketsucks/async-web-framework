@@ -1,6 +1,9 @@
+from abc import ABC, abstractmethod
+from typing import Any, Deque, Optional
 import asyncio
 import collections
-from typing import Deque, Optional
+
+from .compat import get_event_loop
 
 __all__ = (
     'LockMixin',
@@ -8,10 +11,13 @@ __all__ = (
     'Lock'
 )
 
-class LockMixin:
-    def __init__(self, *, loop: asyncio.AbstractEventLoop=None):
+class Locked(Exception):
+    pass
+
+class LockMixin(ABC):
+    def __init__(self, *, loop: Optional[asyncio.AbstractEventLoop] = None):
         self._waiters: Deque['asyncio.Future[None]']= collections.deque()
-        self._loop = loop or asyncio.get_event_loop()
+        self._loop = loop or get_event_loop()
 
     @property
     def loop(self):
@@ -20,16 +26,39 @@ class LockMixin:
         """
         return self._loop
 
-    async def acquire(self, *, wait: bool=True) -> bool:
+    async def wait(self, *, timeout: Optional[float] = None):
+        waiter = self.loop.create_future()
+        self._waiters.append(waiter)
+
+        try:
+            await asyncio.wait_for(waiter, timeout=timeout)
+        except:
+            waiter.cancel()
+            if self.should_wakeup() and not waiter.cancelled():
+                self.wakeup()
+
+            raise
+
+    @abstractmethod
+    async def acquire(self, *, wait: bool = True, timeout: Optional[float] = None) -> bool:
         raise NotImplementedError
 
-    def release(self):
+    @abstractmethod
+    def release(self) -> None:
+        raise NotImplementedError
+    
+    @abstractmethod
+    def wakeup(self) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def should_wakeup(self) -> bool:
         raise NotImplementedError
 
     async def __aenter__(self):
         await self.acquire()
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args: Any):
         self.release()
 
 class Semaphore(LockMixin):
@@ -66,10 +95,7 @@ class Semaphore(LockMixin):
 
         asyncio.run(main())
     """
-    def __init__(self, value: int, *, loop: asyncio.AbstractEventLoop=None) -> None:
-        if not isinstance(value, int):
-            raise TypeError('value must be an integer')
-
+    def __init__(self, value: int, *, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
         if value < 0:
             raise ValueError('value must be a positive integer')
 
@@ -97,45 +123,34 @@ class Semaphore(LockMixin):
                 waiter.set_result(None)
                 return
 
+    def should_wakeup(self) -> bool:
+        return self._value > 0
+
     def is_locked(self):
         """
         True if the semaphore is locked, False otherwise.
         """
         return self._value <= 0
 
-    async def wait(self):
-        """
-        Waits until the semaphore is released.
-        """
-        waiter = self.loop.create_future()
-        self._waiters.append(waiter)
-
-        try:
-            await waiter
-        except:
-            waiter.cancel()
-            if self.value > 0 and not waiter.cancelled():
-                self.wakeup()
-
-            raise
-
-    async def acquire(self, *, wait: bool=True) -> bool:
+    async def acquire(self, *, wait: bool = True, timeout: Optional[float] = None) -> bool:
         """
         Acquires the semaphore.
-        If ``wait`` is False and the semaphore is locked, this method returns False immediately.
+        If ``wait`` is False and the semaphore is locked, this method raisesan error.
         Otherwise it waits until the semaphore is released and returns True.
 
         Parameters
         ----------
         wait: :class:`bool`
             Whether to wait for the semaphore to be released. Defaults to ``True``.    
-    
+        timeout: :class:`float`
+            The timeout in seconds. Defaults to ``None``.
+
         """
         if not wait and self.is_locked():
-            return False
+            raise Locked
 
         while self.is_locked():
-            await self.wait()
+            await self.wait(timeout=timeout)
 
         self._value -= 1
         return True
@@ -177,7 +192,7 @@ class Lock(LockMixin):
         asyncio.run(main())
 
     """
-    def __init__(self, *, loop: asyncio.AbstractEventLoop=None):
+    def __init__(self, *, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
         super().__init__(loop=loop)
         self._is_locked = False
 
@@ -201,38 +216,27 @@ class Lock(LockMixin):
         if not waiter.done():
             waiter.set_result(None)
 
-    async def wait(self):
-        """
-        Waits until the lock is released.
-        """
-        waiter = self._loop.create_future()
-        self._waiters.append(waiter)
+    def should_wakeup(self) -> bool:
+        return True
 
-        try:
-            await waiter
-        except:
-            waiter.cancel()
-            if not waiter.cancelled():
-                self.wakeup()
-
-            raise
-
-    async def acquire(self, *, wait: bool=True):
+    async def acquire(self, *, wait: bool = True, timeout: Optional[float] = None) -> bool:
         """
         Acquires the lock.
-        If ``wait`` is False, and the lock is locked, this method returns False immediately,
+        If ``wait`` is False, and the lock is locked, this method raises an error,
         otherwise it waits until the lock is released and returns True.
 
         Parameters
         ----------
         wait: :class:`bool`
-            Whether to wait for the lock to be released. Defaults to ``True``.    
+            Whether to wait for the lock to be released. Defaults to ``True``.  
+        timeout: :class:`float`
+            The timeout in seconds. Defaults to ``None``.
         """
         if not wait and self.is_locked():
-            return False
+            raise Locked
 
         while self.is_locked():
-            await self.wait()
+            await self.wait(timeout=timeout)
 
         self._is_locked = True
         return True
@@ -243,15 +247,3 @@ class Lock(LockMixin):
         """
         self._is_locked = False
         self.wakeup()
-
-class _MaybeSemaphore:
-    def __init__(self, value: Optional[int]):
-        self.semaphore = Semaphore(value) if value else None
-
-    async def __aenter__(self):
-        if self.semaphore:
-            await self.semaphore.acquire()
-
-    async def __aexit__(self, *args):
-        if self.semaphore:
-            self.semaphore.release()

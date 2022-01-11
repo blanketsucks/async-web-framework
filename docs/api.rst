@@ -16,10 +16,30 @@ ImmutableMapping
 .. autoclass:: ImmutableMapping
     :members:
 
+CaseInsensitiveDict
+~~~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: CaseInsensitiveDict
+    :members:
+
+
 MultiDict
 ~~~~~~~~~~~~~~~~~~
 
 .. autoclass:: MultiDict
+    :members:
+    :show-inheritance:
+
+ImmutableMultiDict
+~~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: ImmutableMultiDict
+    :members:
+
+CaseInsensitiveMultidict
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: CaseInsensitiveMultidict
     :members:
 
 URL
@@ -31,51 +51,61 @@ URL
 Applications
 ------------------
 
+BaseApplication
+~~~~~~~~~~~~~~~~~
+
+.. autoclass:: BaseApplication
+    :members:
+    :show-inheritance:
+    :exclude-members: route, get, put, post, delete, head, options, patch, websocket, middleware, event
+
+    .. automethod:: route
+        :decorator:
+
+    .. automethod:: get
+        :decorator:
+
+    .. automethod:: put
+        :decorator:
+
+    .. automethod:: post
+        :decorator:
+
+    .. automethod:: delete
+        :decorator:
+
+    .. automethod:: head
+        :decorator:
+
+    .. automethod:: options
+        :decorator:
+
+    .. automethod:: patch
+        :decorator:
+
+    .. automethod:: websocket
+        :decorator:
+
+    .. automethod:: middleware
+        :decorator:
+
+    .. automethod:: event
+        :decorator:
+
 Application
 ~~~~~~~~~~~~~~~~~~
 
 .. autoclass:: Application
-
     :members:
-    :exclude-members: event, route, resource, view, middleware, websocket, get, post, put, head, options, delete, patch, status_code_handler
+    :exclude-members: event, resource, view, status_code_handler
 
     .. automethod:: Application.event
-        :decorator:
-
-    .. automethod:: Application.route
-        :decorator:
-
-    .. automethod:: Application.get
-        :decorator:
-
-    .. automethod:: Application.put
-        :decorator:
-
-    .. automethod:: Application.post
-        :decorator:
-
-    .. automethod:: Application.delete
-        :decorator:
-
-    .. automethod:: Application.head
-        :decorator:
-
-    .. automethod:: Application.options
-        :decorator:
-
-    .. automethod:: Application.patch
-        :decorator:
-
-    .. automethod:: Application.websocket
         :decorator:
 
     .. automethod:: Application.resource
         :decorator:
 
     .. automethod:: Application.view
-        :decorator:
-
-    .. automethod:: Application.middleware
         :decorator:
 
     .. automethod:: Application.status_code_handler
@@ -85,21 +115,21 @@ Application
 IPv6 Applications
 ~~~~~~~~~~~~~~~~~~
 
-For IPv6 applications, you can pass in ``ipv6=True`` into the :class:`~app.Appliaction` constructor
+For IPv6 applications, you can pass in ``ipv6=True`` into the :class:`~.Appliaction` constructor
 and an optional ``host`` argument which defaults to the local host if not given (in this case it is ::1).
 
+Blueprints
+~~~~~~~~~~~~
 
-Dual-Stack Applications
-~~~~~~~~~~~~~~~~~~~~~~~
-
-.. autofunction:: dualstack_ipv6
+.. autoclass:: Blueprint
+    :members:
 
 
 Event Reference
 -----------------
 
 This section is all the events that are dispatches within the application's runtime.
-Of course, you can dispatch your own events using :meth:`.Application.dispatch`.
+Of course, you can dispatch your own events using :meth:`~.Application.dispatch`.
 
 .. function:: on_startup()
 
@@ -123,16 +153,6 @@ Of course, you can dispatch your own events using :meth:`.Application.dispatch`.
     :param worker: The worker that has just shutdown.
     :type worker: :class:`~.Worker`
 
-.. function:: on_raw_request(data, worker)
-
-    Called whenever a request is received.
-
-    :param data: The request data.
-    :type data: :class:`bytes`
-    :param worker: The worker that received the data.
-    :type worker: :class:`~.Worker`
-
-
 .. function:: on_request(request, worker)
 
     Called whenever a request is received.
@@ -142,15 +162,6 @@ Of course, you can dispatch your own events using :meth:`.Application.dispatch`.
     :param worker: The worker that recevied the request.
     :type worker: :class:`~.Worker`
 
-
-.. function:: on_websocket_data_receive(data, worker)
-
-    Called whenever websocket data is received.
-
-    :param data: The data that has just been received.
-    :type data: :class:`bytes`
-    :param worker: The worker that received the data.
-    :type worker: :class:`~.Worker`
 
 .. function:: on_error(route, request, error)
 
@@ -191,30 +202,9 @@ Router
 
 .. autoclass:: Router
     :members:
-    :exclude-members: route, middleware, websocket, get, post, put, head, options, delete, patch
+    :exclude-members: route, middleware, websocket
 
     .. automethod:: Router.route
-        :decorator:
-
-    .. automethod:: Router.get
-        :decorator:
-
-    .. automethod:: Router.put
-        :decorator:
-
-    .. automethod:: Router.post
-        :decorator:
-
-    .. automethod:: Router.delete
-        :decorator:
-
-    .. automethod:: Router.head
-        :decorator:
-
-    .. automethod:: Router.options
-        :decorator:
-
-    .. automethod:: Router.patch
         :decorator:
 
     .. automethod:: Router.websocket
@@ -738,10 +728,10 @@ Route
         :decorator:
 
 
-WebsocketRoute
+WebSocketRoute
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: WebsocketRoute
+.. autoclass:: WebSocketRoute
     :members:
 
 
@@ -801,10 +791,7 @@ File
 
 .. autoclass:: File
     :members:
-    :exclude-members: stream
 
-    .. automethod:: File.stream
-        :async-for:
 
 Form-Data
 --------------------
@@ -820,22 +807,6 @@ FormData
 ~~~~~~~~~
 
 .. autoclass:: FormData
-    :members:
-
-
-Injectables
---------------------------
-
-InjectableMeta
-~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: InjectableMeta
-    :members:
-
-Injectable
-~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: Injectable
     :members:
 
 
@@ -895,32 +866,6 @@ Model
     :special-members: __setattr__, __iter__, __eq__
 
 
-Ratelimits
---------------
-
-RatelimitHandler
-~~~~~~~~~~~~~~~~~
-
-.. autoclass:: RatelimitHandler
-    :members:
-
-Bucket
-~~~~~~~~~
-
-.. autoclass:: Bucket
-    :members:
-
-Key
-~~~~
-
-.. autoclass:: Key
-    :members:
-
-Templates
-----------
-
-.. autofunction:: render
-
 Workers
 --------
 
@@ -960,12 +905,6 @@ StreamWriter
 .. autoclass:: StreamWriter
     :members:
 
-StreamTransport
-~~~~~~~~~~~~~~~~
-
-.. autoclass:: StreamTransport
-    :members:
-
 
 Utility functions
 --------------------
@@ -977,13 +916,3 @@ Utility functions
 .. autofunction:: is_ipv4
 .. autofunction:: validate_ip
 .. autofunction:: jsonify
-
-
-Extensions 
-------------
-
-ngrok
-~~~~~~~
-
-.. autoclass:: railway.extensions.ngrok.Application
-    :members:

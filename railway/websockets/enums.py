@@ -1,17 +1,18 @@
-import enum
 from typing import Tuple
+import enum
 
 __all__ = (
-    'WebsocketState',
-    'WebsocketOpcode',
-    'WebsocketCloseCode',
+    'WebSocketState',
+    'WebSocketOpcode',
+    'WebSocketCloseCode',
     'VALID_OPCODES',
     'VALID_CLOSE_CODES',
     'UNASSIGNED_NON_CONTROL_OPCODES',
     'UNASSIGNED_CONTROL_OPCODES'
 )
 
-class WebsocketState(enum.Enum):
+
+class WebSocketState(enum.Enum):
     """
     An enumeration.
     """
@@ -22,7 +23,7 @@ class WebsocketState(enum.Enum):
     CLOSED = 4
     CLOSING = 5
 
-class WebsocketOpcode(enum.IntEnum):
+class WebSocketOpcode(enum.IntEnum):
     """
     An enumeration.
     """
@@ -33,7 +34,7 @@ class WebsocketOpcode(enum.IntEnum):
     PING = 0x9
     PONG = 0xA
 
-class WebsocketCloseCode(enum.IntEnum):
+class WebSocketCloseCode(enum.IntEnum):
     """
     An enumeration. \
     Taken from https://developer.mozilla.org/en-US/docs/Web/API/CloseEvent/code#value
@@ -52,7 +53,7 @@ class WebsocketCloseCode(enum.IntEnum):
     description: str
     reason: str
 
-    def __new__(cls, value: int, reason: str='', description: str='') -> 'WebsocketCloseCode':
+    def __new__(cls, value: int, reason: str='', description: str='') -> 'WebSocketCloseCode':
         obj = int.__new__(cls, value)
 
         obj._value_ = value
@@ -100,11 +101,11 @@ UNASSIGNED_NON_CONTROL_OPCODES: Tuple[int, ...] = (0x4, 0x5, 0x6, 0x7)
 UNASSIGNED_CONTROL_OPCODES: Tuple[int, ...] = (0xB, 0xC, 0xD, 0xE, 0xF)
 
 
-VALID_OPCODES = {opcode.value for opcode in WebsocketOpcode}
+VALID_OPCODES = {opcode.value for opcode in WebSocketOpcode}
 VALID_OPCODES.update(
     UNASSIGNED_NON_CONTROL_OPCODES,
     UNASSIGNED_CONTROL_OPCODES
 )
 
-VALID_CLOSE_CODES = {code.value for code in WebsocketCloseCode}
+VALID_CLOSE_CODES = {code.value for code in WebSocketCloseCode}
 

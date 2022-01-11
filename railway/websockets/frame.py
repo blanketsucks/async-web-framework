@@ -1,26 +1,3 @@
-"""
-MIT License
-
-Copyright (c) 2021 blanketsucks
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 from __future__ import annotations
 
 from typing import (
@@ -40,13 +17,13 @@ import struct
 import os
 import json
 
-
-from .enums import WebsocketCloseCode, WebsocketOpcode, VALID_CLOSE_CODES, VALID_OPCODES
+from railway.types import BytesLike
+from .enums import WebSocketCloseCode, WebSocketOpcode, VALID_CLOSE_CODES, VALID_OPCODES
 from .errors import (
-    InvalidWebsocketCloseCode,
-    InvalidWebsocketControlFrame,
-    InvalidWebsocketFrame,
-    InvalidWebsocketOpcode,
+    InvalidWebSocketCloseCode,
+    InvalidWebSocketControlFrame,
+    InvalidWebSocketFrame,
+    InvalidWebSocketOpcode,
     FragmentedControlFrame
 )
 
@@ -67,27 +44,30 @@ FORMATS = {
     'head': HEAD
 }
 
+
 def _try_enum(enum: Type[_T], value: int) -> int:
     try:
         return enum(value)
     except ValueError:
         return value
 
+
 __all__ = (
     'Data',
-    'WebsocketFrame',
+    'WebSocketFrame',
 )
+
 
 class Data:
     """
-    Returned by :meth:`~railway.websockets.ServerWebsocket.receive`.
+    Returned by :meth:`~railway.websockets.ServerWebSocket.receive`.
 
     Attributes
     -----------
-    frame: :class:`~railway.websockets.frame.WebsocketFrame`
+    frame: :class:`~railway.websockets.frame.WebSocketFrame`
         The frame received.
     """
-    def __init__(self, frame: WebsocketFrame) -> None:
+    def __init__(self, frame: WebSocketFrame) -> None:
         self.frame = frame
 
     def __repr__(self) -> str:
@@ -115,28 +95,29 @@ class Data:
 
     def as_json(self) -> Dict[str, Any]:
         """
-        The data recevied as a JSON object.
+        The data received as a JSON object.
         """
         string = self.as_string()
         return json.loads(string)
 
-class WebsocketFrame:
+
+class WebSocketFrame:
     """
     Represents a websocket data frame.
 
     Parameters
     -----------
     data: :class:`bytes`
-        The frame's data.
+        The frame's data. Can be any bytes-like object.
     head: :class:`int`
         The frame's header.
     """
-    def __init__(self, *, data: bytes, head: int=0):
-        self.data = data
+    def __init__(self, *, data: BytesLike, head: int = 0):
+        self.data = bytes(data)
 
         self._head = head
         self._close_code: Optional[int] = None
-        self._opcode: int = None # type: ignore
+        self._opcode: int = None  # type: ignore
     
     def __repr__(self) -> str:
         attrs = ('fin', 'rsv1', 'rsv2', 'rsv3')
@@ -147,15 +128,15 @@ class WebsocketFrame:
         data = self.data
 
         if len(self.data) < 2:
-            raise InvalidWebsocketFrame('Received a close frame but without a close code')
+            raise InvalidWebSocketFrame('Received a close frame but without a close code')
 
         code, = SHORT.unpack(data[:2])
         
         if code not in VALID_CLOSE_CODES:
-            raise InvalidWebsocketCloseCode(code)
+            raise InvalidWebSocketCloseCode(code)
 
         self.data = data[2:]
-        return _try_enum(WebsocketCloseCode, code)
+        return _try_enum(WebSocketCloseCode, code)
 
     def _modify_head(self, value: bool, bit: int):
         if value:
@@ -164,15 +145,15 @@ class WebsocketFrame:
             self._head &= ~(1 << bit)
 
     @classmethod
-    def create(cls, data: bytes, *, opcode: WebsocketOpcode):
+    def create(cls, data: BytesLike, *, opcode: WebSocketOpcode):
         """
         Creates a non-control frame.
 
         Parameters
         ----------
         data: :class:`bytes`
-            The frame's data
-        opcode: :class:`~.WebsocketOpcode`
+            The frame's data. Can be any bytes-like object.
+        opcode: :class:`~.WebSocketOpcode`
             The frame's opcode
         """
         self = cls(data=data)
@@ -183,15 +164,15 @@ class WebsocketFrame:
         return self
 
     @classmethod
-    def create_control_frame(cls, data: bytes, *, opcode: WebsocketOpcode):
+    def create_control_frame(cls, data: BytesLike, *, opcode: WebSocketOpcode):
         """
         Creates a control frame.
 
         Parameters
         ----------
         data: :class:`bytes`
-            The frame's data
-        opcode: :class:`~.WebsocketOpcode`
+            The frame's data. Can be any bytes-like object.
+        opcode: :class:`~.WebSocketOpcode`
             The frame's opcode
         """
         self = cls.create(data=data, opcode=opcode)
@@ -200,7 +181,7 @@ class WebsocketFrame:
         return self
 
     @classmethod
-    async def decode(cls, reader: Reader) -> WebsocketFrame:
+    async def decode(cls, reader: Reader) -> WebSocketFrame:
         """
         Decodes a websocket frame.
 
@@ -212,13 +193,13 @@ class WebsocketFrame:
 
         Raises
         -------
-        InvalidWebsocketOpcode
+        InvalidWebSocketOpcode
             If the opcode received is not a valid one.
-        InvalidWebsocketFrame
+        InvalidWebSocketFrame
             If the frame received has reserved bits set to 1 or True.
         FragmentedControlFrame
             If the control frame received is fragmented.
-        InvalidWebsocketControlFrame
+        InvalidWebSocketControlFrame
             If the control frame received's data length is more than 125.
         """
         fbyte, sbyte = await cls.unpack(reader, 2, 'head')
@@ -244,13 +225,13 @@ class WebsocketFrame:
 
         opcode = fbyte & 0x0F
         if opcode not in VALID_OPCODES:
-            raise InvalidWebsocketOpcode(opcode)
+            raise InvalidWebSocketOpcode(opcode)
 
         frame = cls(head=fbyte, data=data)
         if any((frame.rsv1, frame.rsv2, frame.rsv3)):
-            raise InvalidWebsocketFrame('Received a frame with reserved bits set')
+            raise InvalidWebSocketFrame('Received a frame with reserved bits set')
 
-        if frame.opcode is WebsocketOpcode.CLOSE:
+        if frame.opcode is WebSocketOpcode.CLOSE:
             frame.close_code = frame._get_close_code()
 
         if frame.is_control():
@@ -258,7 +239,7 @@ class WebsocketFrame:
                 raise FragmentedControlFrame
 
             if len(frame.data) > 125:
-                raise InvalidWebsocketControlFrame(
+                raise InvalidWebSocketControlFrame(
                     'Received a control frame with a payload length of more than 125 bytes'
                 )
 
@@ -318,11 +299,11 @@ class WebsocketFrame:
         ValueError
             If the format is not valid.
         """
-        struct = FORMATS.get(format)
-        if not struct:
+        fmt = FORMATS.get(format)
+        if not fmt:
             raise ValueError(f'Unknown format {format}')
 
-        return struct.pack(data)
+        return fmt.pack(data)
 
     @staticmethod
     def mask(data: bytes, mask: bytes) -> bytes:
@@ -343,10 +324,10 @@ class WebsocketFrame:
         """
         The frame's opcode
         """
-        return _try_enum(WebsocketOpcode, self._head & 0x0F)
+        return _try_enum(WebSocketOpcode, self._head & 0x0F)
 
     @opcode.setter
-    def opcode(self, value: WebsocketOpcode):
+    def opcode(self, value: WebSocketOpcode):
         self._head |= int(value)
 
     @property
@@ -404,32 +385,32 @@ class WebsocketFrame:
 
         Raises
         -------
-        InvalidWebsocketFrame
+        InvalidWebSocketFrame
             If the frame's reserve bits are set to 1 or True, or when the frame has a close code set
-            but the opcode isn't :attr:`.WebsocketOpCode.CLOSE`.
-        InvalidWebsocketControlFrame
-            If the conntrol frame's data exceeds the 125 bytes in length
+            but the opcode isn't :attr:`.WebSocketOpCode.CLOSE`.
+        InvalidWebSocketControlFrame
+            If the control frame's data exceeds the 125 bytes in length
         FragmentedControlFrame
             If the control frame is fragmented
         """
         if any((self.rsv1, self.rsv2, self.rsv3)):
-            raise InvalidWebsocketFrame('Frame reserve bits must be set to False or 0')
+            raise InvalidWebSocketFrame('Frame reserve bits must be set to False or 0')
 
         if self.close_code:
-            if self.opcode is not WebsocketOpcode.CLOSE:
-                raise InvalidWebsocketFrame(
-                    'Close code set but opcode is not WebsocketOpcode.CLOSE'
+            if self.opcode is not WebSocketOpcode.CLOSE:
+                raise InvalidWebSocketFrame(
+                    'Close code set but opcode is not WebSocketOpcode.CLOSE'
                 )
-        elif self.opcode is WebsocketOpcode.CLOSE and self.close_code is None:
-            raise InvalidWebsocketFrame(
-                'opcode set to WebsocketOpcode.CLOSE but no close code was set'
+        elif self.opcode is WebSocketOpcode.CLOSE and self.close_code is None:
+            raise InvalidWebSocketFrame(
+                'opcode set to WebSocketOpcode.CLOSE but no close code was set'
             )
 
         if self.is_control():
-            lenght = len(self.data)
+            length = len(self.data)
 
-            if lenght > 125:
-                raise InvalidWebsocketControlFrame('Control frames must not exceed 125 bytes in length')
+            if length > 125:
+                raise InvalidWebSocketControlFrame('Control frames must not exceed 125 bytes in length')
 
             if self.fin:
                 raise FragmentedControlFrame(False)
@@ -445,6 +426,9 @@ class WebsocketFrame:
         """
         self.ensure()
         data = self.data
+
+        if self.close_code is not None:
+            data = self.pack(self.close_code, 'short') + data
 
         buffer = bytearray(2)
         length = len(data)
@@ -464,9 +448,6 @@ class WebsocketFrame:
 
             packed = self.pack(length, 'longlong')
             buffer.extend(packed)
-
-        if self.close_code is not None:
-            data = self.pack(self.close_code, 'short') + data
 
         if masked:
             mask = os.urandom(4)

@@ -44,6 +44,7 @@ extensions = [
 
 intersphinx_mapping = {
   'py': ('https://docs.python.org/3', None),
+  'sa': ('https://docs.sqlalchemy.org/en/latest', None),
 }
 
 # Add any paths that contain templates here, relative to this directory.
