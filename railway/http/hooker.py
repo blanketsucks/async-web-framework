@@ -56,7 +56,8 @@ class TCPHooker(Hooker):
             return
 
         self.writer.close()
-        
+        await self.writer.wait_closed()
+
         self.connected = False
         self.closed = True
 
@@ -140,4 +141,5 @@ class WebSocketHooker(TCPHooker):
         if not self.websocket or self.websocket.is_closed():
             return
 
-        return await self.websocket.close(data, code=code)
+        await self.websocket.close(data, code=code)
+        await self.websocket.wait_closed()

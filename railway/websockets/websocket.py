@@ -65,6 +65,7 @@ class BaseWebSocket:
 
     async def __aexit__(self, *args: Any) -> None:
         await self.close()
+        await self.wait_closed()
 
     def _set_state(self, state: WebSocketState):
         self._state = state
@@ -124,6 +125,12 @@ class BaseWebSocket:
         True if the websocket should be closed.
         """
         return self._state is WebSocketState.CLOSING or self._received_close_frame
+
+    async def wait_closed(self) -> None:
+        """
+        Waits until the websocket is closed.
+        """
+        await self.writer.wait_closed()
 
     async def send_frame(self, frame: WebSocketFrame, *, masked: bool = True) -> int:
         """

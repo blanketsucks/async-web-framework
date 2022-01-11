@@ -22,10 +22,10 @@ class StreamWriter:
     transport: :class:`asyncio.Transport`
         The transport to use.
     """
-    def __init__(self, transport: asyncio.Transport) -> None:
+    def __init__(self, transport: asyncio.Transport, close_waiter: asyncio.Future[None]) -> None:
         self._transport = transport
+        self._close_waiter = close_waiter
         self._waiter: 'Optional[asyncio.Future[None]]' = None
-
         self._loop = compat.get_running_loop()
 
     @property
@@ -160,6 +160,12 @@ class StreamWriter:
         Closes the transport.
         """
         self._transport.close()
+
+    async def wait_closed(self) -> None:
+        """
+        Waits until the transport is closed.
+        """
+        await self._close_waiter
 
 
 class StreamReader:
@@ -421,12 +427,13 @@ class StreamProtocol(asyncio.Protocol):
         self.reader = StreamReader(loop)
         self.writer: Optional[StreamWriter] = None
         self.paused = False
+        self.waiter = loop.create_future()
 
     def __call__(self) -> Any:
         return self.__class__(self.loop, self.connection_callback)
 
     def connection_made(self, transport: Any) -> None:
-        self.writer = writer = StreamWriter(transport)
+        self.writer = writer = StreamWriter(transport, self.waiter)
 
         if utils.iscoroutinefunction(self.connection_callback):
             self.loop.create_task(self.connection_callback(self.reader, writer))
@@ -435,7 +442,9 @@ class StreamProtocol(asyncio.Protocol):
 
     def connection_lost(self, exc: Optional[BaseException]) -> None:
         if exc:
-            raise exc
+            self.waiter.set_exception(exc)
+        else:
+            self.waiter.set_result(None)
 
         self.writer = None
         self.reader.reset()

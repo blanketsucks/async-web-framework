@@ -164,7 +164,6 @@ class Request(Generic[AppT], HTTPConnection):
         response: RouteResponse,
         *,
         convert: bool = True,
-        close: bool = True,
     ) -> None:
         """
         Sends a response to the client.
@@ -191,15 +190,13 @@ class Request(Generic[AppT], HTTPConnection):
             async for chunk in response:
                 await self.writer.write(chunk, drain=True)
 
-        if close:
-            await self.close()
-
     async def close(self):
         """
         Closes the connection.
         """
         if not self.is_closed():
             self.writer.close()
+            await self.writer.wait_closed()
 
     async def handshake(
         self, 
@@ -230,7 +227,8 @@ class Request(Generic[AppT], HTTPConnection):
         if subprotocols is not None:
             response.add_header(key='Sec-WebSocket-Protocol', value=', '.join(subprotocols))
 
-        await self.send(response, close=False)
+        data = await response.prepare()
+        await self.writer.write(data, drain=True)
 
     def is_closed(self) -> bool:
         """
