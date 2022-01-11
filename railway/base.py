@@ -166,7 +166,6 @@ class BaseApplication(ABC):
         :class:`~.Route`
         """
         def decorator(callback: Union[CoroFunc[Any], Route]) -> WebSocketRoute:
-            self.add_route(callback, path, 'GET',)
             return self.add_route(callback, path, 'GET', websocket=True, name=name)
         return decorator
 
