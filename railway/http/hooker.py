@@ -80,7 +80,7 @@ class WebSocketHooker(TCPHooker):
         if self.writer is None or self.reader is None:
             raise RuntimeError('Not connected')
 
-        return WebSocket(self.reader, self.writer) # type: ignore
+        return WebSocket(self.writer, self.reader)
     
     async def handshake(self, path: str, host: str) -> WebSocket:
         if not self.writer:
