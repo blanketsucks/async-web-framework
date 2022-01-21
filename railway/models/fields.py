@@ -1,9 +1,11 @@
 from collections.abc import Sequence, Mapping, MutableMapping, Iterable
-from typing import Any, Callable, Optional, Literal, Set, Type, TypeVar, Union, Generic
+from typing import Any, Callable, Optional, Literal, Set, Tuple, Type, TypeVar, Union, Generic
+
+from .utils import DEFAULT
 
 T = TypeVar('T')
 
-__all__ = 'Field',
+__all__ = 'Field', 'field'
 
 LIST_LIKE_TYPES = (Iterable, Sequence, list, set, Set, frozenset)
 DICT_TYPES = (Mapping, MutableMapping, dict)
@@ -11,21 +13,31 @@ DICT_TYPES = (Mapping, MutableMapping, dict)
 class Field(Generic[T]):
     def __init__(
         self, 
-        name: str, 
-        annotation: Type[T], 
-        default: Any, 
-        strict: bool = False,
         *,
-        validator: Optional[Callable[..., None]] = None
+        default: Any = DEFAULT, 
+        default_factory: Type[Any] = None,
+        strict: bool = False,
+        name: Optional[str] = None, 
+        validator: Optional[Callable[..., bool]] = None
     ) -> None:
         self.name = name
-        self.annotation = annotation
         self.default = default
+        self.default_factory = default_factory
         self.strict = strict
-        self.validator = validator or (lambda *_: None)
+        self.validator = validator or (lambda *_: True)
+
+        self._annotation: Any = None
 
     def __repr__(self) -> str:
         return f'<Field name={self.name!r} default={self.default!r} strict={self.strict!r}>'
+
+    @property
+    def annotation(self) -> Any:
+        return self._annotation
+
+    @annotation.setter
+    def annotation(self, value: Any) -> None:
+        self._annotation = value
 
     @staticmethod
     def has_args(annotation: Any) -> bool:
@@ -101,3 +113,16 @@ class Field(Generic[T]):
             return all(isinstance(k, key_type) and isinstance(v, value_type) for k, v in value.items())
 
         raise RuntimeError(f'Unsupported annotation type: {origin}')
+
+def field(
+    *,
+    default: Any = DEFAULT, 
+    default_factory: Type[Any] = None,
+    strict: bool = False,
+    name: Optional[str] = None, 
+    validator: Optional[Callable[..., bool]] = None
+) -> Any:
+    if default is not DEFAULT and default_factory is not None:
+        raise ValueError('Cannot specify both default and default_factory')
+
+    return Field(default=default, default_factory=default_factory, strict=strict, name=name, validator=validator)

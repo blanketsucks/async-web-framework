@@ -17,7 +17,7 @@ class IncompatibleType(ModelError):
     def __init__(self, field: Field, argument: Any) -> None:
         self.field = field
         self.argument = argument
-
+        
         super().__init__(f'Incompatible type {argument.__name__!r} for {field.name!r}')
 
 

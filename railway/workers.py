@@ -10,6 +10,7 @@ from .server import TCPServer
 from .request import Request
 from .streams import StreamWriter, StreamReader
 from .errors import PartialRead
+from .responses import HTTPVersionNotSupported
 from . import websockets
 
 if TYPE_CHECKING:
@@ -44,8 +45,6 @@ class Worker(TCPServer):
         self.app: Application = app
         self.id: int = id
 
-        self._idle = asyncio.Event()
-        self._idle.set()
         self._ready = asyncio.Event()
         self._serving = False
 
@@ -53,12 +52,6 @@ class Worker(TCPServer):
 
     def __repr__(self) -> str:
         return '<Worker id={0.id}>'.format(self)
-
-    def is_working(self) -> bool:
-        """
-        True if the worker is currently handling a request.
-        """
-        return not self._idle.is_set()
 
     def is_serving(self) -> bool:
         """
@@ -82,23 +75,18 @@ class Worker(TCPServer):
         """
         closes the worker.
         """
-        try:
-            await super().close()
-        except ValueError:  # Invalid file descriptor gets raised on linux
-            pass
-
-        await self._idle.wait()
-
+        await super().close()
+        
         self._ready.clear()
         self.app.dispatch('worker_shutdown', self)
         log.info(f'[Worker-{self.id}] Stopped serving.')
+
+        self._serving = False
 
     async def on_transport_connect(self, reader: StreamReader, writer: StreamWriter) -> None:
         """
         This function gets called whenever a new connection gets made.
         """
-        self._idle.clear()
-
         try:
             status_line = await reader.readuntil(CLRF, timeout=1)
         except (asyncio.TimeoutError, KeyboardInterrupt, PartialRead):
@@ -108,6 +96,10 @@ class Worker(TCPServer):
         created_at = datetime.datetime.utcnow()
 
         request = await Request.parse(status_line, reader, writer, self, created_at)
+        
+        if request.version != 'HTTP/1.1':
+            response = HTTPVersionNotSupported()
+            return await request.send(response, convert=False)
 
         self.app.dispatch('request', request, self)
         log.info(f'[Worker-{self.id}] Received a {request.method!r} request to {request.url.path!r} from {peername}')

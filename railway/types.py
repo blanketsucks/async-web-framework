@@ -74,6 +74,6 @@ ResponseHeaders = Dict[str, str]
 ResponseStatus = Union[int, 'HTTPStatus']
 Cookies = Dict[str, 'Cookie']
 
-CookieSessionCallback = Callable[['Request[Application]', Response], str]
+CookieSessionCallback = Callable[['Request[Application]', Response], Union[str, bytes, bool]]
 StatusCodeCallback = Callable[['Request[Application]', 'HTTPException', Union['Route', 'PartialRoute']], Coro[Any]]
 ResponseMiddleware = Callable[['Request[Application]', Response, 'Route'], Coro[Any]]

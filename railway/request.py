@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Generic, Iterable, NoReturn, TypeVar, Union, Any, Optional, Type
+from typing import TYPE_CHECKING, AsyncIterator, Generic, Iterable, Literal, NoReturn, TypeVar, Union, Any, Optional, Type, NamedTuple
 from abc import ABC, abstractmethod
-from functools import cached_property
 import json
 import datetime
 import base64
@@ -13,8 +12,8 @@ from .errors import PartialRead
 from .url import URL
 from .headers import Headers
 from .response import Response
-from .cookies import CookieJar
-from .sessions import CookieSession
+from .cookies import Cookie, CookieJar
+from .sessions import CookieSession, AbstractSession
 from .responses import HTTPException, Redirection, SwitchingProtocols, redirects, responses
 from .response import StreamResponse
 from .formdata import FormData
@@ -27,6 +26,9 @@ if TYPE_CHECKING:
     from .workers import Worker
     from .app import Application
 
+    FlashMessageCategories = Literal['message', 'success', 'error', 'warning', 'info']
+    SessionT = TypeVar('SessionT', bound=AbstractSession)
+
 AppT = TypeVar('AppT', bound='Application', covariant=True)
 
 __all__ = (
@@ -37,6 +39,30 @@ __all__ = (
 class HTTPConnection(ABC):
     _body: bytes
     headers: Headers
+
+    async def stream(self, *, timeout: Optional[float] = None) -> AsyncIterator[bytes]:
+        """
+        The body of the request as a stream.
+
+        Parameters
+        ----------
+        timeout: Optional[:class:`float`]
+            The timeout to use.
+        """
+        if not self.headers.content_length:
+            yield b''
+            return
+
+        reader = self.get_reader()
+        while not reader.at_eof():
+            try:
+                chunk = await reader.read(65536, timeout=timeout)
+            except asyncio.TimeoutError:
+                continue
+            except PartialRead as e:
+                chunk = e.partial
+            
+            yield chunk
 
     async def read(self, *, timeout: Optional[float] = None) -> bytes:
         """
@@ -52,19 +78,10 @@ class HTTPConnection(ABC):
         :class:`bytes`
             The body of the request as bytes.
         """
-        if not self.headers.content_length:
-            return b''
-
         reader = self.get_reader()
-        while not reader.at_eof():
-            try:
-                chunk = await reader.read(65536, timeout=timeout)
-            except asyncio.TimeoutError:
-                continue
-            except PartialRead as e:
-                chunk = e.partial
-            
-            self._body += chunk
+        if not reader.at_eof():
+            async for chunk in self.stream():
+                self._body += chunk
             
         return self._body
 
@@ -327,14 +344,7 @@ class Request(Generic[AppT], HTTPConnection):
         """
         return self.headers.cookies
 
-    @cached_property
-    def session(self) -> CookieSession:
-        """
-        The cookie session of the request.
-        """
-        return CookieSession.from_request(self)
-
-    @cached_property
+    @property
     def client(self) -> Address:
         """
         The address of the client.
@@ -351,7 +361,7 @@ class Request(Generic[AppT], HTTPConnection):
 
         return Address(host, port)
 
-    @cached_property
+    @property
     def server(self) -> Address:
         """
         The address of the server.
@@ -363,6 +373,15 @@ class Request(Generic[AppT], HTTPConnection):
         """
         host, port = self.writer.get_extra_info('sockname')
         return Address(host, port)
+
+    def get_default_session_cookie(self) -> Optional[Cookie]:
+        """
+        Gets the default session cookie.
+        """
+        cookie_session_name = self.app.settings['session_cookie_name']
+        cookie = self.cookies.get(cookie_session_name)
+
+        return cookie if cookie is not None else None
 
     def parse_websocket_key(self) -> str:
         """
@@ -381,6 +400,22 @@ class Request(Generic[AppT], HTTPConnection):
         The form data of the request.
         """
         return await FormData.from_request(self)
+
+    async def session(self, *, cls: Type[SessionT] = CookieSession) -> SessionT:
+        """
+        The session of the request.
+
+        Parameters
+        ----------
+        cls: Type[SessionT]
+            The class of the session.
+
+        Returns
+        -------
+        SessionT
+            The session.
+        """
+        return await cls.from_request(self)
 
     async def redirect(
         self,
@@ -448,6 +483,23 @@ class Request(Generic[AppT], HTTPConnection):
         
         response = cls(reason=message, **kwargs)
         raise response
+
+    async def render(self, template: str, *args: Any, **kwargs: Any):
+        """
+        Renders a template.
+        A shortcut for :meth:`~railway.Application.render`.
+
+        Parameters
+        ----------
+        template: :class:`str`
+            The template to render.
+        *args: Any
+            The positional arguments to pass to the template.
+        **kwargs: Any
+            The keyword arguments to pass to the template.
+        """
+        kwargs.setdefault('request', self)
+        return await self.app.render(template, *args, **kwargs)
 
     @classmethod
     async def parse(
