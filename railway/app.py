@@ -165,13 +165,13 @@ class Application(BaseApplication):
         self.router = Router(self.url_prefix)
         self.ssl_context = ssl_context or self.settings.ssl_context
         self.worker_count = self.settings.worker_count if worker_count is None else worker_count
-        self.env: Dict[str, Any] = {'app': self, 'url_for': self.url_for}
 
         if cookie_session_callback is not None:
             if not callable(cookie_session_callback):
                 raise TypeError('cookie_session_callback must be a callable')
 
         self.cookie_session_callback = cookie_session_callback or (lambda req, res: uuid.uuid4().hex)
+        self.context: Dict[str, Any] = {'url_for': self.url_for}
         self._jinja2_env = self.create_default_jinja2_env(templates_dir)
         self._backlog = backlog or self.settings.backlog
         self._use_ssl = ssl
@@ -193,11 +193,6 @@ class Application(BaseApplication):
 
         if self._use_ssl and self.ssl_context is None:
             self.ssl_context = self.create_default_ssl_context()
-
-        if sock:
-            val = sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR)
-            if not val:
-                raise RuntimeError('socket does not have SO_REUSEADDR enabled')
 
         self._socket = sock
         self.setup_workers()
@@ -521,8 +516,7 @@ class Application(BaseApplication):
         kwargs: Any
             Keyword arguments to pass to the template.
         """
-        kwargs.update(self.env)
-
+        kwargs.update(self.context)
         template = self._jinja2_env.get_template(str(path))
         body = await template.render_async(*args, **kwargs)
 
@@ -532,10 +526,10 @@ class Application(BaseApplication):
         self._workers = self._create_workers()
 
     def load_settings(
-            self,
-            settings: Optional[Settings],
-            path: Optional[Union[str, os.PathLike[str]]],
-            from_env: bool = False
+        self,
+        settings: Optional[Settings],
+        path: Optional[Union[str, os.PathLike[str]]],
+        from_env: bool = False
     ) -> Settings:
         if settings is not None:
             return settings
@@ -545,12 +539,6 @@ class Application(BaseApplication):
         elif from_env:
             return Settings.from_env()
 
-        return self.create_default_settings()
-
-    def create_default_settings(self) -> Settings:
-        """
-        Create a default settings object.
-        """
         return Settings()
 
     def _set_socketopt(self, sock: socket.socket):
@@ -659,9 +647,6 @@ class Application(BaseApplication):
         status = 200
         resp = None
 
-        if isinstance(response, File):
-            response = FileResponse(response, status=status)
-
         if isinstance(response, tuple):
             response, status = response
 
@@ -679,8 +664,10 @@ class Application(BaseApplication):
             else:
                 status = self._validate_status_code(status)
 
-        elif isinstance(response, URL):
+        if isinstance(response, URL):
             return Found(location=str(response))
+        elif isinstance(response, File):
+            resp = FileResponse(response, status=status)
         elif isinstance(response, Response):
             resp = response
         elif isinstance(response, Model):
@@ -699,7 +686,7 @@ class Application(BaseApplication):
 
         return resp
 
-    def set_default_cookie(self, request: Request[Application], response: Response) -> Response:
+    def set_default_session_cookie(self, request: Request[Application], response: Response) -> Response:
         """
         Sets a cookie with the ``session_cookie_name`` of :class:`~railway.settings.Settings`.
         If the cookie already exists, do nothing.
@@ -712,11 +699,17 @@ class Application(BaseApplication):
             The response to add the cookie to.
         """
         name = self.settings['session_cookie_name']
-        cookie = request.cookies.get(name)
+        cookie = request.get_default_session_cookie()
 
         if not cookie:
             value = self.cookie_session_callback(request, response)
-            response.add_cookie(name=name, value=value,)
+            if not value:
+                return response
+            elif value is True:
+                value = uuid.uuid4().hex
+
+            value = value.decode() if isinstance(value, bytes) else value
+            response.add_cookie(name=name, value=value, http_only=True)
 
         return response
 
@@ -774,7 +767,7 @@ class Application(BaseApplication):
         response = await self.parse_response(resp)
         await self._run_response_middlewares(request, response, route)
 
-        self.set_default_cookie(request, response)
+        self.set_default_session_cookie(request, response)
         self.add_cache_control_header(response, request, route)
 
         if not response.headers.get('Date'):
@@ -959,7 +952,7 @@ class Application(BaseApplication):
         """
         return self._use_ssl is True and isinstance(self.ssl_context, ssl.SSLContext)
 
-    def add_worker(self, worker: Union[Worker, Any]) -> Worker:
+    def add_worker(self, worker: Worker) -> Worker:
         """
         Adds a worker to the application.
 
@@ -1069,7 +1062,7 @@ class Application(BaseApplication):
         if self.socket and not utils.socket_is_closed(self.socket):
             self.socket.shutdown(socket.SHUT_RDWR)
             self.socket.close()
-
+        
         self.dispatch('shutdown')
 
     async def close(self) -> None:

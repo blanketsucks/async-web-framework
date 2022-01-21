@@ -15,9 +15,9 @@ from typing import (
     TypeVar
 )
 
-from railway.utils import evaluate_annotation
+from railway.utils import evaluate_annotation, __dataclass_transform__
 from .utils import DEFAULT, is_json_serializable, is_optional, safe_getattr
-from .fields import Field
+from .fields import Field, field
 from .errors import IncompatibleType, ObjectNotSerializable, MissingField
 
 ModelT = TypeVar('ModelT', bound='Model')
@@ -28,17 +28,17 @@ __all__ = (
     'Model',
 )
 
-def noop(*_: Any) -> None:
-    return None
+
+def noop(*_: Any) -> bool:
+    return True
 
 class ModelOptions(TypedDict):
-    repr: bool
     strict: bool
-    strict_fields: Sequence[str]
+    strict_fields: Union[List[str], Tuple[str]]
     include_null_fields: bool
     slotted: bool
 
-def find_validator(name: str, namespace: Dict[str, Any]) -> Callable[..., None]:
+def find_validator(name: str, namespace: Dict[str, Any]) -> Callable[..., bool]:
     lookup = f'_validate_{name}_'
     validator = next((v for v in namespace.values() if hasattr(v, '__name__') and v.__name__ == lookup), None)
 
@@ -53,13 +53,30 @@ def create_fields(
     fields: List[Field[Any]] = []
 
     for key, annotation in annotations.items():
-        default = defaults[key]
-        validator = find_validator(key, namespace)
+        if isinstance(namespace.get(key), Field):
+            field = namespace[key]
+            field.name = key
 
-        field = Field(key, annotation, default, validator=validator)
-        if options['strict'] is True or field.name in options['strict_fields']:
-            field.strict = True
+            if field.strict:
+                strict = options['strict_fields']
+                if isinstance(strict, tuple):
+                    strict += (key,)
+                if isinstance(strict, list):
+                    strict.append(key)
+            else:
+                if options['strict'] is True:
+                    raise ValueError(f'Field {key!r} is not strict')
 
+        else:
+            default = defaults[key]
+            validator = find_validator(key, namespace)
+
+            field = Field(default=default, name=key, validator=validator)
+
+            if options['strict'] is True or field.name in options['strict_fields']:
+                field.strict = True
+
+        field.annotation = annotation
         fields.append(field)
     
     return fields
@@ -71,16 +88,17 @@ def get_model_bases(bases: Tuple[Any, ...]) -> Iterator['ModelMeta']:
         else:
             yield from get_model_bases(base.__bases__)
 
+@__dataclass_transform__(kw_only_default=True, field_descriptors=(Field, field))
 class ModelMeta(type):
-    __fields__: List[Field[Any]]
-    __field_mapping__: Dict[str, Field[Any]]
-    __options__: ModelOptions
+    if TYPE_CHECKING:
+        __fields__: List[Field[Any]]
+        __field_mapping__: Dict[str, Field[Any]]
+        __options__: ModelOptions
 
     def __new__(cls, name: str, bases: Tuple[Any, ...], attrs: Dict[str, Any], **kwargs: Any):
         options: ModelOptions = {
-            'repr': kwargs.get('repr', False),
             'strict': kwargs.get('strict', False),
-            'strict_fields': attrs.get('__strict_fields__', ()),
+            'strict_fields': attrs.get('__strict_fields__', []),
             'include_null_fields': kwargs.get('include_null_fields', False),
             'slotted': kwargs.get('slotted', False),
         }
@@ -88,6 +106,7 @@ class ModelMeta(type):
         old = attrs.get('__annotations__', {})
 
         defaults: Dict[str, Any] = {}
+        slots: List[str] = []
         annotations: Dict[str, Any] = {}
 
         for key, value in old.items():
@@ -100,7 +119,7 @@ class ModelMeta(type):
             if is_optional(value):
                 default = None
 
-            elif default is not DEFAULT and options['slotted']:
+            if default is not DEFAULT and options['slotted']:
                 raise TypeError('Cannot use default values with slotted models. Use Optional[T] instead.')
 
             defaults[key] = default
@@ -135,7 +154,7 @@ class ModelMeta(type):
     def __hash__(self):
         return hash(self.__fields__)
 
-    def get_field(self, name: str) -> Optional[Field]:
+    def get_field(self, name: str) -> Optional[Field[Any]]:
         """
         Get a field by name.
 
@@ -155,6 +174,7 @@ class ModelMeta(type):
         field: :class:`Field`
             The field to add.
         """
+        assert field.name, 'Field name cannot be empty'
         if self.options['slotted']:
             raise TypeError('Cannot add extra fields to slotted models')
 
@@ -215,10 +235,17 @@ class Model(metaclass=ModelMeta):
         __options__: ModelOptions
 
     def __init__(self, **kwargs: Any) -> None:
-        for field in self.__fields__:
+        for field in self.fields:
+            assert field.name
             value = kwargs.get(field.name, field.default)
+
             if value is DEFAULT:
-                raise MissingField(field)
+                if field.default_factory is not None:
+                    setattr(self, field.name, field.default_factory())
+                else:
+                    raise MissingField(field)
+                
+                continue
 
             setattr(self, field.name, value)
 
@@ -231,13 +258,6 @@ class Model(metaclass=ModelMeta):
             return f'{name}={repr(attr)}'
 
         return f'{name}={attr!r}'
-
-    def __repr__(self) -> str:
-        if not self.options['repr']:
-            return super().__repr__()
-
-        attrs = [self._get_repr(self, field.name) for field in self.__fields__]
-        return f'<{self.__class__.__name__} {" ".join([attr for attr in attrs if attr is not None])}>'
 
     def __iter__(self) -> Iterator[Tuple[Field[Any], Any]]:
         """
@@ -273,7 +293,10 @@ class Model(metaclass=ModelMeta):
             if value != field.default:
                 raise IncompatibleType(field, value.__class__)
 
-        field.validator(self, value)
+        ret = field.validator(self, value)
+        if not ret:
+            raise ValueError(f'Failed validation for field {name!r}')
+
         super().__setattr__(name, value)
 
     def __getitem__(self, name: str) -> Tuple[Field[Any], Any]:
@@ -321,7 +344,7 @@ class Model(metaclass=ModelMeta):
         return cls(**data)
 
     @property
-    def fields(self) -> Tuple[Field]:
+    def fields(self) -> Tuple[Field[Any]]:
         """
         The fields of the model.
         """
@@ -338,9 +361,10 @@ class Model(metaclass=ModelMeta):
         """
         Checks if the model is JSON serializable.
         """
-
-        for field in self.__fields__:
+        for field in self.fields:
+            assert field.name
             value = safe_getattr(self, field.name)
+
             if isinstance(value, Model):
                 if not value.is_json_serializable():
                     return False
@@ -405,13 +429,14 @@ class Model(metaclass=ModelMeta):
 
     def _iter(self, include: Iterable[str] = None, exclude: Iterable[str] = None):
         if include is None:
-            include = [field.name for field in self.__fields__]
+            include = [field.name for field in self.__fields__ if field.name is not None]
 
         if exclude is None:
             exclude = []
 
         include_null = self.options['include_null_fields']
         for field in self.fields:
+            assert field.name
             if field.name in exclude or field.name not in include:
                 continue
 
