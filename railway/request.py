@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Generic, Iterable, NoReturn, TypeVar, Union, Any, Optional, Type
 from abc import ABC, abstractmethod
 from functools import cached_property
-import json
 import datetime
 import base64
 import hashlib
@@ -20,7 +19,7 @@ from .response import StreamResponse
 from .formdata import FormData
 from .streams import StreamReader, StreamWriter
 from .types import ResponseBody, ResponseStatus, RouteResponse, StrURL, Address
-from .utils import to_url, GUID, CLRF, parse_headers
+from .utils import to_url, GUID, CLRF, parse_headers, loads, dumps
 
 if TYPE_CHECKING:
     from .objects import Route, WebSocketRoute
@@ -99,7 +98,7 @@ class HTTPConnection(ABC):
             assert self.headers.content_type == 'application/json', ret
 
         text = await self.text(encoding=encoding)
-        return json.loads(text)
+        return loads(text)
 
     @abstractmethod
     def get_reader(self) -> StreamReader:

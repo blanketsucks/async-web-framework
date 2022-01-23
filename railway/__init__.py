@@ -14,7 +14,6 @@ from .headers import *
 from .files import *
 from .formdata import *
 from .workers import *
-from .streams import *
 from .resources import *
 from .sessions import *
 from .cookies import *
@@ -24,4 +23,4 @@ from .base import *
 from .blueprints import *
 from .converters import *
 
-from . import websockets, compat, server, http, models
+from . import websockets, compat, server, http, models, streams

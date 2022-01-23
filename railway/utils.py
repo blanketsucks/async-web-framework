@@ -11,6 +11,13 @@ import os
 import asyncio
 import inspect
 
+try:
+    import orjson
+except ImportError:
+    HAS_ORJSON = False
+else:
+    HAS_ORJSON = True
+
 from .types import (
     MaybeCoroFunc, 
     StrPath, 
@@ -38,6 +45,8 @@ __all__ = (
     'CLRF',
     'SETTING_ENV_PREFIX',
     'VALID_METHODS',
+    'dumps',
+    'loads',
     'to_url',
     'socket_is_closed',
     'listdir',
@@ -71,9 +80,22 @@ VALID_METHODS = (
     "HEAD",
     "OPTIONS",
     "PATCH",
-    "DELETE"
+    "DELETE",
 )
 
+if HAS_ORJSON:
+    def dumps(obj: Any, **kwargs: Any) -> str:
+        data = orjson.dumps(obj, **kwargs)
+        return data.decode('utf-8')
+
+    def loads(obj: str, **kwargs: Any) -> Any:
+        return orjson.loads(obj)
+else:
+    def dumps(obj: Any, **kwargs: Any) -> str:
+        return json.dumps(obj, **kwargs)
+
+    def loads(obj: str, **kwargs: Any) -> Any:
+        return json.loads(obj, **kwargs)
 
 def to_url(url: StrURL) -> URL:
     """
@@ -427,3 +449,12 @@ def deprecated(other: Optional[str] = None):
         return wrapper
 
     return decorator
+
+def __dataclass_transform__(
+    *,
+    eq_default: bool = True,
+    order_default: bool = False,
+    kw_only_default: bool = False,
+    field_descriptors: Tuple[Union[type, Callable[..., Any]], ...] = (()),
+) -> Callable[[T], T]:
+    return lambda a: a

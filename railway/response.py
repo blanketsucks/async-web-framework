@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, overload, AsyncIterator
-import json
 import enum
 import mimetypes
 
@@ -9,7 +8,7 @@ from .cookies import CookieJar
 from .files import File
 from .headers import Headers
 from .types import AnyBody, JSONResponseBody, ResponseBody, ResponseHeaders, ResponseStatus
-from .utils import CLRF
+from .utils import CLRF, dumps
 
 if TYPE_CHECKING:
     from .objects import Route
@@ -325,7 +324,7 @@ class JSONResponse(Response):
         version: Optional[str] = None
     ):
         super().__init__(
-            body=json.dumps(body, indent=4) if body is not None else None,
+            body=dumps(body) if body is not None else None,
             status=status,
             content_type='application/json',
             headers=headers,
