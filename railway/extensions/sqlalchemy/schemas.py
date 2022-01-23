@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, AsyncIterator, Callable, Generic, ItemsView, Optional, Union, Type, Tuple, List, Dict, Any, Mapping, Sequence
 
+import importlib
+import inspect
 import sqlalchemy
 from sqlalchemy import sql
 
@@ -57,11 +59,27 @@ class MetaData:
         self._schemas: List[Type[Schema]] = []
         self.bind = bind
 
+    @classmethod
+    def from_file(cls, *files: str, bind: Optional[Bind] = None):
+        schemas = []
+
+        for file in files:
+            module = importlib.import_module(file)
+
+            for _, obj in inspect.getmembers(module):
+                if inspect.isclass(obj) and issubclass(obj, Schema):
+                    schemas.append(obj)
+
+        metadata = cls(bind=bind)
+        metadata._schemas.extend(schemas)
+
+        return metadata
+
     @property
     def schemas(self) -> Tuple[Type[Schema], ...]:
         return tuple(self._schemas)
 
-    def add_table(self, schema: Type[Schema]) -> None:
+    def add_schema(self, schema: Type[Schema]) -> None:
         if self.bind:
             schema.query.bind = self.bind
 
@@ -141,7 +159,7 @@ class SchemaQuery(Generic[SchemaT]):
             cursor = await context.execute(select)
             return await cursor.fetchall()
 
-    async def put(self, entity: Entity[SchemaT]) -> Optional[SchemaT]:
+    async def put(self, entity: Entity[SchemaT]) -> Optional[Dict[str, Any]]:
         insert = self.schema.table.insert()
 
         values: Union[Mapping[str, Any], Sequence[Any]]
@@ -162,8 +180,12 @@ class SchemaQuery(Generic[SchemaT]):
         if primary_key is not None:
             select = self.schema.table.select().order_by(primary_key.desc()).limit(1)
 
-            cursor = await self.execute(select)
-            return await cursor.first()
+            async with self.context() as context:
+                cursor = await context.raw_execute(select)
+                row = await cursor.fetchone()
+
+                assert row is not None
+                return row.as_dict()
 
         return None
         
@@ -215,24 +237,28 @@ class SchemaMeta(type):
 
         metadata = kwargs.get('metadata', MetaData())
         columns: List[sqlalchemy.Column] = []
+        pk_found = False
 
         for attr, value in attrs.items():
             if isinstance(value, sqlalchemy.Column):
                 value.name = attr
+                if value.primary_key:
+                    if pk_found:
+                        raise ValueError('Only one primary key is allowed')
+
+                    pk_found = True
+
                 columns.append(value)
 
-        repr = kwargs.get('repr', False)
-
-        attrs['__use_repr__'] = repr
         attrs['__columns__'] = columns
         attrs['__metadata__'] = metadata
         attrs['__table__'] = sqlalchemy.Table(name, metadata.wrapped, *columns)
 
-        table = super().__new__(cls, cls_name, bases, attrs)
-        table.__query__ = SchemaQuery(table) # type: ignore
+        schema = super().__new__(cls, cls_name, bases, attrs)
+        schema.__query__ = SchemaQuery(schema) # type: ignore
 
-        metadata.add_table(table)
-        return table
+        metadata.add_schema(schema)
+        return schema
 
     @property
     def columns(self) -> Tuple[sqlalchemy.Column[Any], ...]:
@@ -261,22 +287,22 @@ class SchemaMeta(type):
         return self.table.primary_key.columns.values()
 
 class Schema(metaclass=SchemaMeta):
-    __use_repr__: bool
-    __columns__: List[sqlalchemy.Column[Any]]
+    if TYPE_CHECKING:
+        __columns__: List[sqlalchemy.Column[Any]]
 
     def __init__(self, **kwargs: Any):
         self.update_attributes(**kwargs)
 
-    def __repr__(self) -> str:
-        if self.__use_repr__:
-            attrs = ' '.join([f'{key}={value!r}' for key, value in self.to_dict().items()])
-            return f'<{self.__class__.__name__} {attrs}>'
-
-        return super().__repr__()
-
     @classmethod
     def from_row(cls: Type[SchemaT], row: Row) -> SchemaT:
         return cls(**row.as_dict())
+
+    @classmethod
+    async def create(cls: Type[SchemaT], **attrs: Any) -> SchemaT:
+        instance = cls(**attrs)
+        await instance.save()
+
+        return instance
 
     def to_dict(self) -> Dict[str, Any]:
         data = {}
@@ -339,10 +365,10 @@ class Schema(metaclass=SchemaMeta):
 
     async def save(self) -> None:
         cls = type(self)
-        schema = await cls.query.put(self)
+        attrs = await cls.query.put(self)
 
-        if schema is not None:
-            self.update_attributes(**schema.to_dict())
+        if attrs is not None:
+            self.update_attributes(**attrs)
 
     async def delete(self) -> None:
         where = self.get_execute_conditions()

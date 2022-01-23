@@ -182,3 +182,6 @@ class Settings:
             'session_cookie_name': self.session_cookie_name,
             'backlog': self.backlog
         }
+
+class Config(dict):
+    pass
