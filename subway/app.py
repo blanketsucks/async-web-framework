@@ -28,10 +28,10 @@ from .types import (
 from .resources import Resource
 from . import compat, utils
 from .request import Request
-from .responses import Found, redirects, HTTPException, InternalServerError
+from .responses import redirects, HTTPException, InternalServerError
 from .errors import *
 from .router import Router, ResolvedRoute
-from .settings import Settings
+from .settings import Settings, Config
 from .objects import PartialRoute, Route, Listener, WebSocketRoute, Middleware
 from .views import HTTPView
 from .response import Response, JSONResponse, FileResponse, HTMLResponse, StreamResponse
@@ -87,7 +87,7 @@ class Application(BaseApplication):
         An optional bool indicating whether to use SSL.
     ssl_context: :class:`ssl.SSLContext`
         An optional :class:`ssl.SSLContext` instance.
-    cookie_session_callback: Callable[[:class:`~.Request`, :class:`~.Response`], :class:`str`]
+    cookie_session_callback: Callable[[:class:`~.Request`, :class:`~.Response`], Any]
         A callback that gets called whenever there is a need to generate a cookie header value
         for responses. This function must return a single value being a string, bytes or a :class:`~.Cookie` object
         anything else will raise an error. Rhe default for this is a lambda function
@@ -126,14 +126,16 @@ class Application(BaseApplication):
         A string representing the url prefix.
     router: :class:`~subway.Router`
         The router used for registering routes.
-    settings: :class:`~subway.settings.Settings` instance.
+    settings: :class:`~.Settings`.
         The settings used to configure the application.
     worker_count: :class:`int` 
         An integer representing the number of workers to spawn.
     ssl_context: :class:`ssl.SSLContext`
         A `ssl.SSLContext` instance.
-    cookie_session_callback: Callable[[:class:`~subway.request.Request`, :class:`~subway.response.Response`], :class:`str`]
+    cookie_session_callback: Callable[[:class:`~.Request`, :class:`~.Response`], Any]
         A callback that gets called whenever there is a need to generate a cookie header value for responses.
+    config: :class:`dict`
+        A dict letting users store custom configuration.
     """
     RESPONSE_HANDLERS: Dict[Type[Any], Callable[[Application, Any], MaybeCoro[Response]]] = {
         str: lambda _, body: HTMLResponse(body),
@@ -186,6 +188,7 @@ class Application(BaseApplication):
         self.ssl_context = ssl_context or self.settings.ssl_context
         self.worker_count = self.settings.worker_count if worker_count is None else worker_count
         self.connection_read_timeout = connection_read_timeout
+        self.config = Config()
 
         if cookie_session_callback is not None:
             if not callable(cookie_session_callback):
@@ -1190,6 +1193,16 @@ class Application(BaseApplication):
         type: Type[T], 
         callback: Callable[[Application, T], Response]
     ) -> None:
+        """
+        Registers a response handler for a given type.
+        
+        Parameters
+        ----------
+        type: :class:`type`
+            The type to register the handler for.
+        callback: Callable
+            The callback to register.
+        """
         self.RESPONSE_HANDLERS[type] = callback
 
     def add_event_listener(self, callback: CoroFunc[Any], name: str) -> Listener:
