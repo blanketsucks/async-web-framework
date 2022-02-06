@@ -6,7 +6,7 @@ from typing import List
 class Builder:
     def __init__(self) -> None:
         self.base = os.path.dirname(__file__)
-        self.project = os.path.join(os.path.dirname(__file__), 'railway')
+        self.project = os.path.join(os.path.dirname(__file__), 'subway')
         self.docs = os.path.join(self.base, 'docs')
         self.build = os.path.join(self.docs, '_build', 'html')
 

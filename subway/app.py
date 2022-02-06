@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Literal, Optional, Set, Type, Union, AsyncIterator, overload, NoReturn
-from functools import partial
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, Type, TypeVar, Union, AsyncIterator
 import datetime
 import os
 import sys
@@ -13,10 +12,13 @@ import uuid
 import asyncio
 import traceback
 import jinja2
+import pathlib
+import types
 
 from .types import (
     Coro,
     CoroFunc,
+    MaybeCoro,
     StatusCodeCallback,
     RouteResponse,
     ResponseStatus,
@@ -45,6 +47,8 @@ from .cookies import Cookie
 
 log = logging.getLogger(__name__)
 
+T = TypeVar('T')
+
 __all__ = (
     'Application',
 )
@@ -65,7 +69,8 @@ class Application(BaseApplication):
         A string representing the url prefix.
     loop: :class:`asyncio.AbstractEventLoop`
         An optional asyncio event loop.
-    
+    templates_dir: :class:`str`
+        A string representing the path to the templates directory used for rendering templates.
     settings: :class:`~.Settings`
         An optional :class:`~.Settings` instance. If not specified, the default settings will be used.
     settings_file: Union[:class:`pathlib.Path`, :class:`str`]
@@ -82,10 +87,11 @@ class Application(BaseApplication):
         An optional bool indicating whether to use SSL.
     ssl_context: :class:`ssl.SSLContext`
         An optional :class:`ssl.SSLContext` instance.
-    cookie_session_callback: Callable[[:class:`~subway.request.Request`, :class:`~subway.response.Response`], :class:`str`]
+    cookie_session_callback: Callable[[:class:`~.Request`, :class:`~.Response`], :class:`str`]
         A callback that gets called whenever there is a need to generate a cookie header value
-        for responses. This function must return a single value being a string, anything else will raise an error.
-        The default for this is a lambda function that returns a :attr:`uuid.UUID.hex` value.
+        for responses. This function must return a single value being a string, bytes or a :class:`~.Cookie` object
+        anything else will raise an error. Rhe default for this is a lambda function
+        that returns a :attr:`uuid.UUID.hex` value.
     backlog: :class:`int`
         An integer representing the backlog that gets passed to the :meth:`socket.socket.listen` method.
         Defaults to 200.
@@ -94,6 +100,8 @@ class Application(BaseApplication):
         avoid issues with the host being reused.
     reuse_port: :class:`bool`
         An optional bool indicating whether to reuse the port.
+    connection_read_timeout: :class:`float`
+        An optional integer representing the connection read timeout.
 
     Raises
     ------
@@ -127,6 +135,16 @@ class Application(BaseApplication):
     cookie_session_callback: Callable[[:class:`~subway.request.Request`, :class:`~subway.response.Response`], :class:`str`]
         A callback that gets called whenever there is a need to generate a cookie header value for responses.
     """
+    RESPONSE_HANDLERS: Dict[Type[Any], Callable[[Application, Any], MaybeCoro[Response]]] = {
+        str: lambda _, body: HTMLResponse(body),
+        bytes: lambda _, body: Response(body),   
+        dict: lambda _, body: JSONResponse(body),
+        list: lambda _, body: JSONResponse(body),
+        Response: lambda _, body: body,
+        File: lambda _, body: FileResponse(body),
+        types.AsyncGeneratorType: lambda _, body: StreamResponse(body),
+        Model: lambda _, model: JSONResponse(model.json()),
+    }
 
     def __init__(
         self,
@@ -135,7 +153,7 @@ class Application(BaseApplication):
         path: Optional[str] = None,
         url_prefix: Optional[str] = None,
         *,
-        templates_dir: Optional[str] = None,
+        templates_dir: str = '/templates',
         loop: Optional[asyncio.AbstractEventLoop] = None,
         settings: Optional[Settings] = None,
         settings_file: Optional[Union[str, os.PathLike[str]]] = None,
@@ -148,8 +166,9 @@ class Application(BaseApplication):
         cookie_session_callback: Optional[CookieSessionCallback] = None,
         backlog: Optional[int] = None,
         reuse_host: bool = True,
-        reuse_port: bool = False
-    ):
+        reuse_port: bool = False,
+        connection_read_timeout: float = 5.0,
+    ) -> None:
         self._ipv6 = ipv6
         if ipv6 and host is None:
             host = utils.LOCALHOST_V6
@@ -166,6 +185,7 @@ class Application(BaseApplication):
         self.router = Router(self.url_prefix)
         self.ssl_context = ssl_context or self.settings.ssl_context
         self.worker_count = self.settings.worker_count if worker_count is None else worker_count
+        self.connection_read_timeout = connection_read_timeout
 
         if cookie_session_callback is not None:
             if not callable(cookie_session_callback):
@@ -173,7 +193,8 @@ class Application(BaseApplication):
 
         self.cookie_session_callback = cookie_session_callback or (lambda req, res: uuid.uuid4().hex)
         self.context: Dict[str, Any] = {'url_for': self.url_for}
-        self._jinja2_env = self.create_default_jinja2_env(templates_dir)
+        self._templates_dir = templates_dir
+        self._jinja_env = self.create_jinja_env()
         self._backlog = backlog or self.settings.backlog
         self._use_ssl = ssl
         self._listeners: Dict[str, List[Listener]] = {}
@@ -205,9 +226,6 @@ class Application(BaseApplication):
     async def __aexit__(self, *args: Any):
         await self.close()
 
-    def __getitem__(self, item: str):
-        return getattr(self, item)
-
     def _create_loop(self, loop: Optional[asyncio.AbstractEventLoop]) -> asyncio.AbstractEventLoop:
         if loop is None:
             if not compat.PY310:
@@ -237,7 +255,7 @@ class Application(BaseApplication):
         if not view:
             return None
 
-        return view.url_route
+        return view.path
 
     def _find_url_from_resources(self, path: str):
         split = path.split('.', 1)
@@ -432,13 +450,14 @@ class Application(BaseApplication):
         websocket: WebSocket
     ):
         reader = request.get_reader()
-        protocol = WebSocketProtocol(reader, request.writer)
+        proto: Any = request.writer.get_protocol()
+
+        protocol = WebSocketProtocol(reader, request.writer, proto.waiter)
 
         request.writer.set_protocol(protocol)
         await protocol.wait_until_connected()
 
-        coro = route(request, websocket)
-        self.loop.create_task(coro, name=f'WebSocket-{request.url.path}')
+        self.loop.create_task(route(request, websocket))
 
     async def _dispatch_error(
         self, 
@@ -505,6 +524,10 @@ class Application(BaseApplication):
         if after_request:
             await utils.maybe_coroutine(after_request, request, response, **kwargs)
 
+    def get_template(self, template: Union[str, os.PathLike[str]]) -> jinja2.Template:
+        path = self.templates / template
+        return self._jinja_env.get_template(str(path))
+
     async def render(self, path: Union[str, os.PathLike[str]], *args: Any, **kwargs: Any):
         """
         Renders a template and returns a Response object.
@@ -519,8 +542,12 @@ class Application(BaseApplication):
         kwargs: Any
             Keyword arguments to pass to the template.
         """
+        if not self.templates.exists():
+            raise RuntimeError(f'Templates folder {self.templates} does not exist')
+
         kwargs.update(self.context)
-        template = self._jinja2_env.get_template(str(path))
+
+        template = self.get_template(path)
         body = await template.render_async(*args, **kwargs)
 
         return HTMLResponse(body)
@@ -622,14 +649,11 @@ class Application(BaseApplication):
         context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
         return context
 
-    def create_default_jinja2_env(self, templates: Optional[str]) -> jinja2.Environment:
+    def create_jinja_env(self) -> jinja2.Environment:
         """
         Creates a default jinja2 environment.
         """
-        if not templates:
-            templates = '/templates'
-
-        loader = jinja2.FileSystemLoader(templates)
+        loader = jinja2.FileSystemLoader(str(self.templates))
         env = jinja2.Environment(loader=loader, enable_async=True)
 
         return env
@@ -654,7 +678,7 @@ class Application(BaseApplication):
             response, status = response
 
             if not isinstance(status, int):
-                raise TypeError('Response status must be an integer.')
+                raise TypeError('Response status must be an integer')
 
             if isinstance(response, URL):
                 if not 300 <= status <= 399:
@@ -667,27 +691,13 @@ class Application(BaseApplication):
             else:
                 status = self._validate_status_code(status)
 
-        if isinstance(response, URL):
-            return Found(location=str(response))
-        elif isinstance(response, File):
-            resp = FileResponse(response, status=status)
-        elif isinstance(response, Response):
-            resp = response
-        elif isinstance(response, Model):
-            resp = JSONResponse(response.json(), status=status)
-        elif isinstance(response, str):
-            resp = HTMLResponse(response, status=status)
-        elif isinstance(response, bytes):
-            resp = Response(response, status=status)
-        elif isinstance(response, (dict, list)):
-            resp = JSONResponse(response, status=status)
-        elif isinstance(response, AsyncIterator):
-            resp = StreamResponse(response, status=status)
+        cls = type(response)
+        callback = self.RESPONSE_HANDLERS.get(cls)
 
-        if resp is None:
+        if callback is None:
             raise ValueError(f'Could not parse {response!r} into a response')
 
-        return resp
+        return await utils.maybe_coroutine(callback, self, response)
 
     def set_default_session_cookie(self, request: Request[Application], response: Response) -> Response:
         """
@@ -715,7 +725,7 @@ class Application(BaseApplication):
             if isinstance(value, Cookie):
                 response.cookies._cookies[value.name] = value
             else:
-                response.add_cookie(name=name, value=value, http_only=True)
+                response.add_cookie(name=name, value=value)
 
         return response
 
@@ -735,7 +745,7 @@ class Application(BaseApplication):
         route: :class:`~subway.Route`
             The route that was used to generate the response.
         """
-        if hasattr(route, '__cache_control__') and not request.headers.get('Cache-Control'):
+        if hasattr(route, '__cache_control__') and not response.headers.get('Cache-Control'):
             control = route.__cache_control__
             parts: List[str] = []
 
@@ -786,11 +796,29 @@ class Application(BaseApplication):
         return response
 
     @property
+    def templates(self) -> pathlib.Path[str]:
+        """
+        The path to the templates directory.
+        """
+        return pathlib.Path(self._templates_dir)
+
+    @templates.setter
+    def templates(self, value: Union[str, os.PathLike[str]]):
+        self._templates_dir = str(value)
+
+    @property
     def backlog(self) -> int:
         """
         The backlog of the server.
         """
         return self._backlog
+
+    @backlog.setter
+    def backlog(self, value: int):
+        if self.is_serving():
+            raise RuntimeError('Cannot change backlog while server is running')
+
+        self._backlog = value
 
     @property
     def schemes(self) -> List[str]:
@@ -859,6 +887,10 @@ class Application(BaseApplication):
         """
         return self._socket
 
+    @socket.setter
+    def socket(self, value: socket.socket):
+        self._socket = value
+
     @property
     def request_middlewares(self) -> List[Middleware]:
         """
@@ -895,7 +927,7 @@ class Application(BaseApplication):
         return self._loop
 
     @loop.setter
-    def loop(self, value: Any):
+    def loop(self, value: asyncio.AbstractEventLoop):
         if not isinstance(value, asyncio.AbstractEventLoop):
             raise TypeError('loop must be an instance of asyncio.AbstractEventLoop')
 
@@ -1048,12 +1080,12 @@ class Application(BaseApplication):
             if not self.is_closed():
                 loop.run_until_complete(self.close())
 
-        try:
-            self._cancel_all_tasks()
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.run_until_complete(loop.shutdown_default_executor())
-        finally:
-            pass
+        # try:
+        #     self._cancel_all_tasks()
+        #     loop.run_until_complete(loop.shutdown_asyncgens())
+        #     loop.run_until_complete(loop.shutdown_default_executor())
+        # finally:
+        #     pass
 
     async def shutdown(self) -> None:
         """
@@ -1152,6 +1184,13 @@ class Application(BaseApplication):
 
         self.router.union(router)
         return router
+
+    def register_response_handler(
+        self, 
+        type: Type[T], 
+        callback: Callable[[Application, T], Response]
+    ) -> None:
+        self.RESPONSE_HANDLERS[type] = callback
 
     def add_event_listener(self, callback: CoroFunc[Any], name: str) -> Listener:
         """
@@ -1301,7 +1340,7 @@ class Application(BaseApplication):
 
             app = Application()
 
-            @app.event('my_event')
+            @app.event('on_my_event')
             async def my_event(*args, **kwargs):
                 print('Event fired')
 
@@ -1334,27 +1373,33 @@ class Application(BaseApplication):
 
         return asyncio.gather(*[self._run_listener(listener, *args, **kwargs) for listener in listeners])
 
-    def add_view(self, view: Union[HTTPView, Any]) -> HTTPView:
+    def add_view(self, view: Union[HTTPView, Type[HTTPView]], *, path: Optional[str] = None) -> HTTPView:
         """
         Adds a view to the application.
 
         Parameters
         ----------
         view: :class:`~subway.views.HTTPView`
-            The view to add.
+            The view to add. Could be a class or an instance.
 
         Raises
         ----------
         RegistrationError: If the `view` argument that was passed in is not a proper view or it's already registered.
         """
-        if not isinstance(view, HTTPView):
-            raise RegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__))
+        if inspect.isclass(view) and issubclass(view, HTTPView):
+            view = view()
 
-        if view.__url_route__ in self._views:
+        if not isinstance(view, HTTPView):
+            raise RegistrationError('Expected HTTPView but got {0!r} instead.'.format(view.__class__.__name__)) # type: ignore
+
+        if path is not None:
+            view.path = path
+
+        if view.path in self.views:
             raise RegistrationError('View already registered')
 
-        view.as_routes(router=self.router)
-        self._views[view.__url_route__] = view
+        view.init(router=self.router)
+        self._views[view.path] = view
 
         return view
 
@@ -1371,10 +1416,10 @@ class Application(BaseApplication):
         if not view:
             return None
 
-        view.as_routes(router=self.router, remove_routes=True)
+        view.init(router=self.router, remove_routes=True)
         return view
 
-    def view(self, path: str):
+    def view(self, path: Optional[str] = None):
         """
         A decorator that adds a view to the application.
 
@@ -1389,19 +1434,12 @@ class Application(BaseApplication):
 
             @app.view('/')
             class Index(subway.HTTPView):
-                
                 async def get(self, request: subway.Request):
                     return 'Hello, world!'
             
         """
-
-        def decorator(cls: Type[HTTPView]):
-            if not cls.__url_route__:
-                cls.__url_route__ = path
-
-            view = cls()
-            return self.add_view(view)
-
+        def decorator(view: Type[HTTPView]):
+            return self.add_view(view, path=path)
         return decorator
 
     def add_resource(self, resource: Resource) -> Resource:
@@ -1419,21 +1457,23 @@ class Application(BaseApplication):
         """
         if not isinstance(resource, Resource):
             raise RegistrationError('Expected Resource but got {0!r} instead.'.format(resource.__class__.__name__))
+    
+        if resource.name in self._resources:
+            raise RegistrationError('Resource already registered')
 
         for middleware in resource.middlewares:
-            self.request_middleware(partial(middleware, resource))
+            middleware.parent = resource
+            self.router.add_middleware(middleware)
 
         for route in resource.routes:
-            route.callback = partial(route.callback, resource)
             route.parent = resource
-
             self.router.add_route(route)
 
         for listener in resource.listeners:
-            self.add_event_listener(partial(listener.callback, resource), listener.event)
-
-        if resource.name in self._resources:
-            raise RegistrationError('Resource already registered')
+            listener.parent = resource
+            
+            listeners = self._listeners.setdefault(listener.event, [])
+            listeners.append(listener)
 
         self._resources[resource.name] = resource
         return resource
@@ -1527,8 +1567,6 @@ class Application(BaseApplication):
         resolved = self.router.resolve_from_path(path, method)
         if resolved:
             return resolved.route
-
-        return None
 
     def get_listeners(self, name: str) -> List[Listener]:
         """

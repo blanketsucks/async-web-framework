@@ -1,4 +1,4 @@
-.. currentmodule:: railway
+.. currentmodule:: subway
 
 .. |br| raw:: html
 
@@ -13,7 +13,7 @@ Data Structures
 ImmutableMapping
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: ImmutableMapping
+.. autoclass:: ImmutableDict
     :members:
 
 CaseInsensitiveDict
@@ -39,7 +39,7 @@ ImmutableMultiDict
 CaseInsensitiveMultidict
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: CaseInsensitiveMultidict
+.. autoclass:: CaseInsensitiveMultiDict
     :members:
 
 URL
@@ -57,7 +57,7 @@ BaseApplication
 .. autoclass:: BaseApplication
     :members:
     :show-inheritance:
-    :exclude-members: route, get, put, post, delete, head, options, patch, websocket, middleware, event
+    :exclude-members: route, get, put, post, delete, head, options, patch, websocket, event
 
     .. automethod:: route
         :decorator:
@@ -84,9 +84,6 @@ BaseApplication
         :decorator:
 
     .. automethod:: websocket
-        :decorator:
-
-    .. automethod:: middleware
         :decorator:
 
     .. automethod:: event
@@ -202,15 +199,12 @@ Router
 
 .. autoclass:: Router
     :members:
-    :exclude-members: route, middleware, websocket
+    :exclude-members: route, websocket
 
     .. automethod:: Router.route
         :decorator:
 
     .. automethod:: Router.websocket
-        :decorator:
-
-    .. automethod:: Router.middleware
         :decorator:
 
 Settings
@@ -796,6 +790,12 @@ File
 Form-Data
 --------------------
 
+FormDataField
+~~~~~~~~~~~~~~~~
+
+.. autoclass:: FormDataField
+    :members:
+
 Disposition
 ~~~~~~~~~~~~
 
@@ -896,15 +896,18 @@ Streams
 StreamReader
 ~~~~~~~~~~~~
 
-.. autoclass:: StreamReader
+.. autoclass:: subway.streams.StreamReader
     :members:
 
 StreamWriter
 ~~~~~~~~~~~~~
 
-.. autoclass:: StreamWriter
+.. autoclass:: subway.streams.StreamWriter
     :members:
 
+.. autofunction:: subway.streams.open_connection
+.. autofunction:: subway.streams.start_server
+.. autofunction:: subway.streams.start_unix_server
 
 Utility functions
 --------------------
@@ -915,4 +918,16 @@ Utility functions
 .. autofunction:: is_ipv6
 .. autofunction:: is_ipv4
 .. autofunction:: validate_ip
+.. autofunction:: socket_is_closed
 .. autofunction:: jsonify
+.. autofunction:: to_url
+.. autofunction:: listdir
+.. autofunction:: clean_values
+.. autofunction:: unwrap_function
+.. autofunction:: iscoroutinefunction
+.. autofunction:: isasyncgenfunction
+.. autofunction:: add_signal_handler
+.. autofunction:: get_union_args
+.. autofunction:: get_charset
+.. autofunction:: copy_docstring
+.. autofunction:: clear_docstring

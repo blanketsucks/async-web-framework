@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, AsyncIterator, Generic, Iterable, Literal, NoReturn, TypeVar, Union, Any, Optional, Type, NamedTuple
+from typing import TYPE_CHECKING, AsyncIterator, Generic, Iterable, NoReturn, TypeVar, Union, Any, Optional, Type
 from abc import ABC, abstractmethod
 import datetime
 import base64
@@ -12,21 +12,20 @@ from .url import URL
 from .headers import Headers
 from .response import Response
 from .cookies import Cookie, CookieJar
-from .sessions import CookieSession, AbstractSession
+from .sessions import CookieSession, AbstractRequestSession
 from .responses import HTTPException, Redirection, SwitchingProtocols, redirects, responses
 from .response import StreamResponse
 from .formdata import FormData
 from .streams import StreamReader, StreamWriter
 from .types import ResponseBody, ResponseStatus, RouteResponse, StrURL, Address
-from .utils import to_url, GUID, CLRF, parse_headers, loads, dumps
+from .utils import to_url, GUID, CLRF, parse_headers, loads
 
 if TYPE_CHECKING:
     from .objects import Route, WebSocketRoute
     from .workers import Worker
     from .app import Application
 
-    FlashMessageCategories = Literal['message', 'success', 'error', 'warning', 'info']
-    SessionT = TypeVar('SessionT', bound=AbstractSession)
+    SessionT = TypeVar('SessionT', bound=AbstractRequestSession)
 
 AppT = TypeVar('AppT', bound='Application', covariant=True)
 
@@ -63,6 +62,8 @@ class HTTPConnection(ABC):
             
             yield chunk
 
+        yield reader.reset()
+
     async def read(self, *, timeout: Optional[float] = None) -> bytes:
         """
         Reads the body of the request.
@@ -77,17 +78,12 @@ class HTTPConnection(ABC):
         :class:`bytes`
             The body of the request as bytes.
         """
-        reader = self.get_reader()
-        if not reader.at_eof():
-            async for chunk in self.stream():
-                self._body += chunk
-        
-        if not self._body:
-            self._body += reader.reset()
+        async for chunk in self.stream(timeout=timeout):
+            self._body += chunk
 
         return self._body
 
-    async def text(self, *, encoding: Optional[str] = None) -> str:
+    async def text(self, *, encoding: Optional[str] = None, timeout: Optional[float] = None) -> str:
         """
         The text of the request.
 
@@ -95,14 +91,22 @@ class HTTPConnection(ABC):
         ----------
         encoding: Optional[:class:`str`]
             The encoding to use.
+        timeout: Optional[:class:`float`]
+            The timeout to use.
         """
         if encoding is None:
             encoding = self.headers.charset if self.headers.charset else 'utf-8'
 
-        body = await self.read()
+        body = await self.read(timeout=timeout)
         return body.decode(encoding=encoding)
 
-    async def json(self, *, check_content_type: bool = False, encoding: Optional[str] = None) -> Any:
+    async def json(
+        self, 
+        *,
+        check_content_type: bool = False,
+        encoding: Optional[str] = None, 
+        timeout: Optional[float] = None
+    ) -> Any:
         """
         The JSON body of the request.
 
@@ -112,12 +116,14 @@ class HTTPConnection(ABC):
             Whether to check if the content type is application/json or not.
         encoding: Optional[:class:`str`]
             The encoding to use.
+        timeout: Optional[:class:`float`]
+            The timeout to use.
         """
         if check_content_type:
             ret = f'Content-Type must be application/json, got {self.headers.content_type!r}'
             assert self.headers.content_type == 'application/json', ret
 
-        text = await self.text(encoding=encoding)
+        text = await self.text(encoding=encoding, timeout=timeout)
         return loads(text)
 
     @abstractmethod

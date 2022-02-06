@@ -40,6 +40,7 @@ extensions = [
     'sphinxcontrib_trio',
     'sphinx_autodoc_typehints',
     'sphinx_copybutton',
+    'sphinx_toolbox.more_autodoc.autonamedtuple',
 ]
 
 intersphinx_mapping = {

@@ -50,6 +50,13 @@ class Worker(TCPServer):
 
         super().__init__(loop=app.loop, ssl_context=app.ssl_context)
 
+    @property
+    def connection_read_timeout(self) -> float:
+        """
+        The read timeout for the connection.
+        """
+        return self.app.connection_read_timeout
+
     def __repr__(self) -> str:
         return '<Worker id={0.id}>'.format(self)
 
@@ -91,7 +98,7 @@ class Worker(TCPServer):
         This function gets called whenever a new connection gets made.
         """
         try:
-            status_line = await reader.readuntil(CLRF, timeout=5)
+            status_line = await reader.readuntil(CLRF, timeout=self.connection_read_timeout)
         except (asyncio.TimeoutError, KeyboardInterrupt, PartialRead):
             return writer.close()
 

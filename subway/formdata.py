@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, NamedTuple, Optional, TYPE_CHECKING, Tuple, TypeVar
+from typing import IO, Any, Dict, List, NamedTuple, Optional, TYPE_CHECKING, Tuple, TypeVar, Union
 import string
 import random
 
@@ -17,7 +17,8 @@ BOUNDARY_LIMITER = b'--'
 
 __all__ = (
     'Disposition',
-    'FormData'
+    'FormData',
+    'FormDataField'
 )
 
 def _get(iterable: List[T], index: int) -> Optional[T]:
@@ -27,7 +28,7 @@ def _get(iterable: List[T], index: int) -> Optional[T]:
         return None
 
 def parse_field(text: str) -> str:
-    _, _1, value = text.partition('=')
+    _, __, value = text.partition('=')
     return value.strip('"').strip("'")
 
 class DispositionNotFound(Exception):
@@ -37,13 +38,46 @@ class InvalidDisposition(Exception):
     pass
 
 class FormDataField(NamedTuple):
+    """
+    A named tuple representing a form data field.
+
+    Attributes
+    ----------
+    file: :class:`~.File`
+        The file object.
+    headers: :class:`dict`
+        The headers of the field.
+    disposition: :class:`~.Disposition`
+        The disposition of the field.
+    """
     file: File
     headers: Dict[str, str]
-    dispotision: Disposition
+    disposition: Disposition
+
+    @property
+    def name(self) -> str:
+        return self.disposition.name
+
+    @property
+    def filename(self) -> Optional[str]:
+        return self.disposition.filename
+
+    @property
+    def content_type(self) -> str:
+        return self.disposition.content_type
 
 class Disposition:
     """
     A Content-Disposition header.
+
+    Parameters
+    ----------
+    name: :class:`str`
+        The name of the field.
+    filename: Optional[:class:`str`]
+        The filename of the field.
+    content_type: Optional[:class:`str`]
+        The content type of the field. Defaults to ``application/octet-stream``.
     """
     def __init__(self, *, name: str, filename: Optional[str]=None, content_type: Optional[str]=None) -> None:
         self.content_type = content_type or 'application/octet-stream'
@@ -91,19 +125,14 @@ class Disposition:
         :class:`str`
             A Content-Disposition header.
         """
-        header = f'form-data; name={self.name!r}'
+        header = f'form-data; name="{self.name}"'
         if self.filename:
-            header += f'; filename={self.filename!r}'
+            header += f'; filename="{self.filename}"'
         return header
 
 class FormData(Dict[str, FormDataField]):
     """
     A form data object.
-
-    Attributes
-    ----------
-    files: List[Tuple[:class:`~subway.file.File`, :class:`~subway.formdata.Disposition`]]
-        A list of tuples containing a :class:`~subway.file.File and :class:`~subway.formdata.Disposition` objects.
     """
     def __init__(self) -> None:
         self._boundary: Optional[bytes] = None
@@ -135,9 +164,9 @@ class FormData(Dict[str, FormDataField]):
                 disposition = Disposition.from_headers(result.headers)
 
                 file = File(result.body)
-                field = FormDataField(file=file, headers=result.headers, dispotision=disposition)
+                field = FormDataField(file=file, headers=result.headers, disposition=disposition)
 
-                form.add_field(field)
+                form[field.name] = field
             except ValueError:
                 continue
 
@@ -172,24 +201,49 @@ class FormData(Dict[str, FormDataField]):
         length = random.randint(1, 70)
         return ''.join([random.choice(string.ascii_letters) for _ in range(length)]).encode()
     
-    def add_field(self, field: FormDataField) -> None:
+    def add_field(
+        self, 
+        file: Union[File, IO[bytes]],
+        *,
+        name: Optional[str] = None, # type: ignore
+        filename: Optional[str] = None,
+        content_type: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None
+    ) -> FormDataField:
         """
         Add a file to the form data.
 
         Parameters
         ----------
-        file: :class:`~subway.file.File`
-            A file object.
-        disposition: :class:`~subway.formdata.Disposition`
-            A disposition object.
+        file: Union[:class:`~.File`, :class:`io.IOBase`]
+            The file object.
+        name: Optional[:class:`str`]
+            The name of the field.
+        filename: Optional[:class:`str`]
+            The filename of the field.
+        content_type: Optional[:class:`str`]
+            The content type of the field. Defaults to ``application/octet-stream``.
+        headers: Optional[:class:`dict`]
+            The headers of the field.
         """
-        self[field.dispotision.name] = field
+        if not isinstance(file, File):
+            file = File(file)
+
+        assert file.filename or name, 'A file name or disposition name must be provided'
+        name = name or file.filename # type: Any
+        headers = headers or {}
+
+        disposition = Disposition(name=name, filename=filename, content_type=content_type)
+        field = FormDataField(file=file, headers=headers, disposition=disposition)
+
+        self[field.name] = field
+        return field
 
     async def _prepare_field(self, field: FormDataField) -> bytes:
         assert self.boundary is not None, 'Boundary not set'
-        disposition = field.dispotision
+        disposition = field.disposition
 
-        boundary = BOUNDARY_LIMITER + self.boundary
+        boundary = BOUNDARY_LIMITER + self.boundary 
         headers = [
             f'Content-Disposition: {disposition.to_header()}'.encode(),
             f'Content-Type: {disposition.content_type}'.encode(),
@@ -203,6 +257,9 @@ class FormData(Dict[str, FormDataField]):
         return body
 
     async def prepare(self) -> Tuple[bytearray, str]:
+        """
+        Prepare the form data for sending.
+        """
         self.boundary = boundary = self.generate_boundary()
         content_type = f'multipart/form-data; boundary={boundary}'
 
@@ -211,7 +268,6 @@ class FormData(Dict[str, FormDataField]):
         for field in self.values():
             chunk = await self._prepare_field(field)
             body.extend(chunk)
-
 
         body.extend(BOUNDARY_LIMITER + boundary + BOUNDARY_LIMITER)
         return body, content_type

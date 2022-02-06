@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, overload, Async
 import enum
 import mimetypes
 
-from .cookies import CookieJar
+from .cookies import Cookie, CookieJar
 from .files import File
 from .headers import Headers
 from .types import AnyBody, JSONResponseBody, ResponseBody, ResponseHeaders, ResponseStatus
@@ -137,7 +137,7 @@ class Response:
         content_type: Optional[str] = None,
         headers: Optional[ResponseHeaders] = None,
         version: Optional[str] = None
-    ):
+    ) -> None:
         self.version: str = version or '1.1'
         self._status = HTTPStatus(status or 200)  # type: ignore
         self._body = body
@@ -190,7 +190,7 @@ class Response:
         """
         return self._headers
 
-    def add_header(self, *, key: str, value: str):
+    def add_header(self, key: str, value: str):
         """
         Adds a header to the response.
 
@@ -203,15 +203,7 @@ class Response:
         """
         self._headers[key] = value
 
-    def add_cookie(
-        self,
-        name: str,
-        value: str,
-        *,
-        domain: Optional[str] = None,
-        http_only: bool = False,
-        is_secure: bool = False
-    ):
+    def add_cookie(self, name: str, value: str, **kwargs: Any) -> Cookie:
         """
         Adds a cookie to the response.
 
@@ -228,13 +220,7 @@ class Response:
         is_secure: :class:`bool`
             If the cookie should be set as secure. Defaults to ``False``.
         """
-        return self.cookies.add_cookie(
-            name=name,
-            value=value,
-            domain=domain,
-            http_only=http_only,
-            is_secure=is_secure
-        )
+        return self.cookies.add_cookie(name, value, **kwargs)
 
     def __repr__(self) -> str:
         name = self.__class__.__name__
@@ -303,7 +289,7 @@ class HTMLResponse(Response):
         status: Optional[ResponseStatus] = None,
         headers: Optional[ResponseHeaders] = None,
         version: Optional[str] = None
-    ):
+    ) -> None:
         super().__init__(
             body=body,
             status=status,
@@ -322,7 +308,7 @@ class JSONResponse(Response):
         status: Optional[ResponseStatus] = None,
         headers: Optional[ResponseHeaders] = None,
         version: Optional[str] = None
-    ):
+    ) -> None:
         super().__init__(
             body=dumps(body) if body is not None else None,
             status=status,
@@ -353,7 +339,7 @@ class FileResponse(Response):
         status: Optional[ResponseStatus] = None,
         headers: Optional[ResponseHeaders] = None,
         version: Optional[str] = None
-    ):
+    ) -> None:
         self.file = file
 
         super().__init__(

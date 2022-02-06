@@ -3,16 +3,19 @@ import sys
 
 with open('requirements.txt', 'r') as file:
     requirements = file.readlines()
-    
-if sys.platform != 'win32':
-    requirements.append('uvloop')
 
 extra_require = {
     'sqlalchemy': [
         'sqlalchemy',
         'sqlalchemy[asyncio]'
-    ]
+    ],
+    'speed': [
+        'orjson',
+    ]   
 }
+
+if sys.platform != 'win32':
+    extra_require['speed'].append('uvloop')
 
 packages = find_packages()
 

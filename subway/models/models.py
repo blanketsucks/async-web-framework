@@ -107,7 +107,6 @@ class ModelMeta(type):
         old = attrs.get('__annotations__', {})
 
         defaults: Dict[str, Any] = {}
-        slots: List[str] = []
         annotations: Dict[str, Any] = {}
 
         for key, value in old.items():
@@ -135,7 +134,7 @@ class ModelMeta(type):
         kwargs.setdefault('name', name)
 
         attrs['__options__'] = options
-        attrs['__fields__'] = fields
+        attrs['__fields__'] = tuple(fields)
         attrs['__field_mapping__'] = {field.name: field for field in fields}
 
         if options['slotted'] is True:
@@ -443,3 +442,4 @@ class Model(metaclass=ModelMeta):
                 continue
 
             yield field, value
+

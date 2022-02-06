@@ -7,16 +7,16 @@ if TYPE_CHECKING:
     from .app import Application
     from .request import Request
 
-__all__ = 'AbstractSession', 'CookieSession',
+__all__ = 'AbstractRequestSession', 'CookieSession',
 
-class AbstractSession(ABC):
+class AbstractRequestSession(ABC):
     
     @classmethod
     @abstractclassmethod
     async def from_request(cls, request: Request[Application]):
         raise NotImplementedError
 
-class CookieSession(AbstractSession, Dict[str, Any]):
+class CookieSession(AbstractRequestSession, Dict[str, Any]):
     """
     A session that is managed by a cookie.
     """

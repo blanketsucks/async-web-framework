@@ -1,13 +1,14 @@
 from __future__ import annotations
+import datetime
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional, NamedTuple
 
 __all__ = (
     'Cookie',
     'CookieJar'
 )
 
-class Cookie:
+class Cookie(NamedTuple):
     """
     Parameters
     ----------
@@ -33,33 +34,32 @@ class Cookie:
     secure: :class:`bool`
         Whether the cookie is marked as secure.
     """
-    def __init__(
-        self,
-        name: str,
-        value: str,
-        domain: Optional[str],
-        http_only: bool,
-        secure: bool
-    ):
-        self.name: str = name
-        self.value: str = value
-        self.http_only: bool = http_only
-        self.secure: bool = secure
-        self._domain = domain
+    name: str
+    value: str
+    domain: Optional[str] = None
+    http_only: bool = False
+    secure: bool = False
+    expires: Optional[datetime.datetime] = None
+    path: Optional[str] = None
+    same_site: Optional[Literal['Strict', 'Lax', 'None']] = None
 
-    def set_domain(self, domain: str) -> None:
-        """
-        Sets the cookie's domain
+    def to_string(self):
+        base = 'Set-Cookie: {0.name}={0.value}'.format(self)
+        if self.domain:
+            base += '; Domain={0.domain}'.format(self)
+        if self.http_only:
+            base += '; HttpOnly'
+        if self.secure:
+            base += '; Secure'
+        if self.expires:
+            formatted = self.expires.strftime('%a, %d %b %Y %H:%M:%S GMT')
+            base += '; Expires={0}'.format(formatted)
+        if self.path:
+            base += '; Path={0.path}'.format(self)
+        if self.same_site:
+            base += '; SameSite={0.same_site}'.format(self)
 
-        Parameters
-        ----------
-        domain: :class:`str`
-            The domain to set the cookie to.
-        """
-        self._domain = domain
-
-    def __str__(self):
-        return f'Set-Cookie: {self.name}={self.value};'
+        return base
 
     def __repr__(self) -> str:
         return '<Cookie name={0.name!r} value={0.value!r}>'.format(self)
@@ -102,8 +102,11 @@ class CookieJar:
         *,
         domain: Optional[str] = None,
         http_only: bool = False,
-        is_secure: bool = False
-    ):
+        secure: bool = False,
+        expires: Optional[datetime.datetime] = None,
+        path: Optional[str] = None,
+        same_site: Optional[Literal['Strict', 'Lax', 'None']] = None
+    ) -> Cookie:
         """
         Adds a cookie to the jar
 
@@ -117,7 +120,7 @@ class CookieJar:
             The domain of the cookie
         http_only: :class:`bool`
             Whether the cookie is http only
-        is_secure: :class:`bool`
+        secure: :class:`bool`
             Whether the cookie is secure
         """
         cookie = Cookie(
@@ -125,10 +128,13 @@ class CookieJar:
             value=value, 
             domain=domain,
             http_only=http_only,
-            secure=is_secure
+            secure=secure,
+            expires=expires,
+            path=path,
+            same_site=same_site
         )
-        self._cookies[name] = cookie
 
+        self._cookies[name] = cookie
         return cookie
 
     def update(self, cookies: Dict[str, Cookie]) -> None:
@@ -160,12 +166,7 @@ class CookieJar:
         """
         Encodes the cookie jar as string.
         """
-        encoded: List[str] = []
-
-        for cookie in self._cookies.values():
-            encoded.append(str(cookie))
-
-        return '; '.join(encoded)
+        return '; '.join(cookie.to_string() for cookie in self._cookies.values())
 
     def __iter__(self):
         return self._cookies.items().__iter__()

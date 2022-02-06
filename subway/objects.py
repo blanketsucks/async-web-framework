@@ -52,9 +52,13 @@ class Object:
 
     def __init__(self, callback: CoroFunc) -> None:
         self.callback = callback
+        self.parent: Any = None
 
-    async def __call__(self, *args: Any, **kwds: Any) -> Any:
-        return await self.callback(*args, **kwds)
+    def __call__(self, *args: Any, **kwds: Any) -> Any:
+        if self.parent:
+            return self.callback(self.parent, *args, **kwds)
+        else:
+            return self.callback(*args, **kwds)
 
 class PartialRoute:
     """
@@ -124,11 +128,8 @@ class Route(Object):
 
         self.path: str = path
         self.method: str = method
-        self.callback = callback
         self.name = name or callback.__name__.replace('_', ' ').title()
-        self.raw_path: str = None # type: ignore
-        self.parent: Optional[Resource] = None
-
+        self.raw_path: str = path
         self._error_handler = None
         self._status_code_handlers: Dict[int, Callable[..., Coro[Any]]] = {}
         self._request_middlewares: List[Middleware] = []
@@ -136,6 +137,7 @@ class Route(Object):
         self._after_request = None
 
         self.__doc__ = inspect.getdoc(callback)
+        super().__init__(callback)
 
     async def dispatch(
         self, 
@@ -191,6 +193,10 @@ class Route(Object):
         The router used to register the route with.
         """
         return self._router
+
+    @router.setter
+    def router(self, router: Router) -> None:
+        self._router = router
 
     def is_websocket(self) -> bool:
         """
@@ -518,9 +524,6 @@ class Route(Object):
         self.cleanup_middlewares()
         self._status_code_handlers.clear()
 
-    def __call__(self, *args, **kwargs) -> Any:
-        return self.callback(*args, **kwargs)
-
     def __repr__(self) -> str:
         return '<Route path={0.path!r} method={0.method!r}>'.format(self)
 
@@ -567,8 +570,8 @@ class Middleware(Object):
         route: Optional[Route] = None, 
         router: Optional[Router] = None
     ) -> None:
-        self.callback = callback
         self.type = type
+        super().__init__(callback)
 
         self._router = router
         self._route = route
@@ -644,7 +647,7 @@ class Listener(Object):
     """
     def __init__(self, callback: CoroFunc[Any], name: str) -> None:
         self.event: str = name
-        self.callback = callback
+        super().__init__(callback)
 
     def __repr__(self) -> str:
         return '<Listener event={0.event!r}>'.format(self)

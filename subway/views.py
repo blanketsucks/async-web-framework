@@ -1,4 +1,6 @@
-from typing import List, Tuple, Dict, Any, Type
+from __future__ import annotations
+
+from typing import List, Tuple, Dict, Any, Type, Optional
 import functools
 
 from .types import CoroFunc
@@ -11,29 +13,42 @@ __all__ = (
     'HTTPView',
 )
 
+class ViewRoute(Route):
+    def __init__(
+        self, 
+        view: HTTPView, 
+        callback: CoroFunc, 
+        *, 
+        name: Optional[str] = None, 
+        router: Optional[Router] = None
+    ) -> None:
+        self.view = view
+
+        method = callback.__name__.upper()
+        super().__init__(view.path, method, callback, name=name, router=router)
+
+        self.parent = view
+
+    def __call__(self, *args, **kwargs) -> Any:
+        return super().__call__(*args, **kwargs)
+
 
 class ViewMeta(type):
     """
     The meta class used for views.
     """
-    __routes__: List[CoroFunc]
-
     def __new__(cls, name: str, bases: Tuple[Type[Any]], attrs: Dict[str, Any], **kwargs: Any):
-        attrs['__url_route__'] = kwargs.get('path', '')
-        attrs['__routes__'] = []
+        path = kwargs.get('path', '')
+        routes: List[CoroFunc[Any]] = []
 
-        self = super().__new__(cls, name, bases, attrs)
-        view_routes: List[CoroFunc] = []
+        for key, value in attrs.items():
+            if iscoroutinefunction(value) and key.upper() in VALID_METHODS:
+                routes.append(value)
 
-        for base in self.mro():
-            for _, value in base.__dict__.items():
-                if iscoroutinefunction(value):
-                    if value.__name__.upper() in VALID_METHODS:
-                        view_routes.append(value)
+        attrs['__url_path__'] = path
+        attrs['__routes__'] = routes
 
-        self.__routes__ = view_routes
-        return self
-
+        return super().__new__(cls, name, bases, attrs)
 
 class HTTPView(metaclass=ViewMeta):
     """
@@ -54,23 +69,28 @@ class HTTPView(metaclass=ViewMeta):
         app.add_view(MyView())
 
     """
-    __url_route__: str
+    __url_path__: str
     __routes__: List[CoroFunc]
 
     @property
-    def url_route(self) -> str:
+    def path(self) -> str:
         """
         The url route for this view.
         """
-        return self.__url_route__
+        return self.__url_path__
 
-    def routes(self) -> List[CoroFunc]:
+    @path.setter
+    def path(self, value: str) -> None:
+        self.__url_path__ = value
+
+    @property
+    def routes(self) -> List[ViewRoute]:
         """
         The routes for this view.
         """
-        return self.__routes__
+        return [ViewRoute(self, callback) for callback in self.__routes__]
 
-    def add_route(self, method: str, callback: CoroFunc) -> CoroFunc:
+    def add_route(self, method: str, callback: CoroFunc[Any]) -> CoroFunc[Any]:
         """
         Adds a route to this view.
 
@@ -84,9 +104,9 @@ class HTTPView(metaclass=ViewMeta):
         setattr(self, method, callback)
         return callback
 
-    def as_routes(
+    def init(
         self, router: Router, *, remove_routes: bool = False
-    ) -> List[Route]:
+    ) -> None:
         """
         A helper method for adding routes to a router or removing them.
 
@@ -97,18 +117,13 @@ class HTTPView(metaclass=ViewMeta):
         remove_routes: :class:`bool`
             Whether to remove the routes from the router.
         """
-        routes: List[Route] = []
-
-        for coro in self.routes():
-            actual = functools.partial(coro, self)
-
-            route = Route(self.__url_route__, coro.__name__.upper(), actual, router=router)
+        for route in self.routes:
+            route.router = router
 
             if remove_routes:
                 router.remove_route(route)
             else:
                 router.add_route(route)
 
-            routes.append(route)
+            
 
-        return routes

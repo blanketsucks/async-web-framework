@@ -26,4 +26,3 @@ Contents
   extensions
   http
   websockets
-  server-client

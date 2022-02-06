@@ -1,4 +1,4 @@
-.. currentmodule:: railway.http
+.. currentmodule:: subway.http
 
 HTTP API Reference
 =====================

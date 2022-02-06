@@ -42,6 +42,13 @@ class StreamWriter:
         self._waiter: 'Optional[asyncio.Future[None]]' = None
         self._loop = compat.get_running_loop()
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args: Any):
+        self.close()
+        await self.wait_closed()
+
     @property
     def transport(self) -> asyncio.Transport:
         """
@@ -127,6 +134,25 @@ class StreamWriter:
         Writes EOF to the transport.
         """
         self._transport.write_eof()
+
+    def set_write_buffer_limits(self, high: Optional[int] = None, low: Optional[int] = None) -> None:
+        """
+        Sets the high-water and low-water limits for write flow control.
+
+        Parameters
+        ------------
+        high: Optional[:class:`int`]
+            The high-water limit.
+        low: Optional[:class:`int`]
+            The low-water limit.
+        """
+        self._transport.set_write_buffer_limits(high, low)
+
+    def get_write_buffer_size(self) -> int:
+        """
+        Gets the size of the write buffer.
+        """
+        return self._transport.get_write_buffer_size()
 
     async def drain(self, *, timeout: Optional[float] = None):
         """
@@ -496,6 +522,18 @@ class StreamProtocol(asyncio.Protocol):
 async def open_connection(
     host: Optional[str] = None, port: Optional[int] = None, **kwargs: Any
 ) -> Tuple[StreamReader, StreamWriter]:
+    """
+    Opens a connection to a remote host.
+
+    Parameters
+    -----------
+    host: Optional[:class:`str`]
+        The host to connect to.
+    port: Optional[:class:`int`]
+        The port to connect to.
+    **kwargs: Any
+        Additional keyword arguments to pass to :meth:`asyncio.loop.create_connection`.
+    """
     loop = kwargs.pop('loop', None) or compat.get_running_loop()
     protocol = StreamProtocol(loop, lambda w, r: None)
 
@@ -509,6 +547,20 @@ async def start_server(
     port: Optional[int] = None,
     **kwargs: Any
 ) -> asyncio.AbstractServer:
+    """
+    Starts a server.
+
+    Parameters
+    -----------
+    connection_callback: Callable[[:class:`~StreamReader`, :class:`~StreamWriter`], Any]
+        The callback to call when a connection is made.
+    host: Optional[:class:`str`]
+        The host to listen on.
+    port: Optional[:class:`int`]
+        The port to listen on.
+    **kwargs: Any
+        Additional keyword arguments to pass to :meth:`asyncio.loop.create_server`.
+    """
     loop = kwargs.pop('loop', None) or compat.get_running_loop()
     protocol = StreamProtocol(loop, connection_callback)
 
@@ -521,6 +573,23 @@ async def start_unix_server(
     path: Optional[str] = None,
     **kwargs: Any
 ) -> asyncio.AbstractServer:
+    """
+    Starts a Unix server.
+
+    Note
+    ----
+    This only works on unix based systems.
+
+    Parameters
+    -----------
+    connection_callback: Callable[[:class:`~StreamReader`, :class:`~StreamWriter`], Any]
+        The callback to call when a connection is made.
+    path: Optional[:class:`str`]
+        The path of the unix domain socket.
+    **kwargs: Any
+        Additional keyword arguments to pass to :meth:`asyncio.loop.create_unix_server`.
+
+    """
     loop = kwargs.pop('loop', None) or compat.get_running_loop()
     protocol = StreamProtocol(loop, connection_callback)
 

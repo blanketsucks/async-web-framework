@@ -26,7 +26,6 @@ class URL:
     value: :class:`str`
         The originally passed in URL.
     """
-
     def __init__(self, url: str) -> None:
         self.value = url
         self.components = urlsplit(url)

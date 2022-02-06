@@ -1,4 +1,4 @@
-.. currentmodule:: railway.websockets
+.. currentmodule:: subway.websockets
 
 WebSockets API Documentation
 =============================

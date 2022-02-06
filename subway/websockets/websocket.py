@@ -20,9 +20,10 @@ __all__ = (
 WebSocketData = Union[str, BytesLike, Dict[Any, Any], List[Any]]
 
 class WebSocketProtocol(StreamProtocol):
-    def __init__(self, reader: StreamReader, writer: StreamWriter) -> None:
+    def __init__(self, reader: StreamReader, writer: StreamWriter, waiter: asyncio.Future[None]) -> None:
         self.reader = reader
         self.writer = writer
+        self.waiter = waiter
 
     async def wait_until_connected(self) -> None:
         await asyncio.sleep(0)

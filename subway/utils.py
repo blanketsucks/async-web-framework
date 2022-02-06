@@ -49,12 +49,14 @@ __all__ = (
     'VALID_METHODS',
     'dumps',
     'loads',
+    'add_signal_handler',
     'to_url',
     'socket_is_closed',
     'listdir',
     'clean_values',
     'unwrap_function',
     'iscoroutinefunction',
+    'isasyncgenfunction',
     'copy_docstring',
     'clear_docstring',
     'maybe_coroutine',
@@ -65,6 +67,7 @@ __all__ = (
     'validate_ip',
     'jsonify',
     'get_charset',
+    'get_union_args',
     'parse_headers',
     'parse_http_data',
     'deprecated',
@@ -100,6 +103,20 @@ else:
         return json.loads(obj, **kwargs)
 
 def add_signal_handler(sig: int, handler: Callable[[signal.Signals, FrameType], Any], *args: Any, **kwargs: Any) -> None:
+    """
+    Adds a signal handler.
+
+    Parameters
+    ----------
+    sig: :class:`int`
+        The signal to handle.
+    handler: Callable[[:class:`signal.Signals`, :class:`types.FrameType`], Any]
+        The signal handler.
+    *args: Any
+        The arguments to pass to the signal handler.
+    **kwargs: Any
+        The keyword arguments to pass to the signal handler.
+    """
     if sig not in signal.valid_signals():
         raise ValueError(f'{sig} is not a valid signal')
 
@@ -120,7 +137,7 @@ def to_url(url: StrURL) -> URL:
 
     Returns
     -------
-    :class:`URL`
+    :class:`~.URL`
         The converted URL.
     """
     return URL(url) if isinstance(url, str) else url
@@ -137,6 +154,16 @@ def socket_is_closed(sock: socket.socket) -> bool:
     return sock.fileno() == -1
 
 def listdir(path: Union[StrPath, Path], recursive: bool = False) -> Iterator[Path]:
+    """
+    Lists the contents of a directory.
+
+    Parameters
+    ----------
+    path: Union[:class:`str`, :class:`pathlib.Path`]
+        The path to list.
+    recursive: :class:`bool`
+        Whether to recursively list the contents of subdirectories.
+    """
     if isinstance(path, (str, os.PathLike)):
         path = Path(path)
 
@@ -147,6 +174,21 @@ def listdir(path: Union[StrPath, Path], recursive: bool = False) -> Iterator[Pat
             yield entry
 
 def clean_values(values: List[_T]) -> List[_T]:
+    """
+    Cleans a list of values.
+    Strips whitespace from the beginning and end of each value.
+
+    Parameters
+    ----------
+    values: List[Union[:class:`str`, :class:`bytes`]]
+        The values to clean.
+
+    Returns
+    -------
+    List[Union[:class:`str`, :class:`bytes`]]
+        The cleaned values.
+    """
+    
     return [value.strip() for value in values if value.strip()]
 
 def unwrap_function(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -169,6 +211,11 @@ def unwrap_function(func: Callable[..., Any]) -> Callable[..., Any]:
 def iscoroutinefunction(obj: Any) -> bool:
     """
     Checks if a given object is a coroutine function.
+
+    Parameters
+    ----------
+    obj: Any
+        The object to check.
     """
     obj = unwrap_function(obj)
     return asyncio.iscoroutinefunction(obj)
@@ -176,6 +223,11 @@ def iscoroutinefunction(obj: Any) -> bool:
 def isasyncgenfunction(obj: Any) -> bool:
     """
     Checks if a given object is an async generator function.
+
+    Parameters
+    ----------
+    obj: Any
+        The object to check.
     """
     obj = unwrap_function(obj)
     return inspect.isasyncgenfunction(obj)
@@ -257,7 +309,6 @@ def copy_docstring(other: Callable[..., Any]) -> Callable[[Callable[P, T]], Call
     other: Callable[..., Any]
         The function to copy the docstring from.
     """
-
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         func.__doc__ = other.__doc__
         return func
@@ -266,7 +317,7 @@ def copy_docstring(other: Callable[..., Any]) -> Callable[[Callable[P, T]], Call
 
 def clear_docstring(func: Callable[P, T]) -> Callable[P, T]:
     """
-    A decorator that clears the docstring of the decorated function.
+    Clears the docstring of the decorated function.
 
     Parameters
     ----------

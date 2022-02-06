@@ -1,16 +1,10 @@
-.. currentmodule:: railway.extensions
+.. currentmodule:: subway.extensions
 
 Extensions API Documentation
 ================================
 
-Ngrok
--------
 
-.. autoclass:: ngrok.Application
-    :members:
-
-
-.. currentmodule:: railway.extensions.sqlalchemy
+.. currentmodule:: subway.extensions.sqlalchemy
 
 SQLAlchemy
 ------------

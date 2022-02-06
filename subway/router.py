@@ -288,13 +288,14 @@ class Router:
         middleware = Middleware(type, callback, router=self) # type: ignore
         middleware._is_global = True
 
-        if type is MiddlewareType.request:
+        self.add_middleware(middleware)
+        return middleware
+        
+    def add_middleware(self, middleware: Middleware) -> None:
+        if middleware.type is MiddlewareType.request:
             self.request_middlewares.append(middleware)
         else:
             self.response_middlewares.append(middleware)
-
-        return middleware
-        
 
     def request_middleware(self, callback: RequestMiddleware) -> Middleware:
         """

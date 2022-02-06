@@ -41,7 +41,7 @@ def _append_to_multidict(multidict: MultiDict[Any, Any], key: Any, value: Any) -
 def _update_multidict(multidict: MultiDict[Any, Any], *args: Any, **kwargs: List[Any]) -> None:
     if args:
         mapping = args[0]
-        if isinstance(mapping, Iterable):
+        if not isinstance(mapping, dict):
             for key, value in mapping:
                 _append_to_multidict(multidict, key, value)
         else:
@@ -139,7 +139,7 @@ class MultiDict(Mapping['KT', 'VT']):
     def __init__(self) -> None:
         ...
     @overload
-    def __init__(self, mapping: Mapping[KT, VT], **kwargs: VT) -> None:
+    def __init__(self, mapping: Mapping[KT, List[VT]], **kwargs: VT) -> None:
         ...
     @overload
     def __init__(self, mapping: Iterable[Tuple[KT, VT]], **kwargs: VT) -> None:
@@ -426,5 +426,7 @@ class ImmutableMultiDict(MultiDict['KT', 'VT']):
     """
     An immutable multi-dict.
     """
-    def wrap_key(self, key: KT) -> KT:
+    def _is_immutable(self, *args: Any, **kwargs: Any) -> Any:
         raise TypeError('This object is immutable')
+
+    update = setdefault = update = pop = popone = set = clear = __setitem__ = __delitem__ = copy = _is_immutable  # type: ignore

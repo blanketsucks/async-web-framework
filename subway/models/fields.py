@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence, Mapping, MutableMapping, Iterable
-from typing import TYPE_CHECKING, Any, Callable, Optional, Literal, Set, Tuple, Type, TypeVar, Union, Generic
+from typing import TYPE_CHECKING, Any, Callable, Optional, Literal, Set, Type, TypeVar, Union, Generic
 
 from .utils import DEFAULT
 
@@ -30,13 +30,13 @@ class Field(Generic[T]):
         default_factory: Type[Any] = None,
         strict: bool = False,
         name: Optional[str] = None, 
-        validator: Optional[Callable[[Model, Any, Field], Any]] = None
+        validator: Optional[Callable[['Model', T, Field[T]], Any]] = None
     ) -> None:
         self.name = name
         self.default = default
         self.default_factory = default_factory
         self.strict = strict
-        self.validator = validator or (lambda self, value, field: value)
+        self.validator = validator or (lambda _, value, field: value)
 
         self._annotation: Any = None
 
@@ -125,7 +125,7 @@ def field(
     default_factory: Type[Any] = None,
     strict: bool = False,
     name: Optional[str] = None, 
-    validator: Optional[Callable[[Model, Any, Field], Any]] = None
+    validator: Optional[Callable[[Model, Any, Field[Any]], Any]] = None
 ) -> Any:
     if default is not DEFAULT and default_factory is not None:
         raise ValueError('Cannot specify both default and default_factory')

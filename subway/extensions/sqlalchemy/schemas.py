@@ -7,6 +7,8 @@ import sqlalchemy
 from sqlalchemy import sql
 
 from subway.models import Model
+from subway.app import Application
+from subway.response import JSONResponse
 from .results import CursorResult, Row, TypedCursorResult
 from .engine import Connection
 from .sqltypes import Column
@@ -71,7 +73,8 @@ class MetaData:
                     schemas.append(obj)
 
         metadata = cls(bind=bind)
-        metadata._schemas.extend(schemas)
+        for schema in schemas:
+            metadata.add_schema(schema)
 
         return metadata
 
@@ -168,10 +171,7 @@ class SchemaQuery(Generic[SchemaT]):
         elif isinstance(entity, (Mapping, Sequence)):
             values = entity
         else:
-            values = {
-                column.name: getattr(entity, column.name)
-                for column in entity.__columns__ if not column.primary_key
-            }
+            values = entity.get_column_values()
 
         insert = insert.values(values)
         await self.execute(insert)
@@ -213,6 +213,13 @@ class SchemaQuery(Generic[SchemaT]):
         delete = self.schema.table.delete().where(*where)
         async with self.context() as context:
             await context.execute(delete)
+
+    async def exists(self, *where: Any) -> bool:
+        select = self.schema.table.select().where(*where)
+
+        async with self.context() as context:
+            cursor = await context.execute(select)
+            return await cursor.fetchone() is not None
         
     def filter(self) -> SelectFilter[SchemaT]:
         return SelectFilter(self)
@@ -226,14 +233,15 @@ class SchemaQuery(Generic[SchemaT]):
 class SchemaMeta(type):
     if TYPE_CHECKING:
         def __getattr__(self, name: str) -> Column[Any]: ...
-        
+    
+    __all_schemas__: Dict[str, Type[Schema]] = {}
     __columns__: List[sqlalchemy.Column]
     __metadata__: sqlalchemy.MetaData
     __table__: sqlalchemy.Table
     __query__: SchemaQuery[Any]
 
     def __new__(cls, cls_name: str, bases: Tuple[Any, ...], attrs: Dict[str, Any], **kwargs: Any) -> Any:
-        name = kwargs.get('name', cls_name)
+        name = kwargs.get('name', attrs.get('__tablename__', cls_name))
 
         metadata = kwargs.get('metadata', MetaData())
         columns: List[sqlalchemy.Column] = []
@@ -249,7 +257,7 @@ class SchemaMeta(type):
                     pk_found = True
 
                 columns.append(value)
-
+                
         attrs['__columns__'] = columns
         attrs['__metadata__'] = metadata
         attrs['__table__'] = sqlalchemy.Table(name, metadata.wrapped, *columns)
@@ -258,7 +266,12 @@ class SchemaMeta(type):
         schema.__query__ = SchemaQuery(schema) # type: ignore
 
         metadata.add_schema(schema)
+        cls.__all_schemas__[name] = schema # type: ignore
+
         return schema
+
+    def get_schema(self, name: str) -> Optional[Type[Schema]]:
+        return self.__all_schemas__.get(name)
 
     @property
     def columns(self) -> Tuple[sqlalchemy.Column[Any], ...]:
