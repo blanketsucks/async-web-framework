@@ -1191,7 +1191,7 @@ class Application(BaseApplication):
     def register_response_handler(
         self, 
         type: Type[T], 
-        callback: Callable[[Application, T], Response]
+        callback: Callable[[Application, T], MaybeCoro[Response]]
     ) -> None:
         """
         Registers a response handler for a given type.
