@@ -137,7 +137,7 @@ class Application(BaseApplication):
     config: :class:`dict`
         A dict letting users store custom configuration.
     """
-    RESPONSE_HANDLERS: Dict[Type[Any], Callable[[Application, Any], MaybeCoro[Response]]] = {
+    RESPONSE_HANDLERS: Dict[type, Callable[[Application, Any], MaybeCoro[Response]]] = {
         str: lambda _, body: HTMLResponse(body),
         bytes: lambda _, body: Response(body),   
         dict: lambda _, body: JSONResponse(body),
@@ -175,14 +175,11 @@ class Application(BaseApplication):
         if ipv6 and host is None:
             host = utils.LOCALHOST_V6
 
-        self.settings = self.load_settings(settings, settings_file, load_settings_from_env)
-        host = host or self.settings.host
-        port = port or self.settings.port
+        self.settings = settings = self.load_settings(settings, settings_file, load_settings_from_env)
+        settings.host = host or settings.host
+        settings.port = port or settings.port
+        settings.path = path or settings.path
 
-        assert host is not None, 'host is required'
-        self.host = utils.validate_ip(host, ipv6=ipv6)
-        self.port = port
-        self.path = path
         self.url_prefix = url_prefix or self.settings.url_prefix
         self.router = Router(self.url_prefix)
         self.ssl_context = ssl_context or self.settings.ssl_context
@@ -190,9 +187,8 @@ class Application(BaseApplication):
         self.connection_read_timeout = connection_read_timeout
         self.config = Config()
 
-        if cookie_session_callback is not None:
-            if not callable(cookie_session_callback):
-                raise TypeError('cookie_session_callback must be a callable')
+        if cookie_session_callback is not None and not callable(cookie_session_callback):
+            raise TypeError('cookie_session_callback must be a callable')
 
         self.cookie_session_callback = cookie_session_callback or (lambda req, res: uuid.uuid4().hex)
         self.context: Dict[str, Any] = {'url_for': self.url_for}
@@ -205,7 +201,7 @@ class Application(BaseApplication):
         self._blueprints: Dict[str, Blueprint] = {}
         self._views: Dict[str, HTTPView] = {}
         self._active_listeners: List[asyncio.Task[Any]] = []
-        self._status_code_handlers: Dict[int, Callable[[Request[Application], HTTPException, Union[PartialRoute, Route]], Coro[Any]]] = {}
+        self._status_code_handlers: Dict[int, StatusCodeCallback] = {}
         self._loop = self._create_loop(loop)
         self._closed = False
         self._lifespan_tasks: List[AsyncIterator[Any]] = []
@@ -460,6 +456,7 @@ class Application(BaseApplication):
         request.writer.set_protocol(protocol)
         await protocol.wait_until_connected()
 
+        self.dispatch('websocket', route, request, websocket)
         self.loop.create_task(route(request, websocket))
 
     async def _dispatch_error(
@@ -805,6 +802,30 @@ class Application(BaseApplication):
         """
         return pathlib.Path(self._templates_dir)
 
+    @property
+    def host(self) -> Optional[str]:
+        return self.settings.host
+
+    @host.setter
+    def host(self, value: Optional[str]):
+        self.settings.host = value
+
+    @property
+    def port(self) -> int:
+        return self.settings.port
+
+    @port.setter
+    def port(self, value: int):
+        self.settings.port = value
+    
+    @property
+    def path(self) -> Optional[str]:
+        return self.settings.path
+
+    @path.setter
+    def path(self, value: Optional[str]):
+        self.settings.path = value
+
     @templates.setter
     def templates(self, value: Union[str, os.PathLike[str]]):
         self._templates_dir = str(value)
@@ -814,14 +835,14 @@ class Application(BaseApplication):
         """
         The backlog of the server.
         """
-        return self._backlog
+        return self.settings.backlog
 
     @backlog.setter
     def backlog(self, value: int):
         if self.is_serving():
             raise RuntimeError('Cannot change backlog while server is running')
 
-        self._backlog = value
+        self.settings.backlog = value
 
     @property
     def schemes(self) -> List[str]:
@@ -985,7 +1006,7 @@ class Application(BaseApplication):
         """
         Returns wheter or not the application is serving IPv6 requests.
         """
-        return self._ipv6 and utils.is_ipv6(self.host)
+        return self._ipv6
 
     def is_ssl(self) -> bool:
         """

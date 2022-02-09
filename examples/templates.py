@@ -1,6 +1,6 @@
 from subway import Application, Request
 
-# If not templates_dir is specified, the default is 'templates'
+# If templates_dir is not specified, the default is 'templates'
 app = Application()
 
 @app.route('/home')

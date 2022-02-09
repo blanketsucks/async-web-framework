@@ -849,19 +849,19 @@ Models
 Field
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: Field
+.. autoclass:: models.Field
     :members:
 
 ModelMeta
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: ModelMeta
+.. autoclass:: models.ModelMeta
     :members:
 
 Model
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: Model
+.. autoclass:: models.Model
     :members:
     :special-members: __setattr__, __iter__, __eq__
 

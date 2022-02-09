@@ -28,9 +28,11 @@ __all__ = (
     'PartialRoute',
     'WebSocketRoute',
     'Middleware',
+    'MiddlewareType',
     'Listener',
     'route',
     'websocket_route',
+    'middleware',
     'listener',
 )
 
@@ -681,6 +683,22 @@ def websocket_route(path: str, *, name: Optional[str] = None) -> Callable[[CoroF
     """
     def decorator(func: CoroFunc) -> WebSocketRoute:
         return WebSocketRoute(path, 'GET', func, name=name, router=None)
+    return decorator
+
+def middleware(type: MiddlewareType) -> Callable[[CoroFunc[Any]], Middleware]:
+    """
+    A decorator that returns a :class:`~subway.objects.Middleware` object.
+
+    Parameters
+    ----------
+    type: :class:`~subway.objects.MiddlewareType`
+        The type of middleware to register the middleware with.
+    """
+    def decorator(callback: CoroFunc) -> Middleware:
+        middleware = Middleware(type, callback) # type: ignore
+        middleware._is_global = True
+
+        return middleware
     return decorator
 
 def listener(event: str = None) -> Callable[[CoroFunc], Listener]:

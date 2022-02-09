@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Callable, Literal, Optional, Union, overload, TYPE_CHECKING, NoReturn, Any
+from typing import Callable, Literal, Optional, Union, overload, TYPE_CHECKING, Any
 from abc import ABC, abstractmethod
 
 from .types import CoroFunc, ResponseMiddleware, RequestMiddleware
 from .router import Router
-from .objects import Listener, Middleware, Route, WebSocketRoute
+from .objects import Listener, Middleware, Route, WebSocketRoute, MiddlewareType
 from .errors import RegistrationError
 
 if TYPE_CHECKING:
@@ -350,12 +350,12 @@ class BaseApplication(ABC):
         self.router.remove_response_middleware(middleware)
 
     @overload
-    def middleware(self, type: Literal['request']) -> Callable[[RequestMiddleware], Middleware]:
+    def middleware(self, type: Literal[MiddlewareType.request]) -> Callable[[RequestMiddleware], Middleware]:
         ...
     @overload
-    def middleware(self, type: Literal['response']) -> Callable[[ResponseMiddleware], Middleware]:
+    def middleware(self, type: Literal[MiddlewareType.response]) -> Callable[[ResponseMiddleware], Middleware]:
         ...
-    def middleware(self, type: Literal['request', 'response']) -> Any:
+    def middleware(self, type: MiddlewareType) -> Any:
         """
         Adds a middleware to the application.
 
@@ -370,16 +370,13 @@ class BaseApplication(ABC):
         -------
         .. code-block :: python3
 
-            @middleware('request')
+            @middleware(MiddlewareType.request)
             async def middleware(route: Route, request: Request, **kwargs):
                 print('Middleware ran')
                 return True
 
         """
-        if type not in ('request', 'response'):
-            raise RegistrationError('Middleware type must be either "request" or "response"')
-
-        if type == 'request':
+        if type is MiddlewareType.request:
             return self.request_middleware
         else:
             return self.response_middleware

@@ -56,7 +56,6 @@ def open(file: OpenFile, mode: Optional[str] = None, **kwargs: Any):
 
 __all__ = (
     'File',
-    'open'
 )
 
 
