@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict, Optional
-from abc import ABC, abstractclassmethod
+from abc import ABC, abstractmethod
 
 if TYPE_CHECKING:
     from .app import Application
@@ -12,7 +12,7 @@ __all__ = 'AbstractRequestSession', 'CookieSession',
 class AbstractRequestSession(ABC):
     
     @classmethod
-    @abstractclassmethod
+    @abstractmethod
     async def from_request(cls, request: Request[Application]):
         raise NotImplementedError
 

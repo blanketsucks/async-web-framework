@@ -39,7 +39,7 @@ class StreamWriter:
     def __init__(self, transport: asyncio.Transport, close_waiter: asyncio.Future[None]) -> None:
         self._transport = transport
         self._close_waiter = close_waiter
-        self._waiter: 'Optional[asyncio.Future[None]]' = None
+        self._waiter: Optional[asyncio.Future[None]] = None
         self._loop = compat.get_running_loop()
 
     async def __aenter__(self):
@@ -56,7 +56,7 @@ class StreamWriter:
         """
         return self._transport
 
-    async def _wait_for_drain(self, timeout: float = None) -> None:
+    async def _wait_for_drain(self, timeout: Optional[float] = None) -> None:
         if self._waiter is None:
             return
 
@@ -164,7 +164,7 @@ class StreamWriter:
         await self._wait_for_drain(timeout)
 
     @overload
-    def get_extra_info(self, name: Literal['peername', 'sockname']) -> Tuple[str, int]: ...
+    def get_extra_info(self, name: Literal['peername', 'sockname']) -> Union[Tuple[str, int], Tuple[str, int, int, int]]: ...
     @overload
     def get_extra_info(self, name: Literal['socket']) -> socket.socket: ...
     @overload
@@ -230,7 +230,7 @@ class StreamReader:
 
     def __init__(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
         self.buffer: bytearray = bytearray()
-        self.loop: asyncio.AbstractEventLoop = loop or compat.get_running_loop()
+        self.loop = loop or compat.get_running_loop()
 
         self._waiter: Optional[asyncio.Future[None]] = None
         self._eof = False

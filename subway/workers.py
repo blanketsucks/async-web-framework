@@ -48,7 +48,7 @@ class Worker(TCPServer):
         self._ready = asyncio.Event()
         self._serving = False
 
-        super().__init__(loop=app.loop, ssl_context=app.ssl_context)
+        super().__init__(loop=app.loop)
 
     @property
     def connection_read_timeout(self) -> float:
@@ -120,4 +120,5 @@ class Worker(TCPServer):
             websocket = websockets.create_websocket(writer, reader, client_side=False)
             await request.handshake()
 
-        self.loop.create_task(self.app._request_handler(request=request, websocket=websocket))
+        await self.app._request_handler(request=request, websocket=websocket)
+        

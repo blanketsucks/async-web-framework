@@ -3,8 +3,7 @@ from typing import (
     Coroutine, 
     Any, 
     Callable, 
-    NamedTuple,
-    NoReturn, 
+    NamedTuple, 
     Protocol, 
     TypeVar, 
     Union, 
@@ -45,6 +44,11 @@ class Response(Protocol):
 class Address(NamedTuple):
     host: str
     port: int
+    flowinfo: Optional[int]
+    scope_id: Optional[int]
+
+    def is_ipv6(self) -> bool:
+        return self.flowinfo is not None or self.scope_id is not None
 
 class Header(NamedTuple):
     name: str

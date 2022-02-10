@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import IO, Any, Dict, List, NamedTuple, Optional, TYPE_CHECKING, Tuple, TypeVar, Union
+from typing import IO, Any, Dict, Iterator, List, NamedTuple, Optional, TYPE_CHECKING, Tuple, TypeVar, Union, Iterable
+import itertools
 import string
 import random
+import re
 
 from .files import File
 from .utils import clean_values, parse_http_data, CLRF
@@ -14,6 +16,7 @@ if TYPE_CHECKING:
 T = TypeVar('T')
 
 BOUNDARY_LIMITER = b'--'
+BOUNDARY_REGEX = re.compile(r'.*;\sboundary=(?P<boundary>\S{0,70})')
 
 __all__ = (
     'Disposition',
@@ -21,15 +24,28 @@ __all__ = (
     'FormDataField'
 )
 
+_next = next
+
 def _get(iterable: List[T], index: int) -> Optional[T]:
     try:
         return iterable[index]
     except IndexError:
         return None
 
-def parse_field(text: str) -> str:
-    _, __, value = text.partition('=')
-    return value.strip('"').strip("'")
+def pairwise(iterable: Iterable[T]) -> Iterable[Tuple[T, T]]:
+    left, right = itertools.tee(iterable)
+    next(right, None)
+    return itertools.zip_longest(left, right)
+
+def find_fields(boundary: bytes, data: bytes) -> Iterator[bytes]:
+    for match, next in pairwise(re.finditer(boundary, data)):
+        start = match.end()  
+        end = next.start() if next else len(data)
+
+        yield data[start:end]  
+
+def remove_quotes(text: str) -> str:
+    return re.sub(r'"|\'', '', text)
 
 class DispositionNotFound(Exception):
     pass
@@ -107,11 +123,11 @@ class Disposition:
         if disposition[0] != 'form-data':
             raise InvalidDisposition('Invalid Content-Disposition header.')
 
-        name = parse_field(disposition[1])
+        name = remove_quotes(disposition[1])
         filename = _get(disposition, 2)
 
         if filename:
-            filename = parse_field(filename)
+            filename = remove_quotes(filename)
 
         content_type = headers.get('Content-Type')
         return cls(name=name, filename=filename, content_type=content_type)
@@ -137,41 +153,38 @@ class FormData(Dict[str, FormDataField]):
     def __init__(self) -> None:
         self._boundary: Optional[bytes] = None
 
-    @classmethod
-    async def from_request(cls, request: Request[Application]):
+    async def read(self, request: Request[Application]) -> None:
         """
-        Creates a form data object from a request.
+        Reads the form data from a request
 
         Parameters
         ----------
         request: :class:`~subway.request.Request`
             a request.
         """
-        form = cls()
         data = await request.read()
 
         content_type = request.headers.get('Content-Type')
         if not content_type:
-            return form
+            return
         
-        _, boundary = content_type.split('; ')
-        boundary = ('--' + boundary.strip('boundary=')).encode()
+        match = BOUNDARY_REGEX.match(content_type)
+        assert match, 'No boundary found in content type'
 
-        data = data.strip(boundary + b'--\r\n').split(boundary + b'\r\n')        
-        for value in clean_values(data):
-            try:
-                result = parse_http_data(value, strip_status_line=False)
-                disposition = Disposition.from_headers(result.headers)
+        boundary = match.group('boundary').encode()
+        fields = list(find_fields(boundary, data))
 
-                file = File(result.body)
-                field = FormDataField(file=file, headers=result.headers, disposition=disposition)
+        fields.pop() # Remove the last field, which is just boundary + --
+        for field in fields:
+            result = parse_http_data(field.strip(CLRF), strip_status_line=False)
+            disposition = Disposition.from_headers(result.headers)
 
-                form[field.name] = field
-            except ValueError:
-                continue
+            file = File(result.body)
+            field = FormDataField(file=file, headers=result.headers, disposition=disposition)
 
-        form.boundary = boundary
-        return form
+            self[field.name] = field
+
+        self.boundary = boundary
 
     @property
     def boundary(self) -> Optional[bytes]:

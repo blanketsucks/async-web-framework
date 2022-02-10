@@ -1,9 +1,9 @@
-from typing import Any, Dict, Literal, Optional, TypedDict, Union, overload
+from typing import Any, Dict, Optional, TypedDict, Union
 import importlib
 import os
-import ssl
+import ssl as _ssl
 import multiprocessing
-import json as _json
+import json
 
 from .utils import LOCALHOST, LOCALHOST_V6, SETTING_ENV_PREFIX, validate_ip
 from .types import StrPath
@@ -12,22 +12,23 @@ __all__ = (
     'Settings',
 )
 
+def default_ssl_context():
+    context = _ssl.create_default_context(purpose=_ssl.Purpose.CLIENT_AUTH)
+    return context
+
 class SettingsDict(TypedDict):
     host: Optional[str]
     port: int
     path: Optional[str]
-    url_prefix: Optional[str]
-    ssl_context: Optional[ssl.SSLContext]
-    use_ipv6: bool
+    ssl: Optional[_ssl.SSLContext]
+    ipv6: bool
     worker_count: int
     session_cookie_name: str
     backlog: int
 
 class Settings:
     __slots__ = (
-        'host', 'port', 'path', 'url_prefix',
-        'use_ipv6', 'ssl_context', 'worker_count',
-        'session_cookie_name', 'backlog'
+        'host', 'port', 'path', 'ipv6', 'ssl', 'worker_count', 'session_cookie_name', 'backlog'
     )
 
     def __init__(
@@ -36,18 +37,16 @@ class Settings:
         host: Optional[str] = None,
         port: Optional[int] = None,
         path: Optional[str] = None,
-        url_prefix: Optional[str] = None,
-        use_ipv6: bool = False,
-        ssl_context: Optional[ssl.SSLContext] = None,
+        ipv6: bool = False,
+        ssl: Union[bool, _ssl.SSLContext] = False,
         worker_count: Optional[int] = None,
         session_cookie_name: Optional[str] = None,
         backlog: Optional[int] = None
     ):
         self.host = host
         self.path = path
-        self.url_prefix = url_prefix
-        self.use_ipv6 = use_ipv6
-        self.ssl_context = ssl_context
+        self.ipv6 = ipv6
+        self.ssl = ssl if isinstance(ssl, _ssl.SSLContext) else default_ssl_context() if ssl else None
 
         if port is not None:
             if not isinstance(port, int):
@@ -82,39 +81,12 @@ class Settings:
 
         self.ensure_host()
 
-    @overload
-    def __getitem__(self, item: Literal['host', 'path']) -> Optional[str]:
-        ...
-    @overload
-    def __getitem__(self, item: Literal['port', 'worker_count', 'backlog']) -> int:
-        ...
-    @overload
-    def __getitem__(self, item: Literal['session_cookie_name']) -> str:
-        ...
-    @overload
-    def __getitem__(self, item: Literal['use_ipv6']) -> bool:
-        ...
-    @overload
-    def __getitem__(self, item: Literal['ssl_context']) -> Optional[ssl.SSLContext]:
-        ...
     def __getitem__(self, item: str):
         try:
             return self.__getattribute__(item)
         except AttributeError:
             raise KeyError(item) from None
 
-    @overload
-    def __setitem__(self, key: Literal['host', 'path', 'session_cookie_name'], value: str):
-        ...
-    @overload
-    def __setitem__(self, key: Literal['port', 'worker_count', 'backlog'], value: int):
-        ...
-    @overload
-    def __setitem__(self, key: Literal['use_ipv6'], value: bool):
-        ...
-    @overload
-    def __setitem__(self, key: Literal['ssl_context'], value: ssl.SSLContext):
-        ...
     def __setitem__(self, key: str, value: Any) -> None:
         return self.__setattr__(key, value)
 
@@ -144,20 +116,20 @@ class Settings:
         return cls(**kwargs)
 
     @classmethod
-    def from_json(cls, json: Union[StrPath, Dict[str, Any]]):
-        if isinstance(json, (str, os.PathLike)):
-            with open(json, 'r') as f:
-                data = _json.load(f)
+    def from_json(cls, data: Union[StrPath, Dict[str, Any]]):
+        if isinstance(data, (str, os.PathLike)):
+            with open(data, 'r') as f:
+                value = json.load(f)
         else:
-            data = json
+            value = data
 
-        return cls(**data)
+        return cls(**value)
         
     def ensure_host(self) -> None:
         if self.path is not None:
             return None
 
-        if self.use_ipv6:
+        if self.ipv6:
             if not self.host:
                 self.host = LOCALHOST_V6
             else:
@@ -170,14 +142,43 @@ class Settings:
 
         return None
 
+    def update(
+        self, 
+        *,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        path: Optional[str] = None,
+        ipv6: bool = False,
+        ssl: Union[bool, _ssl.SSLContext] = False,
+        worker_count: Optional[int] = None,
+        session_cookie_name: Optional[str] = None,
+        backlog: Optional[int] = None
+    ) -> None:
+        if host is not None:
+            self.host = host
+        if port is not None:
+            self.port = port
+        if path is not None:
+            self.path = path
+        if ssl is not None:
+            self.ssl = ssl if isinstance(ssl, _ssl.SSLContext) else default_ssl_context() if ssl else None
+        if worker_count is not None:
+            self.worker_count = worker_count
+        if session_cookie_name is not None:
+            self.session_cookie_name = session_cookie_name
+        if backlog is not None:
+            self.backlog = backlog
+
+        self.ipv6 = ipv6 or self.ipv6
+        self.ensure_host()
+
     def to_dict(self) -> SettingsDict:
         return {
             'host': self.host,
             'port': self.port,
             'path': self.path,
-            'url_prefix': self.url_prefix,
-            'use_ipv6': self.use_ipv6,
-            'ssl_context': self.ssl_context,
+            'ipv6': self.ipv6,
+            'ssl': self.ssl,
             'worker_count': self.worker_count,
             'session_cookie_name': self.session_cookie_name,
             'backlog': self.backlog

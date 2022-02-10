@@ -1,7 +1,7 @@
 from __future__ import annotations
 from types import FrameType
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Type, Tuple, Union, TypeVar, List, Iterator, overload, Literal
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Optional, Type, Tuple, Union, TypeVar, List, Iterator, overload, Literal
 from pathlib import Path
 import warnings
 import functools
@@ -125,6 +125,25 @@ def add_signal_handler(sig: int, handler: Callable[[signal.Signals, FrameType], 
 
     partial = functools.partial(_handler, *args, **kwargs)
     signal.signal(sig, partial)
+
+def find(predicate: Callable[[T], bool], iterable: Iterable[T]) -> Optional[T]:
+    """
+    Finds the first item in an iterable that matches the predicate.
+
+    Parameters
+    ----------
+    predicate: Callable[..., :class:`bool`]
+        The predicate to use.
+    iterable: Iterable
+        The iterable to search.
+
+    Returns
+    -------
+    Optional[Any]
+        The first item in the iterable that matches the predicate if found else None.
+    """
+    items = [item for item in iterable if predicate(item)]
+    return items[0] if items else None
 
 def to_url(url: StrURL) -> URL:
     """

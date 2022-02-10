@@ -8,7 +8,7 @@ import ssl
 import inspect
 import logging
 import socket
-import uuid
+import secrets
 import asyncio
 import traceback
 import jinja2
@@ -16,7 +16,6 @@ import pathlib
 import types
 
 from .types import (
-    Coro,
     CoroFunc,
     MaybeCoro,
     StatusCodeCallback,
@@ -52,6 +51,7 @@ T = TypeVar('T')
 __all__ = (
     'Application',
 )
+
 
 class Application(BaseApplication):
     """
@@ -138,7 +138,7 @@ class Application(BaseApplication):
         A dict letting users store custom configuration.
     """
     RESPONSE_HANDLERS: Dict[type, Callable[[Application, Any], MaybeCoro[Response]]] = {
-        str: lambda _, body: HTMLResponse(body),
+        str: lambda _, body: Response(body),
         bytes: lambda _, body: Response(body),   
         dict: lambda _, body: JSONResponse(body),
         list: lambda _, body: JSONResponse(body),
@@ -163,8 +163,7 @@ class Application(BaseApplication):
         ipv6: bool = False,
         sock: Optional[socket.socket] = None,
         worker_count: Optional[int] = None,
-        ssl: bool = False,
-        ssl_context: Optional[ssl.SSLContext] = None,
+        ssl: Union[bool, ssl.SSLContext] = False,
         cookie_session_callback: Optional[CookieSessionCallback] = None,
         backlog: Optional[int] = None,
         reuse_host: bool = True,
@@ -176,13 +175,18 @@ class Application(BaseApplication):
             host = utils.LOCALHOST_V6
 
         self.settings = settings = self.load_settings(settings, settings_file, load_settings_from_env)
-        settings.host = host or settings.host
-        settings.port = port or settings.port
-        settings.path = path or settings.path
+        settings.update(
+            host=host, 
+            port=port, 
+            path=path,
+            ssl=ssl,
+            backlog=backlog,
+            worker_count=worker_count,
+            ipv6=ipv6,
+        )
 
-        self.url_prefix = url_prefix or self.settings.url_prefix
+        self.url_prefix = url_prefix or ''
         self.router = Router(self.url_prefix)
-        self.ssl_context = ssl_context or self.settings.ssl_context
         self.worker_count = self.settings.worker_count if worker_count is None else worker_count
         self.connection_read_timeout = connection_read_timeout
         self.config = Config()
@@ -190,7 +194,7 @@ class Application(BaseApplication):
         if cookie_session_callback is not None and not callable(cookie_session_callback):
             raise TypeError('cookie_session_callback must be a callable')
 
-        self.cookie_session_callback = cookie_session_callback or (lambda req, res: uuid.uuid4().hex)
+        self.cookie_session_callback = cookie_session_callback or (lambda _, __: secrets.token_hex(32))
         self.context: Dict[str, Any] = {'url_for': self.url_for}
         self._templates_dir = templates_dir
         self._jinja_env = self.create_jinja_env()
@@ -211,9 +215,6 @@ class Application(BaseApplication):
 
         if not reuse_host:
             self.worker_count = 1
-
-        if self._use_ssl and self.ssl_context is None:
-            self.ssl_context = self.create_default_ssl_context()
 
         self._socket = sock
         self.setup_workers()
@@ -425,9 +426,17 @@ class Application(BaseApplication):
         middlewares = route.request_middlewares.copy()
         middlewares.extend(self.request_middlewares)
 
-        return await asyncio.gather(
-            *[middleware(request, route, **kwargs) for middleware in middlewares],
-        )
+        result = await asyncio.gather(*[middleware(request, route, **kwargs) for middleware in middlewares])
+        ret = list(result)
+
+        response = utils.find(lambda x: isinstance(x, Response), ret)
+        if response:
+            ret.remove(response)
+
+            await request.send(response)
+            return True
+
+        return all(ret)
 
     async def _run_response_middlewares(
         self, 
@@ -491,7 +500,8 @@ class Application(BaseApplication):
 
             kwargs = await self._convert(resolved, request)
             ret = await self._run_request_middlewares(request=request, route=resolved.route, kwargs=kwargs)
-            if not all(ret):
+
+            if request.is_closed() or not ret:
                 return
 
             if resolved.route.is_websocket() and request.is_websocket():
@@ -642,13 +652,6 @@ class Application(BaseApplication):
         sock.setblocking(False)
         return sock
 
-    def create_default_ssl_context(self) -> ssl.SSLContext:
-        """
-        Creates a default ssl context.
-        """
-        context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
-        return context
-
     def create_jinja_env(self) -> jinja2.Environment:
         """
         Creates a default jinja2 environment.
@@ -719,7 +722,7 @@ class Application(BaseApplication):
             if not value:
                 return response
             elif value is True:
-                value = uuid.uuid4().hex
+                value = secrets.token_hex(32)
 
             value = value.decode() if isinstance(value, bytes) else value
             if isinstance(value, Cookie):
@@ -1012,7 +1015,7 @@ class Application(BaseApplication):
         """
         Returns whether or not the application is serving SSL requests.
         """
-        return self._use_ssl is True and isinstance(self.ssl_context, ssl.SSLContext)
+        return self.settings.ssl is not None
 
     def add_worker(self, worker: Worker) -> Worker:
         """

@@ -103,7 +103,7 @@ class HTTPConnection(ABC):
     async def json(
         self, 
         *,
-        check_content_type: bool = False,
+        check_content_type: bool = True,
         encoding: Optional[str] = None, 
         timeout: Optional[float] = None
     ) -> Any:
@@ -120,7 +120,7 @@ class HTTPConnection(ABC):
             The timeout to use.
         """
         if check_content_type:
-            ret = f'Content-Type must be application/json, got {self.headers.content_type!r}'
+            ret = f'Content-Type must be application/json got {self.headers.content_type!r} instead'
             assert self.headers.content_type == 'application/json', ret
 
         text = await self.text(encoding=encoding, timeout=timeout)
@@ -215,7 +215,7 @@ class Request(Generic[AppT], HTTPConnection):
             async for chunk in response:
                 await self.writer.write(chunk, drain=True)
 
-        self.writer.write_eof()
+        # self.writer.write_eof()
 
     async def close(self):
         """
@@ -362,14 +362,21 @@ class Request(Generic[AppT], HTTPConnection):
         Returns
         -------
         :class:`collections.namedtuple`
-            A named tuple with the host and port of the client.
+            A named tuple with the host and port of the client. If the server is running on IPv6,
+            the flowinfo and scope_id will be included.
         """
-        host, port = self.writer.get_extra_info('peername')
+        peername = self.writer.get_extra_info('peername')
+
+        if len(peername) == 4:
+            host, port, flowinfo, scope_id = peername
+        else:
+            host, port = peername
+            flowinfo, scope_id = None, None
 
         if 'X-Forwarded-For' in self.headers:
             host = self.headers['X-Forwarded-For']
 
-        return Address(host, port)
+        return Address(host, port, flowinfo, scope_id)
 
     @property
     def server(self) -> Address:
@@ -379,10 +386,18 @@ class Request(Generic[AppT], HTTPConnection):
         Returns
         -------
         :class:`collections.namedtuple`
-            A named tuple with the host and port of the client.
+            A named tuple with the host and port of the server. If the server is running on IPv6,
+            the flowinfo and scope_id will be included.
         """
-        host, port = self.writer.get_extra_info('sockname')
-        return Address(host, port)
+        sockname = self.writer.get_extra_info('sockname')
+
+        if len(sockname) == 4:
+            host, port, flowinfo, scope_id = sockname
+        else:
+            host, port = sockname
+            flowinfo, scope_id = None, None
+
+        return Address(host, port, flowinfo, scope_id)
 
     def get_default_session_cookie(self) -> Optional[Cookie]:
         """
@@ -398,16 +413,29 @@ class Request(Generic[AppT], HTTPConnection):
         if not self.is_websocket():
             raise RuntimeError('Not a websocket request')
 
-        key: str = self.headers['Sec-WebSocket-Key']
+        key = self.headers.get('Sec-WebSocket-Key')
+        if key is None:
+            raise ValueError('Missing websocket key in request')
 
         sha1 = hashlib.sha1((key + GUID).encode()).digest()
         return base64.b64encode(sha1).decode()
 
-    async def form(self) -> FormData:
+    async def form(self, *, check_content_type: bool = True) -> FormData:
         """
         The form data of the request.
         """
-        return await FormData.from_request(self)
+        if check_content_type:
+            content_type = self.headers.content_type
+            if not content_type:
+                raise RuntimeError('No content type specified')
+            
+            ret = f'Content-Type must be multipart/form-data got {content_type!r} instead'
+            assert 'multipart/form-data' in content_type, ret
+ 
+        form = FormData()
+        await form.read(self)
+
+        return form
 
     async def session(self, *, cls: Type[SessionT] = CookieSession) -> SessionT:
         """
