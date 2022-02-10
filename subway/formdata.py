@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 T = TypeVar('T')
 
 BOUNDARY_LIMITER = b'--'
-BOUNDARY_REGEX = re.compile(r'.*;\sboundary=(?P<boundary>\S{0,70})')
+BOUNDARY_REGEX = re.compile(r'.*;\sboundary=(?P<boundary>\S{1,70})')
 
 __all__ = (
     'Disposition',
