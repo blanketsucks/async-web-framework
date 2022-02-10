@@ -24,8 +24,6 @@ __all__ = (
     'FormDataField'
 )
 
-_next = next
-
 def _get(iterable: List[T], index: int) -> Optional[T]:
     try:
         return iterable[index]
@@ -42,7 +40,17 @@ def find_fields(boundary: bytes, data: bytes) -> Iterator[bytes]:
         start = match.end()  
         end = next.start() if next else len(data)
 
-        yield data[start:end]  
+        chunk = data[start:end]  
+        if chunk == boundary + BOUNDARY_LIMITER:
+            continue
+
+        yield chunk.strip(CLRF)
+
+def get_boundary(content_type: str) -> bytes:
+    match = BOUNDARY_REGEX.match(content_type)
+    assert match, 'No boundary found in content-type'
+
+    return match.group('boundary').encode('ascii')
 
 def unquote(text: str) -> str:
     return re.sub(r'"|\'', '', text)
@@ -168,15 +176,9 @@ class FormData(Dict[str, FormDataField]):
         if not content_type:
             return
         
-        match = BOUNDARY_REGEX.match(content_type)
-        assert match, 'No boundary found in content type'
-
-        boundary = match.group('boundary').encode()
-        fields = list(find_fields(boundary, data))
-
-        fields.pop() # Remove the last field, which is just boundary + --
-        for field in fields:
-            result = parse_http_data(field.strip(CLRF), strip_status_line=False)
+        boundary = get_boundary(content_type)
+        for field in find_fields(BOUNDARY_LIMITER + boundary, data):
+            result = parse_http_data(field, strip_status_line=False)
             disposition = Disposition.from_headers(result.headers)
 
             file = File(result.body)
