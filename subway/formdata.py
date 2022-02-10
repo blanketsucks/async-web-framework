@@ -7,7 +7,7 @@ import random
 import re
 
 from .files import File
-from .utils import clean_values, parse_http_data, CLRF
+from .utils import parse_http_data, CLRF
 
 if TYPE_CHECKING:
     from .app import Application
@@ -44,7 +44,7 @@ def find_fields(boundary: bytes, data: bytes) -> Iterator[bytes]:
 
         yield data[start:end]  
 
-def remove_quotes(text: str) -> str:
+def unquote(text: str) -> str:
     return re.sub(r'"|\'', '', text)
 
 class DispositionNotFound(Exception):
@@ -123,11 +123,11 @@ class Disposition:
         if disposition[0] != 'form-data':
             raise InvalidDisposition('Invalid Content-Disposition header.')
 
-        name = remove_quotes(disposition[1])
+        name = unquote(disposition[1])
         filename = _get(disposition, 2)
 
         if filename:
-            filename = remove_quotes(filename)
+            filename = unquote(filename)
 
         content_type = headers.get('Content-Type')
         return cls(name=name, filename=filename, content_type=content_type)
@@ -218,7 +218,7 @@ class FormData(Dict[str, FormDataField]):
         self, 
         file: Union[File, IO[bytes]],
         *,
-        name: Optional[str] = None, # type: ignore
+        name: Optional[str] = None,
         filename: Optional[str] = None,
         content_type: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None
@@ -243,10 +243,13 @@ class FormData(Dict[str, FormDataField]):
             file = File(file)
 
         assert file.filename or name, 'A file name or disposition name must be provided'
-        name = name or file.filename # type: Any
         headers = headers or {}
 
-        disposition = Disposition(name=name, filename=filename, content_type=content_type)
+        disposition = Disposition(
+            name=(name or file.filename), 
+            filename=filename, 
+            content_type=content_type
+        )
         field = FormDataField(file=file, headers=headers, disposition=disposition)
 
         self[field.name] = field
