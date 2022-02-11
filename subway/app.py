@@ -18,6 +18,7 @@ import types
 from .types import (
     CoroFunc,
     MaybeCoro,
+    MaybeCoroFunc,
     StatusCodeCallback,
     RouteResponse,
     ResponseStatus,
@@ -43,14 +44,13 @@ from .base import BaseApplication
 from .blueprints import Blueprint
 from .converters import AbstractConverter
 from .cookies import Cookie
+from .multidict import MultiDict
 
 log = logging.getLogger(__name__)
 
 T = TypeVar('T')
 
-__all__ = (
-    'Application',
-)
+__all__ = 'Application',
 
 
 class Application(BaseApplication):
@@ -141,6 +141,7 @@ class Application(BaseApplication):
         str: lambda _, body: Response(body),
         bytes: lambda _, body: Response(body),   
         dict: lambda _, body: JSONResponse(body),
+        MultiDict: lambda _, body: JSONResponse(body),
         list: lambda _, body: JSONResponse(body),
         Response: lambda _, body: body,
         File: lambda _, body: FileResponse(body),
@@ -170,7 +171,6 @@ class Application(BaseApplication):
         reuse_port: bool = False,
         connection_read_timeout: float = 5.0,
     ) -> None:
-        self._ipv6 = ipv6
         if ipv6 and host is None:
             host = utils.LOCALHOST_V6
 
@@ -185,8 +185,7 @@ class Application(BaseApplication):
             ipv6=ipv6,
         )
 
-        self.url_prefix = url_prefix or ''
-        self.router = Router(self.url_prefix)
+        self.router = Router(url_prefix)
         self.worker_count = self.settings.worker_count if worker_count is None else worker_count
         self.connection_read_timeout = connection_read_timeout
         self.config = Config()
@@ -644,7 +643,7 @@ class Application(BaseApplication):
     def create_socket(self) -> socket.socket:
         if self.path is not None:
             sock = self.create_unix_socket()
-        elif self._ipv6:
+        elif self.is_ipv6():
             sock = self.create_ipv6_socket()
         else:
             sock = self.create_ipv4_socket()
@@ -661,6 +660,33 @@ class Application(BaseApplication):
 
         return env
 
+    def find_respone_handler(self, obj: Any) -> Optional[MaybeCoroFunc[Response]]:
+        """
+        Finds a response handler for the given object.
+
+        Parameters
+        ----------
+        obj: Any
+            The object to find a response handler for.
+        
+        Returns
+        -------
+        Any
+            The response handler.
+        """
+        type = obj.__class__
+        callback = self.RESPONSE_HANDLERS.get(type)
+
+        if callback is not None:
+            return callback
+
+        for cls in type.__mro__:
+            callback = self.RESPONSE_HANDLERS.get(cls)
+            if callback is not None:
+                return callback
+
+        return None
+
     async def parse_response(self, response: RouteResponse) -> Response:
         """
         Parses a response to a usable ``Response`` instance.
@@ -675,7 +701,6 @@ class Application(BaseApplication):
             ValueError: If the response is not parsable.
         """
         status = 200
-        resp = None
 
         if isinstance(response, tuple):
             response, status = response
@@ -694,9 +719,7 @@ class Application(BaseApplication):
             else:
                 status = self._validate_status_code(status)
 
-        cls = type(response)
-        callback = self.RESPONSE_HANDLERS.get(cls)
-
+        callback = self.find_respone_handler(response)
         if callback is None:
             raise ValueError(f'Could not parse {response!r} into a response')
 
@@ -805,6 +828,10 @@ class Application(BaseApplication):
         """
         return pathlib.Path(self._templates_dir)
 
+    @templates.setter
+    def templates(self, value: Union[str, os.PathLike[str]]):
+        self._templates_dir = str(value)
+
     @property
     def host(self) -> Optional[str]:
         return self.settings.host
@@ -828,10 +855,6 @@ class Application(BaseApplication):
     @path.setter
     def path(self, value: Optional[str]):
         self.settings.path = value
-
-    @templates.setter
-    def templates(self, value: Union[str, os.PathLike[str]]):
-        self._templates_dir = str(value)
 
     @property
     def backlog(self) -> int:
@@ -1009,7 +1032,7 @@ class Application(BaseApplication):
         """
         Returns wheter or not the application is serving IPv6 requests.
         """
-        return self._ipv6
+        return self.settings.ipv6
 
     def is_ssl(self) -> bool:
         """

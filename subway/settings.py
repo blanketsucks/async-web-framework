@@ -5,7 +5,7 @@ import ssl as _ssl
 import multiprocessing
 import json
 
-from .utils import LOCALHOST, LOCALHOST_V6, SETTING_ENV_PREFIX, validate_ip
+from .utils import LOCALHOST, LOCALHOST_V6, SETTING_ENV_PREFIX, validate_ip, loads
 from .types import StrPath
 
 __all__ = (
@@ -119,7 +119,7 @@ class Settings:
     def from_json(cls, data: Union[StrPath, Dict[str, Any]]):
         if isinstance(data, (str, os.PathLike)):
             with open(data, 'r') as f:
-                value = json.load(f)
+                value = loads(f.read())
         else:
             value = data
 

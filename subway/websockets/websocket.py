@@ -3,7 +3,7 @@ import asyncio
 import json
 
 from subway.streams import StreamProtocol, StreamReader, StreamWriter
-from subway.utils import clear_docstring, warn
+from subway.utils import clear_docstring, warn, dumps
 from subway.types import BytesLike
 from .frame import WebSocketFrame, WebSocketOpcode, Data, WebSocketCloseCode
 from .enums import WebSocketState
@@ -106,7 +106,7 @@ class BaseWebSocket:
             Whether the frame is a control frame.
         """
         if isinstance(data, (list, dict)):
-            data = json.dumps(data)
+            data = dumps(data)
         if isinstance(data, str):
             data = data.encode()
 
@@ -203,7 +203,7 @@ class BaseWebSocket:
         opcode: :class:`~subway.websockets.frame.WebSocketOpcode`
             The opcode to use. Defaults to :attr:`~subway.websockets.frame.WebSocketOpcode.TEXT`.
         """
-        return await self.send_str(json.dumps(data), opcode=opcode)
+        return await self.send_str(dumps(data), opcode=opcode)
 
     async def continuation(self, data: BytesLike):
         """

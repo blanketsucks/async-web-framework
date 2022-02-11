@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import (
     TYPE_CHECKING, 
     Any, 
-    Dict, 
     Coroutine,
     Callable, 
     Literal, 
@@ -15,9 +14,9 @@ from typing import (
 )
 import struct
 import os
-import json
 
 from subway.types import BytesLike
+from subway.utils import loads
 from .enums import WebSocketCloseCode, WebSocketOpcode, VALID_CLOSE_CODES, VALID_OPCODES
 from .errors import (
     InvalidWebSocketCloseCode,
@@ -105,12 +104,12 @@ class Data:
         """
         return self.data.decode()
 
-    def json(self) -> Dict[str, Any]:
+    def json(self) -> Any:
         """
         The data received as a JSON object.
         """
         text = self.text()
-        return json.loads(text)
+        return loads(text)
 
 
 class WebSocketFrame:

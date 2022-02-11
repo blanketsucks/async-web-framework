@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 
 from typing import IO, Any, Iterable, List, Union, Optional
 import io
@@ -154,7 +155,7 @@ class File:
         """
         return getattr(self.fp, 'raw', None)
 
-    async def seek(self, offset: int, whence: Optional[int] = None):
+    async def seek(self, offset: int, whence: int = os.SEEK_SET) -> int:
         """
         Seeks to the given offset.
 
@@ -162,13 +163,10 @@ class File:
         ----------
         offset: :class:`int`
             The offset to seek to.
-        whence: Optional[:class:`int`]
+        whence: :class:`int`
             The position to seek from.
         """
-        if whence is not None:
-            return await compat.run_in_thread(self.fp.seek, offset, whence)
-        else:
-            return await compat.run_in_thread(self.fp.seek, offset)
+        return await compat.run_in_thread(self.fp.seek, offset, whence)
 
     async def save(self, name: Optional[str] = None):
         """

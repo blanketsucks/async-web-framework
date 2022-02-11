@@ -161,33 +161,6 @@ class FormData(Dict[str, FormDataField]):
     def __init__(self) -> None:
         self._boundary: Optional[bytes] = None
 
-    async def read(self, request: Request[Application]) -> None:
-        """
-        Reads the form data from a request
-
-        Parameters
-        ----------
-        request: :class:`~subway.request.Request`
-            a request.
-        """
-        data = await request.read()
-
-        content_type = request.headers.get('Content-Type')
-        if not content_type:
-            return
-        
-        boundary = get_boundary(content_type)
-        for field in find_fields(BOUNDARY_LIMITER + boundary, data):
-            result = parse_http_data(field, strip_status_line=False)
-            disposition = Disposition.from_headers(result.headers)
-
-            file = File(result.body)
-            field = FormDataField(file=file, headers=result.headers, disposition=disposition)
-
-            self[field.name] = field
-
-        self.boundary = boundary
-
     @property
     def boundary(self) -> Optional[bytes]:
         """
@@ -204,6 +177,34 @@ class FormData(Dict[str, FormDataField]):
     def boundary(self, boundary: bytes) -> None:
         self._boundary = boundary
 
+    def from_bytes(self, data: bytes, headers: Dict[str, Any]):
+        """
+        Parse form data from bytes.
+
+        Parameters
+        ----------
+        data: :class:`bytes`
+            The data to parse.
+        headers: :class:`dict`
+            The headers of the form data.
+        """
+        content_type = headers.get('Content-Type')
+        if not content_type:
+            return self
+        
+        boundary = get_boundary(content_type)
+        for field in find_fields(BOUNDARY_LIMITER + boundary, data):
+            result = parse_http_data(field, strip_status_line=False)
+            disposition = Disposition.from_headers(result.headers)
+
+            file = File(result.body)
+            field = FormDataField(file=file, headers=result.headers, disposition=disposition)
+
+            self[field.name] = field
+
+        self.boundary = boundary
+        return self
+
     def generate_boundary(self) -> bytes:
         """
         Generate a boundary string.
@@ -215,7 +216,7 @@ class FormData(Dict[str, FormDataField]):
         """
         length = random.randint(1, 70)
         return ''.join([random.choice(string.ascii_letters) for _ in range(length)]).encode()
-    
+
     def add_field(
         self, 
         file: Union[File, IO[bytes]],
@@ -263,13 +264,12 @@ class FormData(Dict[str, FormDataField]):
 
         boundary = BOUNDARY_LIMITER + self.boundary 
         headers = [
-            f'Content-Disposition: {disposition.to_header()}'.encode(),
-            f'Content-Type: {disposition.content_type}'.encode(),
+            f'Content-Disposition: {disposition.to_header()}',
+            f'Content-Type: {disposition.content_type}',
         ]
 
         body = boundary
-
-        body += CLRF.join(headers) + (CLRF * 2)
+        body += CLRF.join([header.encode() for header in headers]) + (CLRF * 2)
         body += await field.file.read() + CLRF
 
         return body

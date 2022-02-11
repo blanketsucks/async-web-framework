@@ -6,7 +6,7 @@ import functools
 import re
 
 from subway.types import StrPath
-from subway import open, FileResponse, Route, utils
+from subway import FileResponse, Route, utils, files
 
 if TYPE_CHECKING:
     from ..app import Application
@@ -42,7 +42,7 @@ class StaticFiles:
 
     async def route(self, filename: str, *_: Any) -> FileResponse:
         path = self.directory / filename
-        async with open(path) as f:
+        async with files.open(path) as f:
             return FileResponse(f)
 
     def create_route(self, filename: str, app: Application) -> Route:

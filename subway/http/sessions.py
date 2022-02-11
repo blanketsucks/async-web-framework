@@ -207,7 +207,7 @@ class HTTPSession:
             if body:
                 raise ValueError('body and json cannot be used together')
 
-            body = _json.dumps(json)
+            body = utils.dumps(json)
             headers['Content-Type'] = 'application/json'
 
         elif body:

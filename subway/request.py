@@ -6,6 +6,9 @@ import datetime
 import base64
 import hashlib
 import asyncio
+from urllib.parse import parse_qsl
+
+from subway.multidict import ImmutableMultiDict
 
 from .errors import PartialRead
 from .url import URL
@@ -56,7 +59,7 @@ class HTTPConnection(ABC):
             try:
                 chunk = await reader.read(65536, timeout=timeout)
             except asyncio.TimeoutError:
-                continue
+                break
             except PartialRead as e:
                 chunk = e.partial
             
@@ -420,20 +423,43 @@ class Request(Generic[AppT], HTTPConnection):
         sha1 = hashlib.sha1((key + GUID).encode()).digest()
         return base64.b64encode(sha1).decode()
 
-    async def form(self, *, check_content_type: bool = True) -> FormData:
+    async def form(
+        self, 
+        *, 
+        check_content_type: bool = True, 
+        timeout: Optional[float] = None
+    ) -> Union[FormData, ImmutableMultiDict[str, str]]:
         """
         The form data of the request.
+
+        Note
+        ----
+        This method will return a :class:`~.ImmutableMultiDict` if the content-type is
+        ``application/x-www-form-urlencoded``, a :class:`~.FormData` object otherwise
+
+        Parameters
+        ----------
+        check_content_type: bool
+            If True, the content type must be ``application/x-www-form-urlencoded`` or ``multipart/form-data``.
         """
+        urlencoded = False
+
         if check_content_type:
             content_type = self.headers.content_type
             if not content_type:
                 raise RuntimeError('No content type specified')
             
-            ret = f'Content-Type must be multipart/form-data got {content_type!r} instead'
-            assert 'multipart/form-data' in content_type, ret
- 
-        form = FormData()
-        await form.read(self)
+            ret = f'Content-Type must be multipart/form-data or application/x-www-form-urlencoded got {content_type!r} instead'
+            if content_type == 'application/x-www-form-urlencoded':
+                urlencoded = True
+            elif content_type != 'multipart/form-data':
+                raise RuntimeError(ret)
+
+        body = await self.read(timeout=timeout)
+        if urlencoded:
+            form = ImmutableMultiDict(parse_qsl(body.decode()))
+        else:
+            form = FormData().from_bytes(body, self.headers)
 
         return form
 

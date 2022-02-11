@@ -7,6 +7,7 @@ import mimetypes
 from .cookies import Cookie, CookieJar
 from .files import File
 from .headers import Headers
+from .multidict import MultiDict
 from .types import AnyBody, JSONResponseBody, ResponseBody, ResponseHeaders, ResponseStatus
 from .utils import CLRF, dumps
 
@@ -309,6 +310,10 @@ class JSONResponse(Response):
         headers: Optional[ResponseHeaders] = None,
         version: Optional[str] = None
     ) -> None:
+
+        if body is not None:
+            body = dumps(body, default=self.default_json_dump) # type: ignore
+
         super().__init__(
             body=dumps(body) if body is not None else None,
             status=status,
@@ -317,6 +322,10 @@ class JSONResponse(Response):
             version=version
         )
 
+    def default_json_dump(self, obj: Any) -> Any:
+        if isinstance(obj, MultiDict):
+            return obj._dict
+        return obj.__dict__
 
 class FileResponse(Response):
     """

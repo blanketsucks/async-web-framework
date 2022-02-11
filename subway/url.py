@@ -3,7 +3,7 @@ from __future__ import annotations
 from urllib.parse import SplitResult, urljoin, urlsplit, parse_qsl, urlencode
 from typing import Any, Optional, Dict, Union, overload
 
-from .multidict import MultiDict
+from .multidict import ImmutableMultiDict
 
 __all__ = 'URL',
 
@@ -119,14 +119,14 @@ class URL:
         return self.components.hostname
 
     @property
-    def query(self) -> MultiDict[str, str]:
+    def query(self) -> ImmutableMultiDict[str, str]:
         """
         The query parameters of the URL as an immutable multi-dict.
         """
         ret = self.components.query
         query = parse_qsl(ret)
 
-        return MultiDict(query)
+        return ImmutableMultiDict(query)
 
     @property
     def fragment(self) -> Optional[str]:

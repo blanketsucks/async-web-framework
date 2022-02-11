@@ -50,6 +50,7 @@ __all__ = (
     'dumps',
     'loads',
     'add_signal_handler',
+    'find',
     'to_url',
     'socket_is_closed',
     'listdir',
