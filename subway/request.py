@@ -380,7 +380,14 @@ class Request(Generic[AppT], HTTPConnection):
             host = self.headers['X-Forwarded-For']
 
         return Address(host, port, flowinfo, scope_id)
-
+    
+    @property
+    def based(self) -> bool:
+        """
+        Whether the user is based or not.
+        """
+        return True
+    
     @property
     def server(self) -> Address:
         """
