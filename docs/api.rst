@@ -686,6 +686,10 @@ Request
 
 .. autoclass:: Request
     :members:
+    
+    .. function:: based
+    
+       Returns whether or not the current user is based.
 
 
 Objects

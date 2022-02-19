@@ -4,6 +4,9 @@ app = Application()
 
 @app.route('/')
 async def index(request: Request[Application]):
-    return 'Hello, world!'
+    if request.based:
+        return 'Hello, based user!'
+    else:
+        return 'Hello!'
 
 app.run()
