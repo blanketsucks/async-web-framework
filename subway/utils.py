@@ -1,8 +1,24 @@
 from __future__ import annotations
-from types import FrameType
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Optional, Type, Tuple, Union, TypeVar, List, Iterator, overload, Literal
+from typing import (
+    TYPE_CHECKING, 
+    Any, 
+    Callable, 
+    Dict, 
+    Iterable, 
+    Optional, 
+    Type, 
+    Tuple, 
+    Union, 
+    TypeVar, 
+    List, 
+    Iterator, 
+    overload, 
+    Literal,
+    Generic
+)
 from pathlib import Path
+from types import FrameType
 import warnings
 import functools
 import json
@@ -14,7 +30,7 @@ import asyncio
 import inspect
 
 try:
-    import orjson
+    import orjson # type: ignore
 except ImportError:
     HAS_ORJSON = False
 else:
@@ -34,11 +50,12 @@ from .url import URL
 
 if TYPE_CHECKING:
     from typing_extensions import ParamSpec
-
-    T = TypeVar('T')
-    _T = TypeVar('_T', str, bytes)
-
+    
     P = ParamSpec('P')
+
+T = TypeVar('T')
+T_co = TypeVar('T_co', covariant=True)
+_T = TypeVar('_T', str, bytes)
 
 __all__ = (
     'LOCALHOST',
@@ -49,6 +66,7 @@ __all__ = (
     'VALID_METHODS',
     'dumps',
     'loads',
+    'cached_slot_property',
     'add_signal_handler',
     'find',
     'to_url',
@@ -102,6 +120,35 @@ else:
 
     def loads(obj: str, **kwargs: Any) -> Any:
         return json.loads(obj, **kwargs)
+
+class CachedSlotProperty(Generic[T, T_co]):
+    def __init__(self, name: str, func: Callable[[T], T_co]) -> None:
+        self.name = name
+        self.func = func
+        self.__doc__ = getattr(func, '__doc__')
+
+    @overload
+    def __get__(self, instance: None, owner: Type[T]) -> CachedSlotProperty[T, T_co]:
+        ...
+    @overload
+    def __get__(self, instance: T, owner: Type[T]) -> T_co:
+        ...
+    def __get__(self, instance: Optional[T], owner: Type[T]) -> Any:
+        if instance is None:
+            return self
+
+        try:
+            value = getattr(instance, self.name)
+        except AttributeError:
+            value = self.func(instance)
+            setattr(instance, self.name, value)
+
+        return value
+
+def cached_slot_property(name: str) -> Callable[[Callable[[T], T_co]], CachedSlotProperty[T, T_co]]:
+    def decorator(func: Callable[[T], T_co]) -> CachedSlotProperty[T, T_co]:
+        return CachedSlotProperty(name, func)
+    return decorator
 
 def add_signal_handler(sig: int, handler: Callable[[signal.Signals, FrameType], Any], *args: Any, **kwargs: Any) -> None:
     """
@@ -329,7 +376,7 @@ def copy_docstring(other: Callable[..., Any]) -> Callable[[Callable[P, T]], Call
     other: Callable[..., Any]
         The function to copy the docstring from.
     """
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
         func.__doc__ = other.__doc__
         return func
 
@@ -360,10 +407,11 @@ async def maybe_coroutine(func: MaybeCoroFunc[T], *args: Any, **kwargs: Any) -> 
     **kwargs: Any
         Keyword arguments to pass to the function or coroutine.
     """
-    if iscoroutinefunction(func):
-        return await func(*args, **kwargs) # type: ignore
+    ret = func(*args, **kwargs)
+    if inspect.isawaitable(ret):
+        return await ret
 
-    return func(*args, **kwargs) # type: ignore
+    return ret # type: ignore
 
 def has_ipv6() -> bool:
     """
@@ -407,7 +455,7 @@ def is_ipv4(ip: str) -> bool:
     except socket.error:
         return False
 
-def validate_ip(ip: str = None, *, ipv6: bool = False) -> str:
+def validate_ip(ip: Optional[str] = None, *, ipv6: bool = False) -> str:
     """
     A helper function that validates an IP address.
     If an IP address is not given it will return the localhost address.

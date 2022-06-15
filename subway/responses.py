@@ -1,7 +1,7 @@
-from typing import Any, Dict, NoReturn, Type, Optional, TypeVar
+from typing import Any, Dict, Type, Optional, TypeVar
 
 from .types import ResponseBody, ResponseHeaders, StrURL
-from .response import Response, HTTPStatus
+from .response import Response
 
 __all__ = (
     'HTTPException',
@@ -65,7 +65,6 @@ __all__ = (
     'LoopDetected',
     'NotExtended',
     'NetworkAuthenticationRequired',
-    'abort',
     'informational_responses',
     'successful_responses',
     'redirects',
@@ -541,20 +540,6 @@ class NetworkAuthenticationRequired(HTTPException):
     """
     Further extensions to the request are required for the server to fulfill it.
     """
-
-async def abort(code: int, *, message: Optional[str]=None, content_type: str='text/html') -> NoReturn:
-    if not message:
-        status = HTTPStatus(code) # type: ignore
-        message = status.description
-
-        code = status.value
-
-    if code < 400:
-        ret = f'{code} is not a valid status code for both client errors and server errors'
-        raise ValueError(ret)
-
-    error = responses.get(code, HTTPException)
-    raise error(reason=message, content_type=content_type)
 
 informational_responses = {
     code: cls

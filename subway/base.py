@@ -3,13 +3,12 @@ from __future__ import annotations
 from typing import Callable, Literal, Optional, Union, overload, TYPE_CHECKING, Any
 from abc import ABC, abstractmethod
 
-from .types import CoroFunc, ResponseMiddleware, RequestMiddleware
+from .types import CoroFunc, ResponseMiddleware, RequestMiddleware, RouteCallback
 from .router import Router
 from .objects import Listener, Middleware, Route, WebSocketRoute, MiddlewareType
-from .errors import RegistrationError
 
 if TYPE_CHECKING:
-    RouteDecorator = Callable[..., Route]
+    RouteDecorator = Callable[[Union[RouteCallback, Route]], Route]
     WebSocketRouteDecorator = Callable[[Union[CoroFunc[Any], WebSocketRoute]], WebSocketRoute]
 
 __all__ = 'BaseApplication',
@@ -292,11 +291,12 @@ class BaseApplication(ABC):
     def request_middleware(self, callback: RequestMiddleware) -> Middleware:
         """Adds a request middleware to the application.
 
-        Middlewares must return a boolean value or raise an error
+        Middlewares must return a boolean value or raise an error.
+        If a request middleware returns a :class:`~.Response` object, that response object will be sent to the client.
 
         Parameters
         ----------
-        callback: Callable
+        callback: Any
             The middleware to add.
 
         Returns
@@ -322,11 +322,9 @@ class BaseApplication(ABC):
     def response_middleware(self, callback: ResponseMiddleware) -> Middleware:
         """Adds a response middleware to the application.
 
-        Middlewares must return a boolean value or raise an error
-
         Parameters
         ----------
-        callback: Callable
+        callback: Any
             The middleware to add.
 
         Returns

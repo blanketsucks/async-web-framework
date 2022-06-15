@@ -42,7 +42,7 @@ class StaticFiles:
 
     async def route(self, filename: str, *_: Any) -> FileResponse:
         path = self.directory / filename
-        async with files.open(path) as f:
+        async with files.aopen(path) as f:
             return FileResponse(f)
 
     def create_route(self, filename: str, app: Application) -> Route:

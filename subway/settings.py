@@ -3,7 +3,6 @@ import importlib
 import os
 import ssl as _ssl
 import multiprocessing
-import json
 
 from .utils import LOCALHOST, LOCALHOST_V6, SETTING_ENV_PREFIX, validate_ip, loads
 from .types import StrPath
@@ -94,7 +93,7 @@ class Settings:
     def from_env(cls):
         kwargs = {}
         env = os.environ
-        settings = cls.__slots__ # silly thing to do, but it works
+        settings = cls.__slots__
 
         for setting in settings:
             name = SETTING_ENV_PREFIX + setting.casefold()

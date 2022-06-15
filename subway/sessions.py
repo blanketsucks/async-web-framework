@@ -13,7 +13,7 @@ class AbstractRequestSession(ABC):
     
     @classmethod
     @abstractmethod
-    async def from_request(cls, request: Request[Application]):
+    async def from_request(cls, request: Request[Application]) -> Any:
         raise NotImplementedError
 
 class CookieSession(AbstractRequestSession, Dict[str, Any]):

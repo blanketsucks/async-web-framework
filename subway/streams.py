@@ -1,29 +1,15 @@
-from typing import Callable, List, Literal, Tuple, Optional, Any, overload, TypedDict, Union
+from typing import Callable, List, Literal, Tuple, Optional, Any, overload
 import asyncio
-import socket
-import ssl
 
 from . import compat, utils
-from .types import BytesLike, Coro
+from .types import BytesLike, Coro, Address
 from .errors import PartialRead
-
-class Peercert(TypedDict, total=False):
-    subject: Tuple[Tuple[Tuple[str, str]]]
-    issuer: Tuple[Tuple[Tuple[str, str]]]
-    version: int
-    serialNumber: int
-    notBefore: str
-    notAfter: str
-    subjectAltName: Tuple[Tuple[str, str], ...]
-    OCSP: Tuple[Tuple[str, str]]
-    caIssuers: Tuple[str, ...]
-    crlDistributionPoints: Tuple[str, ...]
-
 
 __all__ = (
     'StreamWriter',
     'StreamReader',
     'StreamProtocol',
+    'get_address',
     'open_connection',
     'start_server',
     'start_unix_server'
@@ -163,20 +149,6 @@ class StreamWriter:
 
         await self._wait_for_drain(timeout)
 
-    @overload
-    def get_extra_info(self, name: Literal['peername', 'sockname']) -> Union[Tuple[str, int], Tuple[str, int, int, int]]: ...
-    @overload
-    def get_extra_info(self, name: Literal['socket']) -> socket.socket: ...
-    @overload
-    def get_extra_info(self, name: Literal['compression']) -> Optional[str]: ...
-    @overload
-    def get_extra_info(self, name: Literal['cipher']) -> Optional[Tuple[str, str, int]]: ...
-    @overload
-    def get_extra_info(self, name: Literal['peercert']) -> Optional[Peercert]: ...
-    @overload
-    def get_extra_info(self, name: Literal['sslcontext']) -> Optional[ssl.SSLContext]: ...
-    @overload
-    def get_extra_info(self, name: Literal['ssl_object']) -> Optional[Union[ssl.SSLObject, ssl.SSLSocket]]: ...
     def get_extra_info(self, name: str) -> Any:
         """
         Gets extra info about the transport.
@@ -227,7 +199,6 @@ class StreamReader:
     loop: :class:`asyncio.AbstractEventLoop`
         A reference to the event loop.
     """
-
     def __init__(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
         self.buffer: bytearray = bytearray()
         self.loop = loop or compat.get_running_loop()
@@ -519,6 +490,19 @@ class StreamProtocol(asyncio.Protocol):
         self.paused = True
         self.writer.pause_writing()
 
+def get_address(writer: StreamWriter, type: str) -> Address:
+    if type not in ('sockname', 'peername'):
+        raise ValueError(f'Invalid address type {type!r}. Must be either sockname or perrname.')
+
+    addr = writer.get_extra_info('sockname')
+    if len(addr) == 4:
+        host, port, flowinfo, scope_id = addr
+    else:
+        host, port = addr
+        flowinfo, scope_id = None, None
+
+    return Address(host, port, flowinfo, scope_id)
+
 async def open_connection(
     host: Optional[str] = None, port: Optional[int] = None, **kwargs: Any
 ) -> Tuple[StreamReader, StreamWriter]:
@@ -578,7 +562,7 @@ async def start_unix_server(
 
     Note
     ----
-    This only works on unix based systems.
+    This only works on unix based systems (duh).
 
     Parameters
     -----------

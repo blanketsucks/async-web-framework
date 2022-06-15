@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Literal, Optional, Set, Type, TypeVar, Union, AsyncIterator
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, Type, TypeVar, Union, AsyncIterator, overload
 import datetime
-import os
-import sys
-import ssl
 import inspect
 import logging
 import socket
@@ -14,37 +11,41 @@ import traceback
 import jinja2
 import pathlib
 import types
+import os
+import sys
+import ssl
 
 from .types import (
     CoroFunc,
     MaybeCoro,
-    MaybeCoroFunc,
+    ResponseHandler,
     StatusCodeCallback,
     RouteResponse,
     ResponseStatus,
     ResponseMiddleware,
     CookieSessionCallback
 )
-from .resources import Resource
-from . import compat, utils
-from .request import Request
-from .responses import redirects, HTTPException, InternalServerError
-from .errors import *
+from .errors import BadLiteralArgument, FailedConversion, RequestMiddlewareFailed, RegistrationError
+from .response import Response, JSONResponse, FileResponse, HTMLResponse, StreamResponse
+from .objects import PartialRoute, Route, Listener, WebSocketRoute, Middleware
+from .converters import AbstractParameterConverter, AbstractBodyConverter
+from .responses import redirects, HTTPException, InternalServerError, Redirection
+from .models import Model, IncompatibleType, MissingField
+from .websockets import WebSocket, WebSocketProtocol
+from .views import HTTPView, WebSocketHTTPView
 from .router import Router, ResolvedRoute
 from .settings import Settings, Config
-from .objects import PartialRoute, Route, Listener, WebSocketRoute, Middleware
-from .views import HTTPView
-from .response import Response, JSONResponse, FileResponse, HTMLResponse, StreamResponse
-from .files import File
-from .websockets import ServerWebSocket as WebSocket, WebSocketProtocol
-from .workers import Worker
-from .models import Model, IncompatibleType, MissingField
-from .url import URL
 from .base import BaseApplication
 from .blueprints import Blueprint
-from .converters import AbstractConverter
+from .blueprints import Blueprint
+from .resources import Resource
+from .request import Request
+from .workers import Worker
 from .cookies import Cookie
-from .multidict import MultiDict
+from .files import File
+from .url import URL
+
+from . import compat, utils
 
 log = logging.getLogger(__name__)
 
@@ -137,11 +138,10 @@ class Application(BaseApplication):
     config: :class:`dict`
         A dict letting users store custom configuration.
     """
-    RESPONSE_HANDLERS: Dict[type, Callable[[Application, Any], MaybeCoro[Response]]] = {
+    RESPONSE_HANDLERS: Dict[type, ResponseHandler[Any]] = {
         str: lambda _, body: Response(body),
         bytes: lambda _, body: Response(body),   
         dict: lambda _, body: JSONResponse(body),
-        MultiDict: lambda _, body: JSONResponse(body),
         list: lambda _, body: JSONResponse(body),
         Response: lambda _, body: body,
         File: lambda _, body: FileResponse(body),
@@ -211,6 +211,7 @@ class Application(BaseApplication):
         self._reuse_host = reuse_host
         self._reuse_port = reuse_port
         self._response_middlewares: List[ResponseMiddleware] = []
+        self._websockets: Set[WebSocket] = set()
 
         if not reuse_host:
             self.worker_count = 1
@@ -310,18 +311,24 @@ class Application(BaseApplication):
 
         return workers
 
-    async def _transform_model(self, parameter: Parameter, request: Request[Application]) -> Any:
-        try:
-            data = await request.json(check_content_type=True)
-        except AssertionError:
-            if parameter.default is not parameter.empty:
-                return parameter.default
-
-            raise
-        
+    async def _transform_body(self, parameter: inspect.Parameter, request: Request[Application]) -> Any:
         annotations = utils.get_union_args(parameter.annotation)
+        body = await request.read()
 
         for annotation in annotations:
+            if issubclass(annotation, AbstractBodyConverter):
+                return await annotation().convert(request, body) # type: ignore
+            elif isinstance(annotation, AbstractBodyConverter):
+                return await annotation.convert(request, body)
+
+            try:
+                data = await request.json(check_content_type=True)
+            except AssertionError:
+                if parameter.default is not parameter.empty:
+                    return parameter.default
+
+                raise
+
             if issubclass(annotation, Model):
                 try:
                     return annotation.from_json(data)
@@ -331,11 +338,11 @@ class Application(BaseApplication):
         if parameter.default is not parameter.empty:
             return parameter.default
 
-        raise BadModelConversion(data, parameter, annotations)
+        raise ValueError('Could not convert request body.')
 
     async def _transform(
         self, 
-        parameter: Parameter, 
+        parameter: inspect.Parameter, 
         argument: str, 
         request: Request[Application]
     ) -> Any:
@@ -351,9 +358,9 @@ class Application(BaseApplication):
             return argument
 
         for annotation in utils.get_union_args(annotation):
-            if isinstance(annotation, AbstractConverter):
+            if isinstance(annotation, AbstractParameterConverter):
                 return await annotation.convert(request, argument)
-            elif issubclass(annotation, AbstractConverter):
+            elif issubclass(annotation, AbstractParameterConverter):
                 return await annotation().convert(request, argument) # type: ignore
 
             try:
@@ -399,7 +406,7 @@ class Application(BaseApplication):
                 if parameter.annotation is not inspect.Signature.empty:
                     value = await self._transform(parameter, value, request)
             else:
-                value = await self._transform_model(parameter, request)
+                value = await self._transform_body(parameter, request)
                
             kwargs[key] = value
             
@@ -464,6 +471,8 @@ class Application(BaseApplication):
         request.writer.set_protocol(protocol)
         await protocol.wait_until_connected()
 
+        self._websockets.add(websocket)
+
         self.dispatch('websocket', route, request, websocket)
         self.loop.create_task(route(request, websocket))
 
@@ -474,7 +483,7 @@ class Application(BaseApplication):
         exc: Exception
     ):
         if isinstance(route, Route):
-            ret = await route.dispatch(request, exc)
+            ret = await route._dispatch_error(request, exc)
             if ret:
                 return
 
@@ -500,8 +509,10 @@ class Application(BaseApplication):
             kwargs = await self._convert(resolved, request)
             ret = await self._run_request_middlewares(request=request, route=resolved.route, kwargs=kwargs)
 
-            if request.is_closed() or not ret:
+            if request.is_closed():
                 return
+            elif not ret:
+                raise RequestMiddlewareFailed('One or more request middlewares failed')
 
             if resolved.route.is_websocket() and request.is_websocket():
                 await self._handle_websocket_connection(resolved.route, request, websocket) # type: ignore
@@ -597,11 +608,6 @@ class Application(BaseApplication):
         sock = socket.socket(family, socket.SOCK_STREAM, socket.IPPROTO_TCP)
         self._set_socketopt(sock)
 
-        # sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-
-        # if self.ssl_context:
-        #     sock = self.ssl_context.wrap_socket(sock, server_side=True)
-
         sock.bind((self.host, self.port))
         sock.listen(self.backlog)
 
@@ -616,9 +622,6 @@ class Application(BaseApplication):
 
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._set_socketopt(sock)
-
-        # if self.ssl_context:
-        #     sock = self.ssl_context.wrap_socket(sock, server_side=True)
 
         sock.bind(self.path)
         sock.listen(self.backlog)
@@ -660,21 +663,20 @@ class Application(BaseApplication):
 
         return env
 
-    def find_respone_handler(self, obj: Any) -> Optional[MaybeCoroFunc[Response]]:
+    def find_respone_handler(self, type: Type[T]) -> Optional[ResponseHandler[T]]:
         """
-        Finds a response handler for the given object.
+        Finds a response handler for the given type.
 
         Parameters
         ----------
-        obj: Any
-            The object to find a response handler for.
+        type: Any
+            The type to find a response handler for.
         
         Returns
         -------
         Any
             The response handler.
         """
-        type = obj.__class__
         callback = self.RESPONSE_HANDLERS.get(type)
 
         if callback is not None:
@@ -719,7 +721,7 @@ class Application(BaseApplication):
             else:
                 status = self._validate_status_code(status)
 
-        callback = self.find_respone_handler(response)
+        callback = self.find_respone_handler(type(response))
         if callback is None:
             raise ValueError(f'Could not parse {response!r} into a response')
 
@@ -1000,6 +1002,10 @@ class Application(BaseApplication):
         """
         return {route.path for route in self.router}
 
+    @property
+    def websockets(self) -> List[WebSocket]:
+        return [websocket for websocket in self._websockets if not websocket.is_closed()]
+
     def url_for(self, path: str, *, is_websocket: bool = False, **kwargs: Any) -> URL:
         """
         Builds a URL for a given path and returns it.
@@ -1065,28 +1071,6 @@ class Application(BaseApplication):
         self._workers[worker.id] = worker
         return worker
 
-    def _cancel_all_tasks(self) -> None:
-        to_cancel = asyncio.all_tasks(self.loop)
-        if not to_cancel:
-            return
-
-        for task in to_cancel:
-            task.cancel()
-
-        self.loop.run_until_complete(
-            future=asyncio.gather(*to_cancel, loop=self.loop, return_exceptions=True)
-        )
-
-        for task in to_cancel:
-            if task.cancelled():
-                continue
-            if task.exception() is not None:
-                self.loop.call_exception_handler({
-                    'message': 'unhandled exception during Application shutdown',
-                    'exception': task.exception(),
-                    'task': task,
-                })
-
     async def wait_until_ready(self) -> None:
         """
         Waits until the application is ready.
@@ -1130,17 +1114,13 @@ class Application(BaseApplication):
             if not self.is_closed():
                 loop.run_until_complete(self.close())
 
-        # try:
-        #     self._cancel_all_tasks()
-        #     loop.run_until_complete(loop.shutdown_asyncgens())
-        #     loop.run_until_complete(loop.shutdown_default_executor())
-        # finally:
-        #     pass
-
     async def shutdown(self) -> None:
         """
         Closes the application with no further cleanup.
         """
+        for websocket in self.websockets:
+            await websocket.close()
+
         for worker in self.workers:
             await worker.close()
 
@@ -1463,6 +1443,34 @@ class Application(BaseApplication):
 
         return view
 
+    def add_websocket_view(
+        self, view: Union[WebSocketHTTPView, Type[WebSocketHTTPView]], *, path: Optional[str] = None
+    ) -> WebSocketHTTPView:
+        """
+        Registers a websocket view as a route.
+
+        Parameters
+        ----------
+        view: :class:`~subway.views.WebSocketView`
+            The view to add. Could be a class or an instance.
+
+        Raises
+        ----------
+        RegistrationError: If the `view` argument that was passed in is not a proper view or it's already registered.
+        """
+        if inspect.isclass(view) and issubclass(view, WebSocketHTTPView):
+            view = view(path)
+
+        if not isinstance(view, WebSocketHTTPView):
+            fmt = 'Expected WebSocketView but got {0!r} instead.'.format(view.__class__.__name__) # type: ignore
+            raise RegistrationError(fmt)
+
+        if view.path in self.paths:
+            raise RegistrationError('View already registered')
+
+        self.add_route(view._listener, view.path, 'GET', websocket=True)
+        return view
+
     def remove_view(self, path: str) -> Optional[HTTPView]:
         """
         Removes a view from the application.
@@ -1476,8 +1484,7 @@ class Application(BaseApplication):
         if not view:
             return None
 
-        view.init(router=self.router, remove_routes=True)
-        return view
+        return view.destroy(self.router)
 
     def view(self, path: Optional[str] = None):
         """
@@ -1600,8 +1607,6 @@ class Application(BaseApplication):
 
         self._blueprints[blueprint.name] = blueprint
 
-    # getters
-
     def get_worker(self, id: int) -> Optional[Worker]:
         """
         Returns the worker with the given ID.
@@ -1685,8 +1690,6 @@ class Application(BaseApplication):
         """
         return self._status_code_handlers.get(code)
 
-    # event handlers
-
     async def on_error(
         self,
         request: Request[Application],
@@ -1696,7 +1699,7 @@ class Application(BaseApplication):
         if self._listeners.get('on_error', []):
             return
 
-        if isinstance(exc, HTTPException):
+        if isinstance(exc, (HTTPException, Redirection)):
             await request.send(exc)
         else:
             print(f'Ignoring exception in route {route.path!r}:', file=sys.stderr)

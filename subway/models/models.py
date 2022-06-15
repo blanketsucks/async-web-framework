@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 from typing import (
     Any, 
     Dict, 
     List, 
-    Sequence, 
     Tuple, 
     Type, 
     TypedDict, 
@@ -12,13 +13,18 @@ from typing import (
     Iterable, 
     Callable, 
     Iterator, 
-    TypeVar
+    TypeVar,
+    overload
 )
 
 from subway.utils import evaluate_annotation, __dataclass_transform__
-from .utils import DEFAULT, is_json_serializable, is_optional, safe_getattr
+from .utils import DEFAULT, is_json_serializable, is_optional, model_getattr
 from .fields import Field, field
 from .errors import IncompatibleType, ObjectNotSerializable, MissingField
+
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 ModelT = TypeVar('ModelT', bound='Model')
 
@@ -37,6 +43,7 @@ class ModelOptions(TypedDict):
     strict_fields: Union[List[str], Tuple[str]]
     include_null_fields: bool
     slotted: bool
+    repr: bool
 
 def find_validator(name: str, namespace: Dict[str, Any]) -> Callable[..., bool]:
     for value in namespace.values():
@@ -102,6 +109,7 @@ class ModelMeta(type):
             'strict_fields': attrs.get('__strict_fields__', []),
             'include_null_fields': kwargs.get('include_null_fields', False),
             'slotted': kwargs.get('slotted', False),
+            'repr': kwargs.get('repr', False)
         }
 
         old = attrs.get('__annotations__', {})
@@ -229,18 +237,13 @@ class Model(metaclass=ModelMeta):
 
 
     """
-    if TYPE_CHECKING:
-        __fields__: List[Field]
-        __field_mapping__: Dict[str, Field]
-        __options__: ModelOptions
-
     def __init__(self, **kwargs: Any) -> None:
         for field in self.fields:
             assert field.name
             value = kwargs.get(field.name, field.default)
 
             if value is DEFAULT:
-                if field.default_factory is not None:
+                if field.default_factory is not DEFAULT:
                     setattr(self, field.name, field.default_factory())
                 else:
                     raise MissingField(field)
@@ -258,7 +261,7 @@ class Model(metaclass=ModelMeta):
             return f'{name}={repr(attr)}'
 
         return f'{name}={attr!r}'
-
+    
     def __iter__(self) -> Iterator[Tuple[Field[Any], Any]]:
         """
         Iterates over the fields and their values.
@@ -319,8 +322,16 @@ class Model(metaclass=ModelMeta):
 
         return self.json() == other.json()
 
+    @overload
     @classmethod
-    def from_json(cls: Type[ModelT], data: Any) -> ModelT:
+    def from_json(cls: Type[ModelT], data: List[Dict[str, Any]]) -> List[ModelT]:
+        ...
+    @overload
+    @classmethod
+    def from_json(cls: Type[ModelT], data: Dict[str, Any]) -> ModelT:
+        ...
+    @classmethod
+    def from_json(cls: Type[ModelT], data: Any) -> Any:
         """
         Makes the model from a JSON object.
 
@@ -335,24 +346,27 @@ class Model(metaclass=ModelMeta):
         MissingField: If a field is missing.
         IncompatibleType: If the type of the field is incompatible with the type of the data.
         """
-        if not isinstance(data, dict):
-            raise TypeError('data must be a dict')
+        if not isinstance(data, (dict, list)):
+            raise TypeError('Data must be a dict or list')
 
-        return cls(**data)
+        if isinstance(data, list):
+            return [cls(**item) for item in data]
+        else:
+            return cls(**data)
 
     @property
     def fields(self) -> Tuple[Field[Any]]:
         """
         The fields of the model.
         """
-        return tuple(self.__fields__)
+        return tuple(self.__fields__) # type: ignore
 
     @property
     def options(self) -> ModelOptions:
         """
         The options of the model.
         """
-        return self.__options__
+        return self.__options__ # type: ignore
 
     def is_json_serializable(self) -> bool:
         """
@@ -360,7 +374,7 @@ class Model(metaclass=ModelMeta):
         """
         for field in self.fields:
             assert field.name
-            value = safe_getattr(self, field.name)
+            value = model_getattr(self, field.name)
 
             if isinstance(value, Model):
                 if not value.is_json_serializable():
@@ -371,14 +385,16 @@ class Model(metaclass=ModelMeta):
 
         return True
 
-    def copy(self) -> 'Model':
+    def copy(self) -> Self:
         """
         Returns a copy of the model.
         """
         data = self.json()
         return self.from_json(data)
 
-    def json(self, *, include: Iterable[str] = None, exclude: Iterable[str] = None) -> Dict[str, Any]:
+    def json(
+        self, *, include: Optional[Iterable[str]] = None, exclude: Optional[Iterable[str]] = None
+    ) -> Dict[str, Any]:
         """
         Serializes the model into a JSON object.
 
@@ -402,7 +418,9 @@ class Model(metaclass=ModelMeta):
 
         return data
 
-    def to_dict(self, *, include: Iterable[str] = None, exclude: Iterable[str] = None) -> Dict[str, Any]:
+    def to_dict(
+        self, *, include: Optional[Iterable[str]] = None, exclude: Optional[Iterable[str]] = None
+    ) -> Dict[str, Any]:
         """
         Serializes the model into a dictionary.
         The value returned may not be a valid JSON object.
@@ -424,9 +442,11 @@ class Model(metaclass=ModelMeta):
 
         return data
 
-    def _iter(self, include: Iterable[str] = None, exclude: Iterable[str] = None):
+    def _iter(
+        self, include: Optional[Iterable[str]] = None, exclude: Optional[Iterable[str]] = None
+    ):
         if include is None:
-            include = [field.name for field in self.__fields__ if field.name is not None]
+            include = [field.name for field in self.__fields__ if field.name is not None] # type: ignore
 
         if exclude is None:
             exclude = []

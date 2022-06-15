@@ -1,7 +1,7 @@
 from __future__ import annotations
 import datetime
 
-from typing import Dict, List, Literal, Optional, NamedTuple
+from typing import Any, Dict, List, Literal, Optional, NamedTuple
 
 __all__ = (
     'Cookie',
@@ -61,6 +61,9 @@ class Cookie(NamedTuple):
 
         return base
 
+    def replace(self, **kwargs: Any) -> Cookie:
+        return self._replace(**kwargs)
+
     def __repr__(self) -> str:
         return '<Cookie name={0.name!r} value={0.value!r}>'.format(self)
     
@@ -95,6 +98,13 @@ class CookieJar:
 
         return jar
 
+    @property
+    def cookies(self) -> List[Cookie]:
+        """
+        The cookies in the jar.
+        """
+        return list(self._cookies.values())
+        
     def add_cookie(
         self,
         name: str,
@@ -169,7 +179,7 @@ class CookieJar:
         return '; '.join(cookie.to_string() for cookie in self._cookies.values())
 
     def __iter__(self):
-        return self._cookies.items().__iter__()
+        return self._cookies.values().__iter__()
 
     def __bool__(self):
         return bool(self._cookies)

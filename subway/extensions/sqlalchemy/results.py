@@ -16,6 +16,7 @@ from typing import (
     overload
 )
 import sqlalchemy
+import sqlalchemy.exc
 from sqlalchemy.engine.cursor import ResultProxy as Result
 from sqlalchemy.engine.row import RowProxy as _RowProxy
 from sqlalchemy.ext.asyncio import AsyncResult
@@ -51,22 +52,19 @@ class Row:
         self.proxy = proxy
 
     def __repr__(self) -> str:
-        attrs = ' '.join(f'{k}={v!r}' for k, v in self.items())
-        return f'<Row {attrs}>'
+        return repr(self.proxy)
 
     def keys(self) -> KeysView[str]:
         """
         Return a view of keys for string column names represented in the row.
         """
-        keys = self.proxy._mapping.keys()
-        return KeysView(keys._keys) # type: ignore
+        return self.proxy._mapping.keys()
 
     def values(self) -> ValuesView[Any]:
         """
         Return a view of values for the values represented in the row.
         """
-        values = self.proxy._mapping.values()
-        return ValuesView(values._items) # type: ignore
+        return self.proxy._mapping.values()
 
     def items(self) -> ItemsView[str, Any]:
         """
@@ -96,21 +94,6 @@ class Row:
             return self.proxy[key]
 
         return self.proxy._mapping[key]
-
-    def __getattr__(self, name: str) -> Any:
-        """
-        Allows row elements to be accessed as attributes.
-
-        Parameters
-        ----------
-        name: :class:`str`
-            The name of the attribute/element to get.
-        """
-        value = self.proxy._mapping.get(name)
-        if value is None:
-            raise AttributeError(f'no attribute {name}')
-
-        return value
 
     def __iter__(self) -> Iterator[Any]:
         """
@@ -159,7 +142,7 @@ class CursorResult:
         """
         return self.wrapped.mappings() # type: ignore
 
-    def scalars(self, index: int=0) -> ScalarsResult:
+    def scalars(self, index: int = 0) -> ScalarsResult:
         return self.wrapped.scalars(index) # type: ignore
 
     async def fetchone(self) -> Optional[Row]:
@@ -170,7 +153,7 @@ class CursorResult:
         if row is not None:
             return Row(row)
 
-    async def fetchmany(self, size: Optional[int]=None) -> List[Row]:
+    async def fetchmany(self, size: Optional[int] = None) -> List[Row]:
         """
         Fetch the next set of rows from the result.
 
@@ -224,7 +207,7 @@ class CursorResult:
         """
         await self.wrapped.close()
 
-    async def partitions(self, size: Optional[int]=None) -> AsyncIterator[List[Row]]:
+    async def partitions(self, size: Optional[int] = None) -> AsyncIterator[List[Row]]:
         """
         Returns an iterator over the result partitions.
 
@@ -294,7 +277,7 @@ class TypedCursorResult(Generic[ResultT], CursorResult):
         return self.convert(row)
 
     @copy_docstring(CursorResult.fetchmany)
-    async def fetchmany(self, size: Optional[int]=None) -> List[ResultT]:
+    async def fetchmany(self, size: Optional[int] = None) -> List[ResultT]:
         rows = await super().fetchmany(size)
         return self.convert(rows)
 
@@ -318,7 +301,7 @@ class TypedCursorResult(Generic[ResultT], CursorResult):
         row = await super().first()
         return self.convert(row)
 
-    @copy_docstring(CursorResult.freeze)
+    @copy_docstring(CursorResult.partitions)
     async def partitions(self, size: Optional[int] = None) -> AsyncIterator[List[ResultT]]:
         async for rows in super().partitions(size=size):
             yield self.convert(rows)

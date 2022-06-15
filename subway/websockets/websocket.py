@@ -1,8 +1,7 @@
-from typing import Any, Dict, List, Optional, overload, Literal, Union
+from typing import Any, Dict, List, Optional, Union
 import asyncio
-import json
 
-from subway.streams import StreamProtocol, StreamReader, StreamWriter
+from subway.streams import StreamProtocol, StreamReader, StreamWriter, get_address
 from subway.utils import clear_docstring, warn, dumps
 from subway.types import BytesLike
 from .frame import WebSocketFrame, WebSocketOpcode, Data, WebSocketCloseCode
@@ -13,8 +12,7 @@ __all__ = (
     'WebSocketProtocol',
     'ServerWebSocket',
     'ClientWebSocket',
-    'WebSocket',
-    'create_websocket'
+    'WebSocket'
 )
 
 WebSocketData = Union[str, BytesLike, Dict[Any, Any], List[Any]]
@@ -91,6 +89,20 @@ class BaseWebSocket:
         The reader to use.
         """
         return self._reader
+
+    @property
+    def sockname(self):
+        """
+        The address of the local endpoint.
+        """
+        return get_address(self.writer, 'sockname')
+
+    @property
+    def peername(self):
+        """
+        The address of the remote endpoint.
+        """
+        return get_address(self.writer, 'peername')
 
     def create_frame(self, data: WebSocketData, opcode: WebSocketOpcode, *, control: bool = False) -> WebSocketFrame:
         """
@@ -342,16 +354,3 @@ class ClientWebSocket(BaseWebSocket):
 
 
 WebSocket = ServerWebSocket
-
-
-@overload
-def create_websocket(writer: StreamWriter, reader: StreamReader, *, client_side: Literal[False]) -> ServerWebSocket:
-    ...
-@overload
-def create_websocket(writer: StreamWriter, reader: StreamReader, *, client_side: Literal[True]) -> ClientWebSocket:
-    ...
-def create_websocket(*args: Any, client_side: bool) -> Union[ServerWebSocket, ClientWebSocket]:
-    if client_side:
-        return ClientWebSocket(*args)
-    else:
-        return ServerWebSocket(*args)

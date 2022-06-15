@@ -7,15 +7,13 @@ import io
 from .types import BytesLike, OpenFile
 from . import compat
 
-_open = open
-
 class FileContextManager:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self.args = args
         self.kwargs = kwargs
 
     async def open(self) -> File:
-        fd = await compat.run_in_thread(_open, *self.args, **self.kwargs)
+        fd = await compat.run_in_thread(open, *self.args, **self.kwargs)
         return File(fd) # type: ignore
 
     def __await__(self):
@@ -29,7 +27,7 @@ class FileContextManager:
         await self.file.close()
 
 
-def open(file: OpenFile, mode: Optional[str] = None, **kwargs: Any):
+def aopen(file: OpenFile, mode: Optional[str] = None, **kwargs: Any):
     """
     Open a file in a binary mode.
 
@@ -76,10 +74,7 @@ class File:
     fp: :class:`io.BufferedIOBase`
         The file object.
     """
-    def __init__(self, source: Union[io.BytesIO, BytesLike, IO[bytes]], *, filename: Optional[str] = None) -> None:
-        if isinstance(source, (bytes, bytearray, memoryview)):
-            source = io.BytesIO(source)
-
+    def __init__(self, source: Union[io.BytesIO, IO[bytes]], *, filename: Optional[str] = None) -> None:
         self.fp = source
         self.filename: Any = getattr(self.fp, 'name', filename)
 
@@ -110,18 +105,6 @@ class File:
         """
         func = getattr(self.fp, name)
         return await compat.run_in_thread(func, *args, **kwargs)
-
-    @classmethod
-    def from_file(cls, file: File):
-        """
-        Creates a new file from an existing file.
-
-        Parameters
-        ----------
-        file: :class:`~.File`
-            The file to create a new file from.
-        """
-        return cls(file.fp, filename=file.filename)
 
     @property
     def closed(self) -> bool:
@@ -167,24 +150,6 @@ class File:
             The position to seek from.
         """
         return await compat.run_in_thread(self.fp.seek, offset, whence)
-
-    async def save(self, name: Optional[str] = None):
-        """
-        Saves the file as ``name``.
-
-        Parameters
-        ----------
-        name: :class:`str`
-            The name of the file.
-        """
-        if name is None:
-            name = self.filename
-
-        assert name is not None, 'No filename specified'
-        data = await self.read()
-
-        async with open(name, 'wb') as file:
-            return await file.write(data)
 
     async def read(self, n: Optional[int] = None) -> bytes:
         """

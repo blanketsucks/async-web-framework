@@ -246,8 +246,8 @@ class WebSocketFrame:
             frame.close_code = frame._get_close_code()
 
         if frame.is_control():
-            if frame.fin:
-                raise FragmentedControlFrame
+            # if frame.fin:
+            #     raise FragmentedControlFrame
 
             if len(frame.data) > 125:
                 raise InvalidWebSocketControlFrame(

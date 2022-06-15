@@ -40,7 +40,6 @@ class Worker(TCPServer):
     id: :class:`int`
         The id of the worker.
     """
-
     def __init__(self, app: Application, id: int):
         self.app: Application = app
         self.id: int = id
@@ -72,7 +71,7 @@ class Worker(TCPServer):
         """
         await self._ready.wait()
 
-    async def serve(self, *args: Any, **kwargs: Any) -> None: 
+    async def serve(self) -> None: 
         await super().serve(sock=self.app.socket)
 
         self._ready.set()
@@ -117,8 +116,7 @@ class Worker(TCPServer):
         websocket = None
 
         if request.is_websocket():
-            websocket = websockets.create_websocket(writer, reader, client_side=False)
-            await request.handshake()
+            websocket = await request.handshake()
 
         await self.app._request_handler(request=request, websocket=websocket)
         

@@ -26,7 +26,7 @@ __all__ = (
     'Router',
 )
 
-ROUTE_CACHE_MAXSIZE = 2048 * 1024
+ROUTE_CACHE_MAXSIZE = 2048
 
 class ResolvedRoute(NamedTuple):
     route: Route
@@ -35,6 +35,10 @@ class ResolvedRoute(NamedTuple):
     @classmethod
     def from_route(cls, route: Route):
         return cls(route=route, params={})
+
+    @property
+    def method(self) -> str:
+        return self.route.method
 
 class Router:
     """
@@ -54,7 +58,7 @@ class Router:
     middlewares: 
         A list of middleware callbacks.
     """
-    PARAM_REGEX = re.compile(r"{(?P<param>\w+)}")
+    PARAM_REGEX = re.compile(r"{(?P<parameter>\w+)}")
 
     def __init__(self, url_prefix: Optional[str] = None) -> None:
         """
@@ -77,7 +81,7 @@ class Router:
         other: :class:`~subway.Router`
             The router to merge with.
         """
-        routes = [self.add_route(route) for route in other]
+        [self.add_route(route) for route in other]
 
         self.request_middlewares.extend(other.request_middlewares)
         self.response_middlewares.extend(other.response_middlewares)
@@ -140,7 +144,7 @@ class Router:
         if not resolved:
             raise NotFound(f'Route {path!r} was not found.')
 
-        if resolved.route.method != method:
+        if resolved.method != method:
             raise MethodNotAllowed(f'Method {method!r} is not allowed for route {path!r}.')
 
         return resolved
@@ -176,13 +180,11 @@ class Router:
             return path
 
         regex = r""
-        last_pos = 0
+        position = 0
 
         for match in self.PARAM_REGEX.finditer(path):
-            regex += path[last_pos:match.start()]
-            regex += r"(?P<%s>.+)" % match.group("param")
-
-            last_pos = match.end()
+            regex += path[position:match.start()] + r"(?P<%s>.+)" % match.group("parameter")
+            position = match.end()
 
         return regex
 

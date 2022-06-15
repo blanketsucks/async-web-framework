@@ -27,10 +27,10 @@ class Field(Generic[T]):
         self, 
         *,
         default: Any = DEFAULT, 
-        default_factory: Type[Any] = None,
+        default_factory: Type[Any] = DEFAULT,
         strict: bool = False,
         name: Optional[str] = None, 
-        validator: Optional[Callable[['Model', T, Field[T]], Any]] = None
+        validator: Optional[Callable[[Model, T, Field[T]], Any]] = None
     ) -> None:
         self.name = name
         self.default = default
@@ -122,12 +122,12 @@ class Field(Generic[T]):
 def field(
     *,
     default: Any = DEFAULT, 
-    default_factory: Type[Any] = None,
+    default_factory: Type[Any] = DEFAULT,
     strict: bool = False,
     name: Optional[str] = None, 
     validator: Optional[Callable[[Model, Any, Field[Any]], Any]] = None
 ) -> Any:
-    if default is not DEFAULT and default_factory is not None:
+    if default is not DEFAULT and default_factory is not DEFAULT:
         raise ValueError('Cannot specify both default and default_factory')
 
     return Field(default=default, default_factory=default_factory, strict=strict, name=name, validator=validator)

@@ -9,7 +9,6 @@ from .router import *
 from .settings import *
 from .views import *
 from .url import *
-from .multidict import *
 from .headers import *
 from .files import *
 from .formdata import *

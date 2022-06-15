@@ -5,12 +5,14 @@ from .models import Model
 
 class RailwayException(Exception):
     """Base inheritance class for errors that occur during the Application's runtime."""
-    pass
 
 class RouteNotFound(RailwayException):
     """Raised when a route is not found."""
     def __init__(self, path: str) -> None:
         super().__init__(f'Route {path!r} not found')
+    
+class RequestMiddlewareFailed(RailwayException):
+    """Raised when a request middleware fails."""
 
 class FailedConversion(RailwayException):
     def __init__(self, argument: Any, parameter: Parameter):
@@ -35,7 +37,6 @@ class BadModelConversion(FailedConversion):
     def __str__(self) -> str:
         names = ', '.join([f'{model.__name__!r}' for model in self.expected])
         return f'Could not convert {self.parameter.name!r} to any of the following models {names}'
-
 
 class RegistrationError(RailwayException):
     pass

@@ -1,20 +1,19 @@
 from __future__ import annotations
 from enum import Enum
 
-from typing import TYPE_CHECKING, Callable, Generic, List, Any, Literal, Optional, Dict, Union, NoReturn, TypeVar, overload
+from typing import TYPE_CHECKING, Callable, List, Any, Literal, Optional, Dict, TypeVar, overload
 import inspect
 import re
 
 from .types import CoroFunc, Coro, ResponseMiddleware, RequestMiddleware
 from .responses import HTTPException
-from .response import Response
 from .request import Request
 from .errors import RegistrationError
 from . import utils
 
 if TYPE_CHECKING:
+    from .app import Application
     from .router import Router
-    from .resources import Resource
 
 class MiddlewareType(str, Enum):
     request = 'request'
@@ -121,17 +120,17 @@ class Route(Object):
         callback: CoroFunc,
         *, 
         name: Optional[str] = None,
-        router: Optional['Router']
+        router: Optional[Router]
     ) -> None:
         if hasattr(callback, '__cache_control__'):
             self.__cache_control__ = callback.__cache_control__
 
         self._router = router
 
-        self.path: str = path
-        self.method: str = method
+        self.path = path
+        self.method = method
         self.name = name or callback.__name__.replace('_', ' ').title()
-        self.raw_path: str = path
+        self.raw_path = path
         self._error_handler = None
         self._status_code_handlers: Dict[int, Callable[..., Coro[Any]]] = {}
         self._request_middlewares: List[Middleware] = []
@@ -141,11 +140,7 @@ class Route(Object):
         self.__doc__ = inspect.getdoc(callback)
         super().__init__(callback)
 
-    async def dispatch(
-        self, 
-        request: Request, 
-        exc: Exception
-    ) -> bool:
+    async def _dispatch_error(self, request: Request[Application], exc: Exception) -> bool:
         if isinstance(exc, HTTPException):
             callback = self._status_code_handlers.get(exc.status)
             if callback:
@@ -701,7 +696,7 @@ def middleware(type: MiddlewareType) -> Callable[[CoroFunc[Any]], Middleware]:
         return middleware
     return decorator
 
-def listener(event: str = None) -> Callable[[CoroFunc], Listener]:
+def listener(event: Optional[str] = None) -> Callable[[CoroFunc], Listener]:
     """
     A decorator that returns a :class:`~subway.objects.Listener` object.
 

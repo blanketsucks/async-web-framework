@@ -4,7 +4,7 @@ import json
 __all__ = (
     'create_function',
     'is_json_serializable',
-    'safe_getattr',
+    'model_getattr',
 )
 
 def create_function(name: str, body: str) -> Callable[..., Any]:
@@ -22,7 +22,7 @@ def is_json_serializable(obj: Any) -> bool:
     except (TypeError, ValueError):
         return False
 
-def safe_getattr(obj: Any, name: str) -> Any:
+def model_getattr(obj: Any, name: str) -> Any:
     from .models import Model
 
     attr = getattr(obj, name, None)
@@ -45,4 +45,4 @@ class Default:
     def __bool__(self) -> bool:
         return False
 
-DEFAULT = Default()
+DEFAULT: Any = Default()

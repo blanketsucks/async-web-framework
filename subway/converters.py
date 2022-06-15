@@ -11,15 +11,24 @@ if TYPE_CHECKING:
 T = TypeVar('T')
 
 __all__ = (
-    'AbstractConverter',
+    'AbstractParameterConverter',
+    'AbstractBodyConverter',
 )
 
-class AbstractConverter(ABC, Generic[T]):
+class AbstractParameterConverter(ABC, Generic[T]):
     if TYPE_CHECKING:
         def __getattr__(self, name: str) -> Any: ...
 
     @abstractmethod
     async def convert(self, request: Request[Application], argument: str) -> T:
+        raise NotImplementedError
+
+class AbstractBodyConverter(ABC, Generic[T]):
+    if TYPE_CHECKING:
+        def __getattr__(self, name: str) -> Any: ...
+
+    @abstractmethod
+    async def convert(self, request: Request[Application], body: bytes) -> T:
         raise NotImplementedError
 
 

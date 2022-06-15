@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 from .http import HTTPSession
 from .app import Application
@@ -37,7 +37,7 @@ class TestClient:
         await self.session.close()
 
     @property
-    def host(self) -> str:
+    def host(self) -> Optional[str]:
         return self.app.host
 
     @property

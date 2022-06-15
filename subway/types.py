@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from .cookies import Cookie
     from .response import HTTPStatus
     from .objects import PartialRoute, Route
-    from .responses import HTTPException
+    from .responses import HTTPException, Response
 
 T = TypeVar('T')
 
@@ -36,10 +36,6 @@ BytesLike = Union[bytes, bytearray, memoryview]
 StrPath = Union[str, PathLike[str]]
 BytesPath = Union[bytes, PathLike[bytes]]
 OpenFile = Union[StrPath, BytesPath, int]
-
-class Response(Protocol):
-    async def prepare(self) -> bytes:
-        ...
 
 class Address(NamedTuple):
     host: str
@@ -73,14 +69,16 @@ StrURL = Union[str, 'URL']
 ResponseBody = Union[str, bytes]
 JSONResponseBody = Union[Dict[str, Any], List[Any]]
 AnyBody = Union[ResponseBody, JSONResponseBody]
-_RouteResponse = Union[AnyBody, Response, 'URL', Any, AsyncIterator['ResponseBody']]
-RouteResponse = Union[_RouteResponse, Tuple[_RouteResponse, int]]
+_RouteResponse = Union[AnyBody, 'Response', 'URL', AsyncIterator[ResponseBody]]
+RouteResponse = Union[_RouteResponse, Tuple[_RouteResponse, int], Any]
 RouteCallback = CoroFunc[RouteResponse]
 ResponseHeaders = Dict[str, str]
 ResponseStatus = Union[int, 'HTTPStatus']
 Cookies = Dict[str, 'Cookie']
 
-CookieSessionCallback = Callable[['Request[Application]', Response], Union[str, bytes, bool, 'Cookie']]
+ResponseHandler = Callable[['Application', T], MaybeCoro['Response']]
+
+CookieSessionCallback = Callable[['Request[Application]', 'Response'], Union[str, bytes, bool, 'Cookie']]
 StatusCodeCallback = Callable[['Request[Application]', 'HTTPException', Union['Route', 'PartialRoute']], Coro[Any]]
-ResponseMiddleware = Callable[['Request[Application]', Response, 'Route'], Coro[Any]]
+ResponseMiddleware = Callable[['Request[Application]', 'Response', 'Route'], Coro[Any]]
 RequestMiddleware = Callable[['Request[Application]', 'Route'], Coro[Any]]

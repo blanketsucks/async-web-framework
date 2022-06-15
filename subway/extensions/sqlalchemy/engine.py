@@ -2,23 +2,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, Tuple, Type, TypeVar, Union, Optional, List
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncConnection, AsyncEngine
-from sqlalchemy.engine.interfaces import Dialect as _Dialect
+from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.ext.asyncio.engine import AsyncTransaction
-from sqlalchemy.engine.url import make_url, URL as _URL
+from sqlalchemy.engine.url import make_url, URL
 from sqlalchemy.sql import ClauseElement, text
 import importlib
 import sys
 
 from .errors import InvalidDatabase, InvalidDialect, NoDriverFound
 from .results import CursorResult, Row
-
-class Dialect(_Dialect):
-    is_async: bool
-
-class URL(_URL):
-    if TYPE_CHECKING:
-        def get_dialect(self) -> Dialect: ...
-        def set(self, **kwargs: Any) -> URL: ...
 
 __all__ = (
     'Engine',
@@ -274,7 +266,7 @@ class Connection:
         """
         await self.wrapped.rollback()
 
-    def __await__(self) -> Generator[Any, None, Connection]:
+    def __await__(self) -> Generator[None, None, Connection]:
         return self.start().__await__()
 
     async def __aenter__(self) -> Connection:
@@ -342,18 +334,18 @@ class Engine:
         u = u.set(drivername=drivername)
 
         dialect = u.get_dialect()
-        if not dialect.is_async:
+        if not dialect.is_async: # type: ignore
             raise InvalidDialect(dialect.name)
 
         engine = create_async_engine(u, *args, **kwargs)
         return cls(engine, u)
 
     @property
-    def database(self) -> str:
+    def database(self) -> Optional[str]:
         return self.url.database
 
     @property
-    def dialect(self) -> Dialect:
+    def dialect(self) -> Type[Dialect]:
         return self.url.get_dialect()
 
     @property
@@ -461,48 +453,11 @@ def create_engine(url: str, *args: Any, **kwargs: Any) -> Engine:
 def create_connection(url: str, *args: Any, **kwargs: Any) -> Connection:
     """
     Creates an async sqlalchemy connection and returns it.
-    Can be used as a context manager and if you don't want to use it,
-    you can just await the returned result from this function.
-
-    This offers a nice way to use along the :meth:`~subway.Application.lifespan` functions ::
-
-        @app.lifespan
-        async def start_database_connection():
-            url = 'sqlite+aiosqlite:///:memory:'
-
-            async with create_connection(url) as app.connection:
-                yield
-
-            # The connection is automatically closed when the lifespan function returns/application is closed.
-
-    The above example is roughly equivalent to the following code ::
-
-        @app.lifespan
-        async def start_database_connection():
-            url = 'sqlite+aiosqlite:///:memory:'
-
-            app.connection = await create_connection(url)
-
-            yield
-
-            await app.connection.close()
-
-    or, if you don't want to use the lifespan method ::
-
-        @app.event('on_shutdown')
-        async def close_database_connection():
-            await app.connection.close()
-
-        async def start_database_connection():
-            url = 'sqlite+aiosqlite:///:memory:'
-            return await create_connection(url)
-
-        app.connection = app.loop.run_until_complete(start_database_connection())
 
     Note
     -----
-    This function is not recommended to use. It is better to use the
-    :func:`~.create_engine` function and save the returned engine.
+    This function is not recommended for use. It is better to use
+    :func:`~.create_engine` and save the returned engine somewhere.
 
     Parameters
     -----------

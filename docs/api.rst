@@ -1,46 +1,7 @@
 .. currentmodule:: subway
 
-.. |br| raw:: html
-
-   <br />
-
 API Reference
 ===============
-
-Data Structures
---------------------
-
-ImmutableMapping
-~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: ImmutableDict
-    :members:
-
-CaseInsensitiveDict
-~~~~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: CaseInsensitiveDict
-    :members:
-
-
-MultiDict
-~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: MultiDict
-    :members:
-    :show-inheritance:
-
-ImmutableMultiDict
-~~~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: ImmutableMultiDict
-    :members:
-
-CaseInsensitiveMultidict
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: CaseInsensitiveMultiDict
-    :members:
 
 URL
 ~~~~~~~~~~~~~~~~~~

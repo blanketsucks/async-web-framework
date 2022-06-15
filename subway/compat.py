@@ -16,26 +16,20 @@ try:
 except ImportError:
     pass
 
-
 def new_event_loop():
     return asyncio.new_event_loop()
-
 
 def set_event_loop(loop: Any):
     asyncio.set_event_loop(loop)
 
-
 def get_running_loop():
     return asyncio.get_running_loop()
-
 
 def get_event_loop():
     return asyncio.get_event_loop()
 
-
 def get_event_loop_policy():
     return asyncio.get_event_loop_policy()
-
 
 async def run_in_thread(func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
     loop = get_running_loop()

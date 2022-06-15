@@ -7,7 +7,6 @@ import mimetypes
 from .cookies import Cookie, CookieJar
 from .files import File
 from .headers import Headers
-from .multidict import MultiDict
 from .types import AnyBody, JSONResponseBody, ResponseBody, ResponseHeaders, ResponseStatus
 from .utils import CLRF, dumps
 
@@ -214,12 +213,8 @@ class Response:
             The name of the cookie.
         value: :class:`str`
             The value of the cookie.
-        domain: Optional[:class:`str`]
-            The domain of the cookie.
-        http_only: :class:`bool` 
-            If the cookie should be set as HTTP only. Defaults to ``False``.
-        is_secure: :class:`bool`
-            If the cookie should be set as secure. Defaults to ``False``.
+        **kwargs: Any
+            Extra keywords arguments.
         """
         return self.cookies.add_cookie(name, value, **kwargs)
 
@@ -323,8 +318,6 @@ class JSONResponse(Response):
         )
 
     def default_json_dump(self, obj: Any) -> Any:
-        if isinstance(obj, MultiDict):
-            return obj._dict
         return obj.__dict__
 
 class FileResponse(Response):

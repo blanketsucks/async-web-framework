@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, AsyncIterator, Generic, Iterable, NoReturn, TypeVar, Union, Any, Optional, Type
 from abc import ABC, abstractmethod
+from urllib.parse import parse_qsl
+from multidict import MultiDict
 import datetime
 import base64
 import hashlib
 import asyncio
-from urllib.parse import parse_qsl
-
-from subway.multidict import ImmutableMultiDict
 
 from .errors import PartialRead
 from .url import URL
@@ -19,9 +18,10 @@ from .sessions import CookieSession, AbstractRequestSession
 from .responses import HTTPException, Redirection, SwitchingProtocols, redirects, responses
 from .response import StreamResponse
 from .formdata import FormData
-from .streams import StreamReader, StreamWriter
+from .streams import StreamReader, StreamWriter, get_address
+from .websockets import WebSocket
 from .types import ResponseBody, ResponseStatus, RouteResponse, StrURL, Address
-from .utils import to_url, GUID, CLRF, parse_headers, loads
+from .utils import to_url, GUID, CLRF, parse_headers, loads, cached_slot_property
 
 if TYPE_CHECKING:
     from .objects import Route, WebSocketRoute
@@ -160,6 +160,24 @@ class Request(Generic[AppT], HTTPConnection):
     worker: 
         The worker that the request was sent to.
     """
+    __slots__ = (
+        '_cs_client',
+        '_cs_server',
+        '_encoding', 
+        '_app', 
+        '_reader', 
+        '_writer', 
+        '_url', 
+        '_body', 
+        '_closed'
+        'version', 
+        'method', 
+        'worker', 
+        'headers', 
+        'route', 
+        'created_at'
+    )
+
     def __init__(
         self,
         method: str,
@@ -171,141 +189,21 @@ class Request(Generic[AppT], HTTPConnection):
         writer: StreamWriter,
         worker: Worker,
         created_at: datetime.datetime
-    ):
+    ) -> None:
         self._encoding = "utf-8"
         self._app = app
         self._reader = reader
         self._writer = writer
         self._url = url
         self._body = b''
+        self._closed = False
+
         self.version = version
         self.method = method
         self.worker = worker
         self.headers = headers
         self.route: Optional[Union[Route, WebSocketRoute]] = None
         self.created_at: datetime.datetime = created_at
-
-        self._closed = False
-
-    async def send(
-        self,
-        response: RouteResponse,
-        *,
-        convert: bool = True,
-    ) -> None:
-        """
-        Sends a response to the client.
-
-        Parameters
-        ----------
-        response: 
-            The response to send.
-
-        Raises
-        ------
-        ValueError: If the response is not parsable.
-        """
-        if convert:
-            response = await self.app.parse_response(response)
-        else:
-            if not isinstance(response, Response):
-                raise ValueError('When convert is passed in as False, response must be a Response object')
-
-        data = await response.prepare()
-        await self.writer.write(data, drain=True)
-
-        if isinstance(response, StreamResponse):
-            async for chunk in response:
-                await self.writer.write(chunk, drain=True)
-
-        # self.writer.write_eof()
-
-    async def close(self):
-        """
-        Closes the connection.
-        """
-        if not self.is_closed():
-            self.writer.close()
-            await self.writer.wait_closed()
-
-    async def handshake(
-        self, 
-        *, 
-        extensions: Optional[Iterable[str]] = None, 
-        subprotocols: Optional[Iterable[str]] = None
-    ) -> None:
-        """
-        Performs a websocket handshake.
-
-        Parameters
-        ----------
-        extensions: Optional[Iterable[str]]
-            The extensions to use.
-        subprotocols: Optional[Iterable[str]]
-            The subprotocols to use.
-        """
-        key = self.parse_websocket_key()
-        response = SwitchingProtocols()
-
-        response.add_header(key='Upgrade', value='websocket')
-        response.add_header(key='Connection', value='Upgrade')
-        response.add_header(key='Sec-WebSocket-Accept', value=key)
-
-        if extensions is not None:
-            response.add_header(key='Sec-WebSocket-Extensions', value=', '.join(extensions))
-        
-        if subprotocols is not None:
-            response.add_header(key='Sec-WebSocket-Protocol', value=', '.join(subprotocols))
-
-        data = await response.prepare()
-        await self.writer.write(data, drain=True)
-
-    def is_closed(self) -> bool:
-        """
-        True if the connection is closed.
-        """
-        return self._closed
-
-    def is_websocket(self) -> bool:
-        """
-        True if the request is a websocket request.
-        """
-        if self.method != 'GET':
-            return False
-
-        if self.version != 'HTTP/1.1':
-            return False
-
-        required = (
-            'Host',
-            'Upgrade',
-            'Connection',
-            'Sec-WebSocket-Version',
-            'Sec-WebSocket-Key',
-        )
-
-        if not all([header in self.headers for header in required]):
-            return False
-
-        for header in required:
-            value = self.headers[header]
-
-            if header == 'Upgrade':
-                if value.lower() != 'websocket':
-                    return False
-            elif header == 'Sec-WebSocket-Version':
-                if value != '13':
-                    return False
-            elif header == 'Sec-WebSocket-Key':
-                key = base64.b64decode(value)
-
-                if not len(key) == 16:
-                    return False
-
-        return True
-
-    def get_reader(self) -> StreamReader:
-        return self._reader
 
     @property
     def encoding(self) -> str:
@@ -357,7 +255,7 @@ class Request(Generic[AppT], HTTPConnection):
         """
         return self.headers.cookies
 
-    @property
+    @cached_slot_property('_cs_client')
     def client(self) -> Address:
         """
         The address of the client.
@@ -368,20 +266,13 @@ class Request(Generic[AppT], HTTPConnection):
             A named tuple with the host and port of the client. If the server is running on IPv6,
             the flowinfo and scope_id will be included.
         """
-        peername = self.writer.get_extra_info('peername')
-
-        if len(peername) == 4:
-            host, port, flowinfo, scope_id = peername
-        else:
-            host, port = peername
-            flowinfo, scope_id = None, None
-
+        address = get_address(self.writer, 'peername')
         if 'X-Forwarded-For' in self.headers:
-            host = self.headers['X-Forwarded-For']
+            address = address._replace(host=self.headers['X-Forwarded-For'])
 
-        return Address(host, port, flowinfo, scope_id)
+        return address
 
-    @property
+    @cached_slot_property('_cs_server')
     def server(self) -> Address:
         """
         The address of the server.
@@ -392,15 +283,10 @@ class Request(Generic[AppT], HTTPConnection):
             A named tuple with the host and port of the server. If the server is running on IPv6,
             the flowinfo and scope_id will be included.
         """
-        sockname = self.writer.get_extra_info('sockname')
+        return get_address(self.writer, 'sockname')
 
-        if len(sockname) == 4:
-            host, port, flowinfo, scope_id = sockname
-        else:
-            host, port = sockname
-            flowinfo, scope_id = None, None
-
-        return Address(host, port, flowinfo, scope_id)
+    def get_reader(self) -> StreamReader:
+        return self._reader
 
     def get_default_session_cookie(self) -> Optional[Cookie]:
         """
@@ -408,6 +294,50 @@ class Request(Generic[AppT], HTTPConnection):
         """
         cookie_session_name = self.app.settings['session_cookie_name']
         return self.cookies.get(cookie_session_name)
+
+    def is_closed(self) -> bool:
+        """
+        True if the connection is closed.
+        """
+        return self._closed
+
+    def is_websocket(self) -> bool:
+        """
+        True if the request is a websocket request.
+        """
+        if self.method != 'GET':
+            return False
+
+        if self.version != 'HTTP/1.1':
+            return False
+
+        required = (
+            'Host',
+            'Upgrade',
+            'Connection',
+            'Sec-WebSocket-Version',
+            'Sec-WebSocket-Key',
+        )
+
+        if not all([header in self.headers for header in required]):
+            return False
+
+        for header in required:
+            value = self.headers[header]
+
+            if header == 'Upgrade':
+                if value.lower() != 'websocket':
+                    return False
+            elif header == 'Sec-WebSocket-Version':
+                if value != '13':
+                    return False
+            elif header == 'Sec-WebSocket-Key':
+                key = base64.b64decode(value)
+
+                if not len(key) == 16:
+                    return False
+
+        return True
 
     def parse_websocket_key(self) -> str:
         """
@@ -423,12 +353,87 @@ class Request(Generic[AppT], HTTPConnection):
         sha1 = hashlib.sha1((key + GUID).encode()).digest()
         return base64.b64encode(sha1).decode()
 
+    async def send(
+        self,
+        response: RouteResponse,
+        *,
+        convert: bool = True,
+    ) -> None:
+        """
+        Sends a response to the client.
+
+        Parameters
+        ----------
+        response: 
+            The response to send.
+
+        Raises
+        ------
+        ValueError: If the response is not parsable.
+        """
+        if convert:
+            response = await self.app.parse_response(response)
+        else:
+            if not isinstance(response, Response):
+                raise ValueError('When convert is passed in as False, response must be a Response object')
+
+        data = await response.prepare()
+        await self.writer.write(data, drain=True)
+
+        if isinstance(response, StreamResponse):
+            async for chunk in response:
+                await self.writer.write(chunk, drain=True)
+
+        self.writer.write_eof()
+
+    async def close(self):
+        """
+        Closes the connection.
+        """
+        if not self.is_closed():
+            self.writer.close()
+            await self.writer.wait_closed()
+
+    async def handshake(
+        self, 
+        *, 
+        extensions: Optional[Iterable[str]] = None, 
+        subprotocols: Optional[Iterable[str]] = None
+    ) -> WebSocket:
+        """
+        Performs a websocket handshake.
+
+        Parameters
+        ----------
+        extensions: Optional[Iterable[str]]
+            The extensions to use.
+        subprotocols: Optional[Iterable[str]]
+            The subprotocols to use.
+        """
+        key = self.parse_websocket_key()
+        response = SwitchingProtocols()
+
+        response.add_header(key='Upgrade', value='websocket')
+        response.add_header(key='Connection', value='Upgrade')
+        response.add_header(key='Sec-WebSocket-Accept', value=key)
+
+        if extensions is not None:
+            response.add_header(key='Sec-WebSocket-Extensions', value=', '.join(extensions))
+        
+        if subprotocols is not None:
+            response.add_header(key='Sec-WebSocket-Protocol', value=', '.join(subprotocols))
+
+        data = await response.prepare()
+        await self.writer.write(data, drain=True)
+
+        return WebSocket(self._writer, self.get_reader())
+
     async def form(
         self, 
         *, 
         check_content_type: bool = True, 
         timeout: Optional[float] = None
-    ) -> Union[FormData, ImmutableMultiDict[str, str]]:
+    ) -> Union[FormData, MultiDict[str]]:
         """
         The form data of the request.
 
@@ -457,7 +462,7 @@ class Request(Generic[AppT], HTTPConnection):
 
         body = await self.read(timeout=timeout)
         if urlencoded:
-            form = ImmutableMultiDict(parse_qsl(body.decode()))
+            form = MultiDict(parse_qsl(body.decode()))
         else:
             form = FormData().from_bytes(body, self.headers)
 
@@ -465,19 +470,19 @@ class Request(Generic[AppT], HTTPConnection):
 
     async def session(self, *, cls: Type[SessionT] = CookieSession) -> SessionT:
         """
-        The session of the request.
+        Creates a session for the current request.
 
         Parameters
         ----------
-        cls: Type[SessionT]
-            The class of the session.
+        cls: :class:`~.AbstractRequestSession:
+            The session class.
 
         Returns
         -------
-        SessionT
-            The session.
+        :class:`~.AbstractRequestSession:
+            The session created.
         """
-        return await cls.from_request(self)
+        return await cls.from_request(self) # type: ignore
 
     async def redirect(
         self,

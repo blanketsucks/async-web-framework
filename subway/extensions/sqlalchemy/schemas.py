@@ -7,8 +7,6 @@ import sqlalchemy
 from sqlalchemy import sql
 
 from subway.models import Model
-from subway.app import Application
-from subway.response import JSONResponse
 from .results import CursorResult, Row, TypedCursorResult
 from .engine import Connection
 from .sqltypes import Column
@@ -19,7 +17,8 @@ __all__ = (
     'MetaData',
     'SchemaMeta',
     'Schema',
-    'create_schema'
+    'create_schema',
+    'column'
 )
 
 class ConnectionContext(Generic[SchemaT]):
@@ -104,11 +103,11 @@ class MetaData:
             self.set_bind(bind)
 
         for schema in self.schemas:
-            await schema.query.create_schema()
+            await schema.query.create()
 
     async def drop_all(self) -> None:
         for schema in self.schemas:
-            await schema.query.drop_schema()
+            await schema.query.drop()
 
 class SchemaQuery(Generic[SchemaT]):
     def __init__(self, schema: Type[SchemaT], *, bind: Optional[Bind]=None) -> None:
@@ -128,41 +127,91 @@ class SchemaQuery(Generic[SchemaT]):
         async with self.context() as context:
             return await context.execute(*args, **kwargs)
 
-    async def create_schema(self) -> None:
+    async def create(self) -> None:
+        """
+        Creates the table for this schema. This function automatically creates the table if it does not exist.
+        """
         async with self.context() as context:
             await context.run(self.schema.table.create, checkfirst=True)
 
-    async def drop_schema(self) -> None:
+    async def drop(self) -> None:
+        """
+        Drops the table for this schema. This function automatically drops the table if it exists.
+        """
         async with self.context() as context:
             await context.run(self.schema.table.drop, checkfirst=True)
 
     async def all(self) -> List[SchemaT]:
-        select = self.schema.table.select()
-
-        cursor = await self.execute(select)
+        """
+        Returns all entities in the table.
+        """
+        cursor = await self.execute(self.select())
         return await cursor.fetchall()
 
     async def first(self) -> Optional[SchemaT]:
-        select = self.schema.table.select().limit(1)
-
-        cursor = await self.execute(select)
+        """
+        Returns the first entity in the table. If no entities exist, returns None.
+        """
+        cursor = await self.execute(self.select().limit(1))
         return await cursor.first()
 
     async def get(self, *conditions: Any) -> Optional[SchemaT]:
-        select = self.schema.table.select().where(*conditions)
+        """
+        Returns a single entity from the table based on conditions. If no entities exist, returns None.
+        
+        Parameters
+        ----------
+        *conditions: Any
+            Conditions to filter the entity by.
 
-        cursor = await self.execute(select)
+        Returns
+        -------
+        Optional[:class:`~.Schema`]
+            The entity that matches the conditions.
+
+        Example
+        -------
+
+        .. code-block:: python3
+
+            from subway.extensions import sqlalchemy
+            import asyncio
+
+            class Person(sqlalchemy.Schema):
+                name: str = sqlalchemy.column(sqlalchemy.String)
+                age: int = sqlalchemy.column(sqlalchemy.Integer)
+
+            async def main():
+                async with sqlalchemy.create_engine('sqlite:///:memory:') as engine:
+                    metadata = sqlalchemy.MetaData(bind=engine)
+
+                    metadata.add_schema(Person)
+                    await metadata.create_all()
+
+                    await Person.create(name='John', age=20)
+                    person = await Person.query.get(Person.name == 'John')
+
+                    print(person)
+
+            asyncio.run(main())
+
+        """
+        cursor = await self.execute(self.select().where(*conditions))
         return await cursor.fetchone()
 
     async def getall(self, *conditions: Any) -> List[SchemaT]:
-        select = self.schema.table.select()
-        select.where(*conditions)
+        """
+        Same as :meth:`~.SchemaQuery.get` but returns a list of entities that match the given conditions.
 
-        async with self.context() as context:
-            cursor = await context.execute(select)
-            return await cursor.fetchall()
+        Parameters
+        ----------
+        *conditions: Any
+            The conditions to filter the entities by.
+        """
+        cursor = await self.execute(self.select().where(*conditions))
+        return await cursor.fetchall()
 
-    async def put(self, entity: Entity[SchemaT]) -> Optional[Dict[str, Any]]:
+    async def put(self, entity: Entity[SchemaT]) -> Optional[SchemaT]:
         insert = self.schema.table.insert()
 
         values: Union[Mapping[str, Any], Sequence[Any]]
@@ -176,28 +225,19 @@ class SchemaQuery(Generic[SchemaT]):
         insert = insert.values(values)
         await self.execute(insert)
 
-        primary_key = self.schema.get_primary_key()
-        if primary_key is not None:
-            select = self.schema.table.select().order_by(primary_key.desc()).limit(1)
+        key = self.schema.get_primary_key()
+        if key is not None:
+            select = self.select().order_by(key.desc()).limit(1) # type: ignore
 
-            async with self.context() as context:
-                cursor = await context.raw_execute(select)
-                row = await cursor.fetchone()
-
-                assert row is not None
-                return row.as_dict()
+            cursor = await self.execute(select)
+            return await cursor.fetchone()
 
         return None
         
     async def putall(self, *entities: Entity[SchemaT]) -> List[SchemaT]:
-        objects = []
-
-        for entity in entities:
-            obj = await self.put(entity)
-            objects.append(obj)
-
-        if any(objects):
-            return objects
+        objects = [(await self.put(entity)) for entity in entities]
+        if all(objects):
+            return objects # type: ignore
 
         return []
 
@@ -206,20 +246,17 @@ class SchemaQuery(Generic[SchemaT]):
 
     async def update(self, *where: Any, **attrs: Any) -> None:
         update = self.schema.table.update().where(*where).values(**attrs)
-        async with self.context() as context:
-            await context.execute(update)
+        await self.execute(update)
 
     async def delete(self, *where: Any) -> None:
         delete = self.schema.table.delete().where(*where)
-        async with self.context() as context:
-            await context.execute(delete)
+        await self.execute(delete)
 
     async def exists(self, *where: Any) -> bool:
         select = self.schema.table.select().where(*where)
 
-        async with self.context() as context:
-            cursor = await context.execute(select)
-            return await cursor.fetchone() is not None
+        cursor = await self.execute(select)
+        return await cursor.fetchone() is not None
         
     def filter(self) -> SelectFilter[SchemaT]:
         return SelectFilter(self)
@@ -231,9 +268,6 @@ class SchemaQuery(Generic[SchemaT]):
         return self.filter().__aiter__() # type: ignore
 
 class SchemaMeta(type):
-    if TYPE_CHECKING:
-        def __getattr__(self, name: str) -> Column[Any]: ...
-    
     __all_schemas__: Dict[str, Type[Schema]] = {}
     __columns__: List[sqlalchemy.Column]
     __metadata__: sqlalchemy.MetaData
@@ -249,7 +283,7 @@ class SchemaMeta(type):
 
         for attr, value in attrs.items():
             if isinstance(value, sqlalchemy.Column):
-                value.name = attr
+                value.name = attr # type: ignore
                 if value.primary_key:
                     if pk_found:
                         raise ValueError('Only one primary key is allowed')
@@ -289,12 +323,14 @@ class SchemaMeta(type):
     def metadata(self) -> sqlalchemy.MetaData:
         return self.__metadata__
 
-    def get_primary_key(self) -> Optional[Column[Any]]:
-        primary_key = None
-        if self.table.primary_key.columns:
-            primary_key = self.table.primary_key.columns.values()[0]
+    def has_primary_key(self) -> bool:
+        return bool(self.table.primary_key.columns)
 
-        return primary_key
+    def get_primary_key(self) -> Optional[Column[Any]]:
+        if self.has_primary_key():
+            return self.get_primary_keys()[0]
+
+        return None
 
     def get_primary_keys(self) -> List[Column[Any]]:
         return self.table.primary_key.columns.values()
@@ -345,7 +381,7 @@ class Schema(metaclass=SchemaMeta):
 
     def get_execute_conditions(self) -> Tuple[Any, ...]:
         cls = type(self)
-        if cls.get_primary_keys():
+        if cls.has_primary_key():
             return self.get_primary_key_conditions()
 
         return tuple(column == getattr(self, column.name) for column in cls.columns)
@@ -378,10 +414,10 @@ class Schema(metaclass=SchemaMeta):
 
     async def save(self) -> None:
         cls = type(self)
-        attrs = await cls.query.put(self)
+        schema = await cls.query.put(self)
 
-        if attrs is not None:
-            self.update_attributes(**attrs)
+        if schema is not None:
+            self.update_attributes(**schema.to_dict())
 
     async def delete(self) -> None:
         where = self.get_execute_conditions()
@@ -400,3 +436,6 @@ def create_schema(name: str, *columns: Column, metadata: Optional[MetaData]=None
 
     bases = (Schema,)
     return SchemaMeta(name, bases, namespace, **kwargs) # type: ignore
+
+def column(*args: Any, **kwargs: Any) -> Any:
+    return Column(*args, **kwargs)
